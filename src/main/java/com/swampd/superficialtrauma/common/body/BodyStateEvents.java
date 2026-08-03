@@ -46,7 +46,11 @@ public final class BodyStateEvents {
 
     @SubscribeEvent
     public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
-        BodyStateCapability.get(event.getEntity()).ifPresent(BodyState::pauseWoundProgression);
+        if (event.getEntity() instanceof ServerPlayer serverPlayer) {
+            BodyStateCapability.get(serverPlayer).ifPresent(bodyState ->
+                    bodyState.pauseBodyProgression(serverPlayer.serverLevel().getGameTime())
+            );
+        }
         ModNetworking.forgetPlayer(event.getEntity().getUUID());
     }
 
@@ -70,7 +74,7 @@ public final class BodyStateEvents {
 
         long gameTime = serverPlayer.serverLevel().getGameTime();
         BodyStateCapability.get(serverPlayer).ifPresent(bodyState -> {
-            WoundProgressionResult result = bodyState.advanceWoundHealing(gameTime);
+            BodyProgressionResult result = bodyState.advanceBodyProgression(gameTime);
             if (result.changed()) {
                 ModNetworking.syncBodyState(serverPlayer);
             }
@@ -86,7 +90,7 @@ public final class BodyStateEvents {
     private static void resumeProgressionIfServerPlayer(Player player) {
         if (player instanceof ServerPlayer serverPlayer) {
             BodyStateCapability.get(serverPlayer).ifPresent(bodyState ->
-                    bodyState.resumeWoundProgression(serverPlayer.serverLevel().getGameTime())
+                    bodyState.resumeBodyProgression(serverPlayer.serverLevel().getGameTime())
             );
         }
     }

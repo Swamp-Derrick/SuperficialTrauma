@@ -100,8 +100,22 @@ public final class HealthScreen extends Screen {
                 oneDecimal(currentHealth) + "/" + oneDecimal(maximumHealth), GOOD_COLOR);
         lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.life_state",
                 Component.translatable("life_state.superficialtrauma." + state.lifeState().serializedName()).getString(), TEXT_COLOR);
+        float effectivePain = state.pain();
+        String visiblePain = effectivePain > 20.0F
+                ? "20+/20"
+                : oneDecimal(effectivePain) + "/20";
         lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.pain",
-                oneDecimal(Math.min(state.pain(), 20.0F)) + "/20", state.pain() >= 20.0F ? DANGER_COLOR : TEXT_COLOR);
+                visiblePain, effectivePain >= 20.0F ? DANGER_COLOR : TEXT_COLOR);
+        long gameTime = minecraft != null && minecraft.level != null ? minecraft.level.getGameTime() : 0L;
+        long stressTicks = state.stressRemainingTicks(gameTime);
+        String stressValue = stressTicks > 0L
+                ? Component.translatable(
+                        "screen.superficialtrauma.health.stress_active",
+                        oneDecimal(stressTicks / 20.0F)
+                ).getString()
+                : Component.translatable("screen.superficialtrauma.health.stress_inactive").getString();
+        lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.stress",
+                stressValue, stressTicks > 0L ? WARN_COLOR : MUTED_COLOR);
         lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.infection",
                 oneDecimal(state.infection()), TEXT_COLOR);
         lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.drug",

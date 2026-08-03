@@ -6,7 +6,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
-import com.swampd.superficialtrauma.common.body.WoundProgressionResult;
+import com.swampd.superficialtrauma.common.body.BodyProgressionResult;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
 import com.swampd.superficialtrauma.common.damage.CgmAmmoTags;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
@@ -56,12 +56,17 @@ public final class DebugCommands {
 
     private static int showStatus(CommandContext<CommandSourceStack> context, ServerPlayer player) {
         AtomicInteger result = new AtomicInteger(0);
+        long gameTime = player.serverLevel().getGameTime();
         BodyStateCapability.get(player).ifPresent(bodyState -> {
             context.getSource().sendSuccess(() -> Component.literal(
                     player.getGameProfile().getName()
                             + " BodyState v" + bodyState.dataVersion()
                             + " revision=" + bodyState.revision()
                             + " wounds=" + bodyState.wounds().size()
+                            + " pain=" + bodyState.pain()
+                            + " basePain=" + bodyState.basePain()
+                            + " woundPain=" + bodyState.woundPainContribution()
+                            + " stress=" + bodyState.stressRemainingTicks(gameTime) + "t"
                             + " lastD=" + bodyState.lastFinalDamage()
                             + " type=" + bodyState.lastDamageType()
                             + " class=" + bodyState.lastDamageKind().serializedName()
@@ -116,8 +121,13 @@ public final class DebugCommands {
 
         BodyState progressionState = new BodyState();
         progressionState.applyDamage(WoundType.BLUNT, 1.5F, 300L);
-        progressionState.resumeWoundProgression(300L);
-        WoundProgressionResult progression = progressionState.advanceWoundHealing(320L);
+        progressionState.resumeBodyProgression(300L);
+        BodyProgressionResult progression = progressionState.advanceBodyProgression(320L);
+
+        BodyState painState = new BodyState();
+        painState.applyDamage(WoundType.SHARP, 5.0F, 0L);
+        painState.resumeBodyProgression(0L);
+        BodyProgressionResult painRecovery = painState.advanceBodyProgression(430L);
 
         boolean passed = pending.status() == WoundUpdateResult.Status.PENDING
                 && created.status() == WoundUpdateResult.Status.CREATED
@@ -137,7 +147,11 @@ public final class DebugCommands {
                 && progression.changed()
                 && progression.progressedWounds() == 1
                 && progression.healedWounds() == 0
-                && Math.abs(progressionState.wounds().get(0).healingProgress() - 99.0F) < 0.0001F;
+                && Math.abs(progressionState.wounds().get(0).healingProgress() - 99.0F) < 0.0001F
+                && Math.abs(progressionState.basePain() - 1.5F) < 0.0001F
+                && Math.abs(painRecovery.recoveredBasePain() - 1.0F) < 0.0001F
+                && Math.abs(painState.basePain() - 4.0F) < 0.0001F
+                && Math.abs(painState.pain() - 5.0F) < 0.0001F;
 
         if (passed) {
             context.getSource().sendSuccess(

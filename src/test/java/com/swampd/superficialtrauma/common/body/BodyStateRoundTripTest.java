@@ -20,6 +20,11 @@ public final class BodyStateRoundTripTest {
         verifyPendingDamageAccumulation();
         verifyIndependentDamageWindows();
         verifyWoundDefinitions();
+        verifyPainAccumulationAndTags();
+        verifyStressAndPainRecovery();
+        verifyPainTagFloorAndClamp();
+        verifyPainOfflinePauseAndNbt();
+        verifyTransientSharpPain();
         verifyNaturalHealingRates();
         verifyTimedWoundProgression();
         verifyPendingWindowExpiry();
@@ -28,6 +33,7 @@ public final class BodyStateRoundTripTest {
         verifyCgmDamageTraceRoundTrip();
         verifyVersionOneMigrationDefaults();
         verifyVersionTwoProgressionMigrationDefaults();
+        verifyVersionThreePainMigrationDefaults();
         verifyWoundLimitAndActiveWindowUpdate();
         System.out.println("Superficial Trauma BodyState self-test passed.");
     }
@@ -104,6 +110,108 @@ public final class BodyStateRoundTripTest {
         assertFloatEquals(10.0F, extensive.minimumHealingProgressWithoutSkinGraft(), "skin-graft floor must be recorded as H=10");
     }
 
+    private static void verifyPainAccumulationAndTags() {
+        BodyState state = new BodyState();
+        state.applyDamage(WoundType.BURN, 0.25F, 100L);
+        assertFloatEquals(0.25F, state.basePain(), "final damage D must add to base pain");
+        assertFloatEquals(2.0F, state.woundPainContribution(), "pain 2 must contribute two points");
+        assertFloatEquals(2.25F, state.pain(), "effective pain must combine base and wound-tag pain");
+        assertEquals(500L, state.stressEndGameTime(), "traumatic damage must start twenty seconds of stress");
+
+        state.applyDamage(WoundType.EXPLOSION, 4.0F, 200L);
+        assertFloatEquals(4.25F, state.basePain(), "later final damage must accumulate base pain");
+        assertFloatEquals(3.0F, state.woundPainContribution(), "pain tags from separate wounds must add together");
+        assertFloatEquals(7.25F, state.pain(), "effective pain must include all current wound tags");
+        assertEquals(600L, state.stressEndGameTime(), "later trauma must refresh stress to twenty seconds");
+    }
+
+    private static void verifyStressAndPainRecovery() {
+        BodyState state = new BodyState();
+        state.applyDamage(WoundType.SHARP, 5.0F, 0L);
+        state.resumeBodyProgression(0L);
+
+        state.advanceBodyProgression(429L);
+        assertFloatEquals(5.0F, state.basePain(), "base pain must not recover during stress or its first 1.5-second wait");
+
+        BodyProgressionResult firstRecovery = state.advanceBodyProgression(430L);
+        assertFloatEquals(1.0F, firstRecovery.recoveredBasePain(), "the first recovery step must remove one base-pain point");
+        assertFloatEquals(4.0F, state.basePain(), "base pain must decrease by one every 1.5 seconds");
+        assertFloatEquals(5.0F, state.pain(), "pain 1 must remain as a one-point wound contribution");
+
+        BodyProgressionResult delayedRecovery = state.advanceBodyProgression(490L);
+        assertFloatEquals(2.0F, delayedRecovery.recoveredBasePain(), "delayed processing must catch up complete recovery intervals");
+        assertFloatEquals(2.0F, state.basePain(), "two additional intervals must remove two points");
+    }
+
+    private static void verifyPainTagFloorAndClamp() {
+        BodyState floor = new BodyState();
+        floor.applyDamage(WoundType.SHARP, 15.0F, 0L);
+        floor.resumeBodyProgression(0L);
+        floor.advanceBodyProgression(850L);
+        assertFloatEquals(0.0F, floor.basePain(), "base pain must be able to recover to zero");
+        assertFloatEquals(4.0F, floor.woundPainContribution(), "pain 3 must contribute four points");
+        assertFloatEquals(4.0F, floor.pain(), "pain 3 must form an effective-pain floor of four");
+
+        BodyState capped = new BodyState();
+        capped.applyDamage(WoundType.SHARP, 40.0F, 0L);
+        assertFloatEquals(30.0F, capped.basePain(), "base pain must be capped at thirty");
+        assertFloatEquals(30.0F, capped.pain(), "effective pain must be capped at thirty after tags");
+    }
+
+    private static void verifyPainOfflinePauseAndNbt() {
+        BodyState original = new BodyState();
+        original.applyDamage(WoundType.BURN, 0.25F, 0L);
+        original.resumeBodyProgression(0L);
+        original.pauseBodyProgression(100L);
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(original.serializeNBT());
+        assertFloatEquals(0.25F, restored.basePain(), "NBT must preserve base pain");
+        assertEquals(400L, restored.stressEndGameTime(), "NBT must preserve the pre-pause stress deadline");
+        assertEquals(100L, restored.progressionPausedAtGameTime(), "NBT must preserve the pause timestamp");
+
+        restored.resumeBodyProgression(1_100L);
+        assertEquals(1_400L, restored.stressEndGameTime(), "offline time must shift the stress deadline forward");
+        assertEquals(1_430L, restored.nextPainRecoveryGameTime(), "offline time must shift pain recovery forward");
+        restored.advanceBodyProgression(1_429L);
+        assertFloatEquals(0.25F, restored.basePain(), "offline time must not grant pain recovery");
+        BodyProgressionResult recovery = restored.advanceBodyProgression(1_430L);
+        assertFloatEquals(0.25F, recovery.recoveredBasePain(), "fractional base pain must recover without becoming negative");
+        assertFloatEquals(2.0F, restored.pain(), "the remaining pain-2 wound tag must keep effective pain at two");
+    }
+
+    private static void verifyTransientSharpPain() {
+        BodyState temporary = new BodyState();
+        temporary.applyDamage(WoundType.SHARP, 0.5F, 100L);
+        temporary.resumeBodyProgression(100L);
+        assertEquals(300L, temporary.wounds().get(0).transientPainEndGameTime(), "level-1 sharp pain must last ten seconds");
+        assertFloatEquals(1.0F, temporary.woundPainContribution(), "fresh level-1 sharp wounds must carry pain 1");
+
+        temporary.advanceBodyProgression(299L);
+        assertFloatEquals(1.0F, temporary.woundPainContribution(), "transient sharp pain must use a half-open expiry interval");
+        BodyProgressionResult expired = temporary.advanceBodyProgression(300L);
+        assertEquals(1, expired.expiredTransientWoundTags(), "sharp pain 1 must expire at exactly ten seconds");
+        assertFloatEquals(0.0F, temporary.woundPainContribution(), "expired transient pain must stop contributing");
+
+        BodyState upgraded = new BodyState();
+        upgraded.applyDamage(WoundType.SHARP, 0.5F, 0L);
+        upgraded.applyDamage(WoundType.SHARP, 4.5F, 100L);
+        upgraded.resumeBodyProgression(100L);
+        assertEquals(2, upgraded.wounds().get(0).severity(), "window damage must upgrade the sharp wound to level 2");
+        assertEquals(-1L, upgraded.wounds().get(0).transientPainEndGameTime(), "level-2 pain 1 must become persistent");
+        upgraded.advanceBodyProgression(300L);
+        assertFloatEquals(1.0F, upgraded.woundPainContribution(), "upgraded level-2 pain 1 must not expire with the old timer");
+
+        BodyState paused = new BodyState();
+        paused.applyDamage(WoundType.SHARP, 0.5F, 0L);
+        paused.resumeBodyProgression(0L);
+        paused.pauseBodyProgression(100L);
+        paused.resumeBodyProgression(1_100L);
+        assertEquals(1_200L, paused.wounds().get(0).transientPainEndGameTime(), "offline time must shift transient pain expiry");
+        paused.advanceBodyProgression(1_199L);
+        assertFloatEquals(1.0F, paused.woundPainContribution(), "offline time must not consume transient sharp pain");
+    }
+
     private static void verifyNaturalHealingRates() {
         assertNaturalHealing(WoundType.BLUNT, 1.5F, 99.0F, "level-1 blunt");
         assertNaturalHealing(WoundType.BLUNT, 4.0F, 99.5F, "level-2 blunt");
@@ -122,54 +230,54 @@ public final class BodyStateRoundTripTest {
     private static void verifyTimedWoundProgression() {
         BodyState state = new BodyState();
         state.applyDamage(WoundType.BLUNT, 1.5F, 0L);
-        state.resumeWoundProgression(0L);
+        state.resumeBodyProgression(0L);
 
-        WoundProgressionResult subSecond = state.advanceWoundHealing(19L);
+        BodyProgressionResult subSecond = state.advanceBodyProgression(19L);
         assertEquals(false, subSecond.changed(), "sub-second tick time must not alter H");
         assertFloatEquals(100.0F, state.wounds().get(0).healingProgress(), "H must remain unchanged before one second");
 
-        WoundProgressionResult firstSecond = state.advanceWoundHealing(20L);
+        BodyProgressionResult firstSecond = state.advanceBodyProgression(20L);
         assertEquals(true, firstSecond.changed(), "one full second must advance natural healing");
         assertEquals(1, firstSecond.progressedWounds(), "one wound must advance");
         assertFloatEquals(99.0F, state.wounds().get(0).healingProgress(), "level-1 blunt H must decrease by one per second");
 
-        state.advanceWoundHealing(50L);
+        state.advanceBodyProgression(50L);
         assertFloatEquals(98.0F, state.wounds().get(0).healingProgress(), "only complete seconds must be processed");
         assertEquals(40L, state.lastWoundProgressionGameTime(), "partial tick remainder must be retained");
-        state.advanceWoundHealing(60L);
+        state.advanceBodyProgression(60L);
         assertFloatEquals(97.0F, state.wounds().get(0).healingProgress(), "retained partial ticks must contribute later");
 
-        state.pauseWoundProgression();
-        state.resumeWoundProgression(1_000L);
-        WoundProgressionResult resumed = state.advanceWoundHealing(1_020L);
+        state.pauseBodyProgression(60L);
+        state.resumeBodyProgression(1_000L);
+        BodyProgressionResult resumed = state.advanceBodyProgression(1_020L);
         assertEquals(true, resumed.changed(), "online progression must resume from the new baseline");
         assertFloatEquals(96.0F, state.wounds().get(0).healingProgress(), "offline elapsed time must not be applied");
 
         BodyState completed = new BodyState();
         completed.applyDamage(WoundType.BLUNT, 1.5F, 0L);
-        completed.resumeWoundProgression(0L);
-        WoundProgressionResult completion = completed.advanceWoundHealing(2_000L);
+        completed.resumeBodyProgression(0L);
+        BodyProgressionResult completion = completed.advanceBodyProgression(2_000L);
         assertEquals(1, completion.healedWounds(), "H reaching zero must remove the whole wound");
         assertEquals(0, completed.wounds().size(), "healed wound must no longer be stored");
 
         BodyState stalled = new BodyState();
         stalled.applyDamage(WoundType.SHARP, 15.0F, 0L);
-        stalled.resumeWoundProgression(0L);
-        WoundProgressionResult noProgress = stalled.advanceWoundHealing(2_000L);
-        assertEquals(false, noProgress.changed(), "a non-self-healing wound must remain unchanged");
+        stalled.resumeBodyProgression(0L);
+        BodyProgressionResult noProgress = stalled.advanceBodyProgression(2_000L);
+        assertEquals(0, noProgress.progressedWounds(), "a non-self-healing wound must not advance H");
         assertFloatEquals(100.0F, stalled.wounds().get(0).healingProgress(), "non-self-healing H must remain at 100");
     }
 
     private static void verifyPendingWindowExpiry() {
         BodyState state = new BodyState();
         state.applyDamage(WoundType.EXPLOSION, 3.0F, 0L);
-        state.resumeWoundProgression(0L);
+        state.resumeBodyProgression(0L);
 
-        WoundProgressionResult stillOpen = state.advanceWoundHealing(399L);
+        BodyProgressionResult stillOpen = state.advanceBodyProgression(399L);
         assertEquals(false, stillOpen.changed(), "pending damage must remain visible before the half-open window end");
         assertEquals(1, state.damageWindows().size(), "pending window must remain stored before tick 400");
 
-        WoundProgressionResult expired = state.advanceWoundHealing(400L);
+        BodyProgressionResult expired = state.advanceBodyProgression(400L);
         assertEquals(true, expired.changed(), "pending damage expiry must update BodyState");
         assertEquals(1, expired.expiredDamageWindows(), "exactly one pending window must expire");
         assertEquals(0, state.damageWindows().size(), "expired pending damage must be removed at the window end");
@@ -179,12 +287,13 @@ public final class BodyStateRoundTripTest {
         BodyState original = new BodyState();
         original.recordFinalDamage(4.0F, "fall", DamageClassification.blunt("fall"), 200L);
         WoundUpdateResult created = original.applyBluntDamage(4.0F, 200L);
-        original.resumeWoundProgression(200L);
+        original.resumeBodyProgression(200L);
         assertEquals(WoundUpdateResult.Status.CREATED, created.status(), "4 damage must create a severity-2 wound");
         UUID originalId = requireWound(created).id();
 
         CompoundTag serialized = original.serializeNBT();
         assertEquals(BodyState.CURRENT_DATA_VERSION, serialized.getInt("DataVersion"), "serialized data version must be current");
+        assertFloatEquals(4.0F, serialized.getFloat("BasePain"), "version 4 NBT must store base pain separately");
 
         BodyState restored = new BodyState();
         restored.deserializeNBT(serialized);
@@ -196,6 +305,8 @@ public final class BodyStateRoundTripTest {
         assertFloatEquals(4.0F, restoredWound.accumulatedDamage(), "round trip must preserve A");
         assertFloatEquals(100.0F, restoredWound.healingProgress(), "round trip must preserve H");
         assertEquals(200L, restored.lastWoundProgressionGameTime(), "round trip must preserve the progression clock");
+        assertFloatEquals(4.0F, restored.basePain(), "round trip must preserve base pain");
+        assertFloatEquals(5.0F, restored.pain(), "round trip must recompute effective pain from the restored wound tag");
         assertFloatEquals(4.0F, restored.lastFinalDamage(), "round trip must preserve last final damage diagnostics");
         assertEquals("fall", restored.lastDamageType(), "round trip must preserve damage type diagnostics");
         assertEquals(DamageKind.BLUNT, restored.lastDamageKind(), "round trip must preserve damage classification");
@@ -260,6 +371,19 @@ public final class BodyStateRoundTripTest {
         restored.deserializeNBT(versionTwo);
 
         assertEquals(-1L, restored.lastWoundProgressionGameTime(), "version 2 data must wait for an online progression baseline");
+    }
+
+    private static void verifyVersionThreePainMigrationDefaults() {
+        CompoundTag versionThree = new CompoundTag();
+        versionThree.putInt("DataVersion", 3);
+        versionThree.putFloat("Pain", 7.0F);
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(versionThree);
+
+        assertFloatEquals(7.0F, restored.basePain(), "version 3 Pain must migrate to version 4 base pain");
+        assertFloatEquals(7.0F, restored.pain(), "migrated pain without wounds must remain visible");
+        assertEquals(-1L, restored.stressEndGameTime(), "version 3 data must not invent an active stress timer");
     }
 
     private static void verifyWoundLimitAndActiveWindowUpdate() {

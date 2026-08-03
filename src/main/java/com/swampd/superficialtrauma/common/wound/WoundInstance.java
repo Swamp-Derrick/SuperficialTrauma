@@ -19,6 +19,8 @@ public final class WoundInstance {
     private static final String TAG_CREATED_GAME_TIME = "CreatedGameTime";
     private static final String TAG_WINDOW_END_GAME_TIME = "WindowEndGameTime";
     private static final String TAG_WOUND_TAGS = "WoundTags";
+    private static final String TAG_TRANSIENT_PAIN_END_GAME_TIME = "TransientPainEndGameTime";
+    private static final long SHARP_LEVEL_ONE_PAIN_TICKS = 10L * 20L;
 
     private final UUID id;
     private final WoundType type;
@@ -28,6 +30,7 @@ public final class WoundInstance {
     private final long createdGameTime;
     private final long windowEndGameTime;
     private final EnumSet<WoundTag> woundTags;
+    private long transientPainEndGameTime;
 
     private WoundInstance(
             UUID id,
@@ -37,7 +40,8 @@ public final class WoundInstance {
             float healingProgress,
             long createdGameTime,
             long windowEndGameTime,
-            EnumSet<WoundTag> woundTags
+            EnumSet<WoundTag> woundTags,
+            long transientPainEndGameTime
     ) {
         this.id = id;
         this.type = type;
@@ -47,6 +51,7 @@ public final class WoundInstance {
         this.createdGameTime = createdGameTime;
         this.windowEndGameTime = Math.max(createdGameTime, windowEndGameTime);
         this.woundTags = woundTags.clone();
+        this.transientPainEndGameTime = transientPainEndGameTime;
     }
 
     public static WoundInstance createBlunt(float accumulatedDamage, long createdGameTime, long windowEndGameTime) {
@@ -73,7 +78,8 @@ public final class WoundInstance {
                 100.0F,
                 createdGameTime,
                 windowEndGameTime,
-                tagsFor(type, severity)
+                tagsFor(type, severity),
+                transientPainEndFor(type, severity, createdGameTime)
         );
     }
 
@@ -109,6 +115,10 @@ public final class WoundInstance {
         return Collections.unmodifiableSet(woundTags);
     }
 
+    public long transientPainEndGameTime() {
+        return transientPainEndGameTime;
+    }
+
     public boolean isAccumulationWindowOpen(long gameTime) {
         return gameTime < windowEndGameTime;
     }
@@ -120,6 +130,22 @@ public final class WoundInstance {
             severity = newSeverity;
             woundTags.clear();
             woundTags.addAll(tagsFor(type, severity));
+            transientPainEndGameTime = transientPainEndFor(type, severity, createdGameTime);
+        }
+    }
+
+    public boolean expireTransientTags(long gameTime) {
+        if (transientPainEndGameTime < 0L || gameTime < transientPainEndGameTime) {
+            return false;
+        }
+
+        transientPainEndGameTime = -1L;
+        return woundTags.remove(WoundTag.PAIN_1);
+    }
+
+    public void shiftTransientDeadlines(long deltaTicks) {
+        if (transientPainEndGameTime >= 0L && deltaTicks > 0L) {
+            transientPainEndGameTime += deltaTicks;
         }
     }
 
@@ -231,6 +257,7 @@ public final class WoundInstance {
                 default -> EnumSet.noneOf(WoundTag.class);
             };
             case SHARP -> switch (severity) {
+                case 1 -> EnumSet.of(WoundTag.PAIN_1);
                 case 2 -> EnumSet.of(WoundTag.BLEEDING_2, WoundTag.PAIN_1);
                 case 3 -> EnumSet.of(WoundTag.BLEEDING_3, WoundTag.DISORIENTATION_1, WoundTag.PAIN_3);
                 default -> EnumSet.noneOf(WoundTag.class);
@@ -255,6 +282,12 @@ public final class WoundInstance {
         };
     }
 
+    private static long transientPainEndFor(WoundType type, int severity, long createdGameTime) {
+        return type == WoundType.SHARP && severity == 1
+                ? createdGameTime + SHARP_LEVEL_ONE_PAIN_TICKS
+                : -1L;
+    }
+
     public CompoundTag serializeNBT() {
         CompoundTag tag = new CompoundTag();
         tag.putUUID(TAG_ID, id);
@@ -264,6 +297,7 @@ public final class WoundInstance {
         tag.putFloat(TAG_HEALING_PROGRESS, healingProgress);
         tag.putLong(TAG_CREATED_GAME_TIME, createdGameTime);
         tag.putLong(TAG_WINDOW_END_GAME_TIME, windowEndGameTime);
+        tag.putLong(TAG_TRANSIENT_PAIN_END_GAME_TIME, transientPainEndGameTime);
 
         ListTag woundTagList = new ListTag();
         for (WoundTag woundTag : woundTags) {
@@ -285,7 +319,8 @@ public final class WoundInstance {
                 // Unknown future tags are ignored by this schema version.
             }
         }
-        if (woundTags.isEmpty()) {
+        boolean hasTransientPainMetadata = tag.contains(TAG_TRANSIENT_PAIN_END_GAME_TIME, Tag.TAG_ANY_NUMERIC);
+        if (woundTags.isEmpty() && !hasTransientPainMetadata) {
             woundTags.addAll(tagsFor(type, severity));
         }
 
@@ -298,7 +333,10 @@ public final class WoundInstance {
                 tag.contains(TAG_HEALING_PROGRESS, Tag.TAG_FLOAT) ? tag.getFloat(TAG_HEALING_PROGRESS) : 100.0F,
                 tag.getLong(TAG_CREATED_GAME_TIME),
                 tag.getLong(TAG_WINDOW_END_GAME_TIME),
-                woundTags
+                woundTags,
+                hasTransientPainMetadata
+                        ? tag.getLong(TAG_TRANSIENT_PAIN_END_GAME_TIME)
+                        : transientPainEndFor(type, severity, tag.getLong(TAG_CREATED_GAME_TIME))
         );
     }
 }

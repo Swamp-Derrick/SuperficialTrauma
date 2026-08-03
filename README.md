@@ -42,6 +42,7 @@ Phase 0's first vertical slice is implemented:
 - independent 20-second accumulation windows for each implemented wound type;
 - blunt, sharp, burn, and explosion wounds using reviewed half-open severity ranges;
 - server-authoritative natural healing that updates `H` once per complete second and removes wounds at `H = 0`;
+- version-4 pain state with base pain, additive wound-tag pain, twenty-second stress, and one-point recovery every 1.5 seconds;
 - server-to-client body-state snapshots;
 - a first-pass three-column health screen, opened with `H`;
 - `/superficialtrauma status` and `/superficialtrauma selftest` diagnostics.
@@ -54,9 +55,9 @@ Phase 0's CGM recognition slice is also implemented:
 - version-2 `BodyState` diagnostics with safe migration from version 1;
 - `/superficialtrauma classifyammo` for checking the held ammunition item.
 
-Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Gameplay effects, treatments, the two-player target HUD, and polished HUD art are not active yet.
+Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, and natural base-pain recovery are active. Bleeding damage, the pain-20 shock warning and incapacitation transition, treatments, the two-player target HUD, and polished HUD art are not active yet.
 
-Natural healing advances only while the injured player is online. Logging out pauses the progression clock, preventing logout time from being used as free treatment. Whole seconds are calculated from server game time, so delayed processing does not lose partial-second progress.
+Natural healing and pain timers advance only while the injured player is online. Logging out pauses the progression clock, preventing logout time from being used as free treatment or stress recovery. Whole intervals are calculated from server game time, so delayed processing does not lose elapsed progress.
 
 ### Manual persistence check
 
@@ -66,6 +67,14 @@ Natural healing advances only while the injured player is online. Logging out pa
 4. Run `/superficialtrauma selftest`; the command should report that the BodyState/NBT round trip passed.
 5. Keep the HUD open and confirm `H` decreases once per second at the displayed natural-healing rate. A level-1 blunt or sharp wound decreases by `1.0 H/s`.
 6. Save and quit the world, re-enter it, and press `H` again. The wound UUID, severity, `A`, and current `H` are stored in the player's capability data. Time spent logged out must not decrease `H`.
+
+### Manual pain check
+
+1. Take a known amount of final damage and open the health HUD. Base pain increases by `D`; pain wound tags are then added on top.
+2. Confirm the stress row starts near 20 seconds and refreshes to 20 seconds after another traumatic hit.
+3. Base pain must remain unchanged throughout stress and for the following 1.5 seconds.
+4. After that point, effective pain decreases by one every 1.5 seconds until only the current wound-tag contribution remains.
+5. Log out while stress is active, wait on a still-running server, and reconnect. The remaining stress and base pain must resume rather than elapse offline.
 
 ### Manual CGM recognition check
 

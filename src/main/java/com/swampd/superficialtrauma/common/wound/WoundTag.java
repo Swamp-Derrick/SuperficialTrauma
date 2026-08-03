@@ -19,6 +19,15 @@ public enum WoundTag {
         return name().toLowerCase(Locale.ROOT);
     }
 
+    public float painContribution() {
+        return switch (this) {
+            case PAIN_1 -> 1.0F;
+            case PAIN_2 -> 2.0F;
+            case PAIN_3 -> 4.0F;
+            default -> 0.0F;
+        };
+    }
+
     public static WoundTag fromSerializedName(String name) {
         for (WoundTag tag : values()) {
             if (tag.serializedName().equals(name)) {
