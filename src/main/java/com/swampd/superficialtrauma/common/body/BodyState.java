@@ -14,15 +14,17 @@ import net.minecraftforge.common.util.INBTSerializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 2;
+    public static final int CURRENT_DATA_VERSION = 3;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
+    public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
 
     private static final String TAG_DATA_VERSION = "DataVersion";
     private static final String TAG_REVISION = "Revision";
@@ -37,6 +39,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_ACCUMULATED_CPR_SECONDS = "AccumulatedCprSeconds";
     private static final String TAG_WOUNDS = "Wounds";
     private static final String TAG_DAMAGE_WINDOWS = "DamageWindows";
+    private static final String TAG_LAST_WOUND_PROGRESSION_GAME_TIME = "LastWoundProgressionGameTime";
     private static final String TAG_LAST_FINAL_DAMAGE = "LastFinalDamage";
     private static final String TAG_LAST_DAMAGE_TYPE = "LastDamageType";
     private static final String TAG_LAST_DAMAGE_KIND = "LastDamageKind";
@@ -58,6 +61,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private int accumulatedCprSeconds;
     private final List<WoundInstance> wounds = new ArrayList<>();
     private final EnumMap<WoundType, DamageWindow> damageWindows = new EnumMap<>(WoundType.class);
+    private long lastWoundProgressionGameTime;
     private float lastFinalDamage;
     private String lastDamageType;
     private DamageKind lastDamageKind;
@@ -125,6 +129,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public Optional<DamageWindow> damageWindow(WoundType type) {
         return Optional.ofNullable(damageWindows.get(type));
+    }
+
+    public long lastWoundProgressionGameTime() {
+        return lastWoundProgressionGameTime;
     }
 
     public float lastFinalDamage() {
@@ -241,6 +249,74 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return new WoundUpdateResult(WoundUpdateResult.Status.CREATED, wound, wound.accumulatedDamage());
     }
 
+    public void resumeWoundProgression(long gameTime) {
+        lastWoundProgressionGameTime = Math.max(0L, gameTime);
+    }
+
+    public void pauseWoundProgression() {
+        lastWoundProgressionGameTime = -1L;
+    }
+
+    public WoundProgressionResult advanceWoundHealing(long gameTime) {
+        if (gameTime < 0L) {
+            return WoundProgressionResult.unchanged();
+        }
+
+        int expiredDamageWindows = 0;
+        Iterator<DamageWindow> windowIterator = damageWindows.values().iterator();
+        while (windowIterator.hasNext()) {
+            if (!windowIterator.next().isOpen(gameTime)) {
+                windowIterator.remove();
+                expiredDamageWindows++;
+            }
+        }
+
+        if (lastWoundProgressionGameTime < 0L || gameTime < lastWoundProgressionGameTime) {
+            resumeWoundProgression(gameTime);
+            return finishWoundProgression(0, 0, expiredDamageWindows);
+        }
+        if (wounds.isEmpty()) {
+            lastWoundProgressionGameTime = gameTime;
+            return finishWoundProgression(0, 0, expiredDamageWindows);
+        }
+
+        long elapsedTicks = gameTime - lastWoundProgressionGameTime;
+        long elapsedWholeSeconds = elapsedTicks / WOUND_PROGRESSION_INTERVAL_TICKS;
+        if (elapsedWholeSeconds <= 0L) {
+            return finishWoundProgression(0, 0, expiredDamageWindows);
+        }
+        lastWoundProgressionGameTime += elapsedWholeSeconds * WOUND_PROGRESSION_INTERVAL_TICKS;
+
+        int progressedWounds = 0;
+        int healedWounds = 0;
+        Iterator<WoundInstance> iterator = wounds.iterator();
+        while (iterator.hasNext()) {
+            WoundInstance wound = iterator.next();
+            if (wound.advanceNaturalHealing((float) elapsedWholeSeconds)) {
+                progressedWounds++;
+            }
+            if (wound.isHealed()) {
+                iterator.remove();
+                healedWounds++;
+            }
+        }
+
+        return finishWoundProgression(progressedWounds, healedWounds, expiredDamageWindows);
+    }
+
+    private WoundProgressionResult finishWoundProgression(
+            int progressedWounds,
+            int healedWounds,
+            int expiredDamageWindows
+    ) {
+        if (progressedWounds == 0 && healedWounds == 0 && expiredDamageWindows == 0) {
+            return WoundProgressionResult.unchanged();
+        }
+
+        markChanged();
+        return new WoundProgressionResult(true, progressedWounds, healedWounds, expiredDamageWindows);
+    }
+
     public void copyFrom(BodyState other) {
         deserializeNBT(other.serializeNBT());
     }
@@ -262,6 +338,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         accumulatedCprSeconds = 0;
         wounds.clear();
         damageWindows.clear();
+        lastWoundProgressionGameTime = -1L;
         lastFinalDamage = 0.0F;
         lastDamageType = "none";
         lastDamageKind = DamageKind.UNKNOWN;
@@ -300,6 +377,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             damageWindowList.add(damageWindow.serializeNBT());
         }
         tag.put(TAG_DAMAGE_WINDOWS, damageWindowList);
+        tag.putLong(TAG_LAST_WOUND_PROGRESSION_GAME_TIME, lastWoundProgressionGameTime);
 
         tag.putFloat(TAG_LAST_FINAL_DAMAGE, lastFinalDamage);
         tag.putString(TAG_LAST_DAMAGE_TYPE, lastDamageType);
@@ -351,6 +429,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             DamageWindow damageWindow = DamageWindow.deserializeNBT(damageWindowList.getCompound(i));
             damageWindows.put(damageWindow.type(), damageWindow);
         }
+        lastWoundProgressionGameTime = tag.contains(TAG_LAST_WOUND_PROGRESSION_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                ? tag.getLong(TAG_LAST_WOUND_PROGRESSION_GAME_TIME)
+                : -1L;
 
         lastFinalDamage = Math.max(0.0F, tag.getFloat(TAG_LAST_FINAL_DAMAGE));
         lastDamageType = tag.contains(TAG_LAST_DAMAGE_TYPE, Tag.TAG_STRING)

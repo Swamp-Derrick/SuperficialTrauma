@@ -6,6 +6,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
+import com.swampd.superficialtrauma.common.body.WoundProgressionResult;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
 import com.swampd.superficialtrauma.common.damage.CgmAmmoTags;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
@@ -73,6 +74,7 @@ public final class DebugCommands {
                                 + " severity=" + wound.severity()
                                 + " A=" + wound.accumulatedDamage()
                                 + " H=" + wound.healingProgress()
+                                + " natural=" + wound.baseHealingPerSecond() + "/s"
                 ), false);
             }
             result.set(1);
@@ -112,6 +114,11 @@ public final class DebugCommands {
         WoundUpdateResult sharpCreated = classificationState.applyDamage(WoundType.SHARP, 0.5F, 202L);
         WoundUpdateResult burnCreated = classificationState.applyDamage(WoundType.BURN, 0.1F, 203L);
 
+        BodyState progressionState = new BodyState();
+        progressionState.applyDamage(WoundType.BLUNT, 1.5F, 300L);
+        progressionState.resumeWoundProgression(300L);
+        WoundProgressionResult progression = progressionState.advanceWoundHealing(320L);
+
         boolean passed = pending.status() == WoundUpdateResult.Status.PENDING
                 && created.status() == WoundUpdateResult.Status.CREATED
                 && created.wound() != null
@@ -126,7 +133,11 @@ public final class DebugCommands {
                 && explosionCreated.status() == WoundUpdateResult.Status.CREATED
                 && sharpCreated.status() == WoundUpdateResult.Status.CREATED
                 && burnCreated.status() == WoundUpdateResult.Status.CREATED
-                && classificationState.wounds().size() == 3;
+                && classificationState.wounds().size() == 3
+                && progression.changed()
+                && progression.progressedWounds() == 1
+                && progression.healedWounds() == 0
+                && Math.abs(progressionState.wounds().get(0).healingProgress() - 99.0F) < 0.0001F;
 
         if (passed) {
             context.getSource().sendSuccess(

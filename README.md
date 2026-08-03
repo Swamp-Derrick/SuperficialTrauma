@@ -41,6 +41,7 @@ Phase 0's first vertical slice is implemented:
 - post-armor, post-effect, post-absorption final damage capture;
 - independent 20-second accumulation windows for each implemented wound type;
 - blunt, sharp, burn, and explosion wounds using reviewed half-open severity ranges;
+- server-authoritative natural healing that updates `H` once per complete second and removes wounds at `H = 0`;
 - server-to-client body-state snapshots;
 - a first-pass three-column health screen, opened with `H`;
 - `/superficialtrauma status` and `/superficialtrauma selftest` diagnostics.
@@ -53,7 +54,9 @@ Phase 0's CGM recognition slice is also implemented:
 - version-2 `BodyState` diagnostics with safe migration from version 1;
 - `/superficialtrauma classifyammo` for checking the held ammunition item.
 
-Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Automatic healing, gameplay effects, treatments, the two-player target HUD, and polished HUD art are not active yet.
+Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Gameplay effects, treatments, the two-player target HUD, and polished HUD art are not active yet.
+
+Natural healing advances only while the injured player is online. Logging out pauses the progression clock, preventing logout time from being used as free treatment. Whole seconds are calculated from server game time, so delayed processing does not lose partial-second progress.
 
 ### Manual persistence check
 
@@ -61,7 +64,8 @@ Explosion damage is checked before CGM projectile damage so rockets and explosiv
 2. Take blunt, sharp, burn, or explosion damage. Drowning, starvation, magic, wither, and unarmored ordinary projectiles remain non-traumatic or deferred.
 3. Press `H` and confirm the final damage and wound card appear.
 4. Run `/superficialtrauma selftest`; the command should report that the BodyState/NBT round trip passed.
-5. Save and quit the world, re-enter it, and press `H` again. The wound UUID, severity, `A`, and `H` are stored in the player's capability data and should remain unchanged.
+5. Keep the HUD open and confirm `H` decreases once per second at the displayed natural-healing rate. A level-1 blunt or sharp wound decreases by `1.0 H/s`.
+6. Save and quit the world, re-enter it, and press `H` again. The wound UUID, severity, `A`, and current `H` are stored in the player's capability data. Time spent logged out must not decrease `H`.
 
 ### Manual CGM recognition check
 

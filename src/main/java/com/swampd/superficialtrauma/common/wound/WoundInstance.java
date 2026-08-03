@@ -152,6 +152,25 @@ public final class WoundInstance {
         return type == WoundType.EXPLOSION && severity == 3 ? 10.0F : 0.0F;
     }
 
+    public boolean advanceNaturalHealing(float elapsedSeconds) {
+        if (elapsedSeconds <= 0.0F || healingProgress <= 0.0F) {
+            return false;
+        }
+
+        float healingAmount = baseHealingPerSecond() * elapsedSeconds;
+        if (healingAmount <= 0.0F) {
+            return false;
+        }
+
+        float previousProgress = healingProgress;
+        healingProgress = Math.max(0.0F, healingProgress - healingAmount);
+        return healingProgress < previousProgress;
+    }
+
+    public boolean isHealed() {
+        return healingProgress <= 0.0F;
+    }
+
     public String displayTranslationKey() {
         return "wound.superficialtrauma." + type.serializedName() + ".severity_" + severity;
     }

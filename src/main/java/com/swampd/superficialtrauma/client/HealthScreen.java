@@ -299,6 +299,23 @@ public final class HealthScreen extends Screen {
         } else {
             graphics.drawString(font, Component.translatable(selected.displayTranslationKey()), x, lineY, TEXT_COLOR, false);
             lineY += 15;
+            float healingRate = selected.baseHealingPerSecond();
+            Component healingStatus = healingRate > 0.0F
+                    ? Component.translatable(
+                            "screen.superficialtrauma.health.natural_healing_active",
+                            oneDecimal(healingRate)
+                    )
+                    : Component.translatable("screen.superficialtrauma.health.natural_healing_stopped");
+            lineY = drawWrappedWithin(
+                    graphics,
+                    healingStatus,
+                    x,
+                    lineY,
+                    availableWidth,
+                    healingRate > 0.0F ? GOOD_COLOR : DANGER_COLOR,
+                    contentBottom
+            );
+            lineY += 5;
             Component recommendation = Component.translatable(
                     "screen.superficialtrauma.health.recommend_"
                             + selected.type().serializedName()

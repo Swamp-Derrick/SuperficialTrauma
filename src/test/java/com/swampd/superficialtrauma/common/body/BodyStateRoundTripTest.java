@@ -20,10 +20,14 @@ public final class BodyStateRoundTripTest {
         verifyPendingDamageAccumulation();
         verifyIndependentDamageWindows();
         verifyWoundDefinitions();
+        verifyNaturalHealingRates();
+        verifyTimedWoundProgression();
+        verifyPendingWindowExpiry();
         verifyNbtRoundTrip();
         verifyNonBluntNbtRoundTrip();
         verifyCgmDamageTraceRoundTrip();
         verifyVersionOneMigrationDefaults();
+        verifyVersionTwoProgressionMigrationDefaults();
         verifyWoundLimitAndActiveWindowUpdate();
         System.out.println("Superficial Trauma BodyState self-test passed.");
     }
@@ -100,10 +104,82 @@ public final class BodyStateRoundTripTest {
         assertFloatEquals(10.0F, extensive.minimumHealingProgressWithoutSkinGraft(), "skin-graft floor must be recorded as H=10");
     }
 
+    private static void verifyNaturalHealingRates() {
+        assertNaturalHealing(WoundType.BLUNT, 1.5F, 99.0F, "level-1 blunt");
+        assertNaturalHealing(WoundType.BLUNT, 4.0F, 99.5F, "level-2 blunt");
+        assertNaturalHealing(WoundType.BLUNT, 13.0F, 99.8F, "level-3 blunt");
+        assertNaturalHealing(WoundType.SHARP, 0.5F, 99.0F, "level-1 sharp");
+        assertNaturalHealing(WoundType.SHARP, 5.0F, 99.9F, "level-2 sharp");
+        assertNoNaturalHealing(WoundType.SHARP, 15.0F, "level-3 sharp");
+        assertNaturalHealing(WoundType.BURN, 0.1F, 99.2F, "level-1 burn");
+        assertNaturalHealing(WoundType.BURN, 5.0F, 99.5F, "level-2 burn");
+        assertNoNaturalHealing(WoundType.BURN, 16.0F, "level-3 burn");
+        assertNaturalHealing(WoundType.EXPLOSION, 4.0F, 99.7F, "level-1 explosion");
+        assertNaturalHealing(WoundType.EXPLOSION, 8.0F, 99.8F, "level-2 explosion");
+        assertNoNaturalHealing(WoundType.EXPLOSION, 16.0F, "level-3 explosion");
+    }
+
+    private static void verifyTimedWoundProgression() {
+        BodyState state = new BodyState();
+        state.applyDamage(WoundType.BLUNT, 1.5F, 0L);
+        state.resumeWoundProgression(0L);
+
+        WoundProgressionResult subSecond = state.advanceWoundHealing(19L);
+        assertEquals(false, subSecond.changed(), "sub-second tick time must not alter H");
+        assertFloatEquals(100.0F, state.wounds().get(0).healingProgress(), "H must remain unchanged before one second");
+
+        WoundProgressionResult firstSecond = state.advanceWoundHealing(20L);
+        assertEquals(true, firstSecond.changed(), "one full second must advance natural healing");
+        assertEquals(1, firstSecond.progressedWounds(), "one wound must advance");
+        assertFloatEquals(99.0F, state.wounds().get(0).healingProgress(), "level-1 blunt H must decrease by one per second");
+
+        state.advanceWoundHealing(50L);
+        assertFloatEquals(98.0F, state.wounds().get(0).healingProgress(), "only complete seconds must be processed");
+        assertEquals(40L, state.lastWoundProgressionGameTime(), "partial tick remainder must be retained");
+        state.advanceWoundHealing(60L);
+        assertFloatEquals(97.0F, state.wounds().get(0).healingProgress(), "retained partial ticks must contribute later");
+
+        state.pauseWoundProgression();
+        state.resumeWoundProgression(1_000L);
+        WoundProgressionResult resumed = state.advanceWoundHealing(1_020L);
+        assertEquals(true, resumed.changed(), "online progression must resume from the new baseline");
+        assertFloatEquals(96.0F, state.wounds().get(0).healingProgress(), "offline elapsed time must not be applied");
+
+        BodyState completed = new BodyState();
+        completed.applyDamage(WoundType.BLUNT, 1.5F, 0L);
+        completed.resumeWoundProgression(0L);
+        WoundProgressionResult completion = completed.advanceWoundHealing(2_000L);
+        assertEquals(1, completion.healedWounds(), "H reaching zero must remove the whole wound");
+        assertEquals(0, completed.wounds().size(), "healed wound must no longer be stored");
+
+        BodyState stalled = new BodyState();
+        stalled.applyDamage(WoundType.SHARP, 15.0F, 0L);
+        stalled.resumeWoundProgression(0L);
+        WoundProgressionResult noProgress = stalled.advanceWoundHealing(2_000L);
+        assertEquals(false, noProgress.changed(), "a non-self-healing wound must remain unchanged");
+        assertFloatEquals(100.0F, stalled.wounds().get(0).healingProgress(), "non-self-healing H must remain at 100");
+    }
+
+    private static void verifyPendingWindowExpiry() {
+        BodyState state = new BodyState();
+        state.applyDamage(WoundType.EXPLOSION, 3.0F, 0L);
+        state.resumeWoundProgression(0L);
+
+        WoundProgressionResult stillOpen = state.advanceWoundHealing(399L);
+        assertEquals(false, stillOpen.changed(), "pending damage must remain visible before the half-open window end");
+        assertEquals(1, state.damageWindows().size(), "pending window must remain stored before tick 400");
+
+        WoundProgressionResult expired = state.advanceWoundHealing(400L);
+        assertEquals(true, expired.changed(), "pending damage expiry must update BodyState");
+        assertEquals(1, expired.expiredDamageWindows(), "exactly one pending window must expire");
+        assertEquals(0, state.damageWindows().size(), "expired pending damage must be removed at the window end");
+    }
+
     private static void verifyNbtRoundTrip() {
         BodyState original = new BodyState();
         original.recordFinalDamage(4.0F, "fall", DamageClassification.blunt("fall"), 200L);
         WoundUpdateResult created = original.applyBluntDamage(4.0F, 200L);
+        original.resumeWoundProgression(200L);
         assertEquals(WoundUpdateResult.Status.CREATED, created.status(), "4 damage must create a severity-2 wound");
         UUID originalId = requireWound(created).id();
 
@@ -119,6 +195,7 @@ public final class BodyStateRoundTripTest {
         assertEquals(2, restoredWound.severity(), "round trip must preserve severity");
         assertFloatEquals(4.0F, restoredWound.accumulatedDamage(), "round trip must preserve A");
         assertFloatEquals(100.0F, restoredWound.healingProgress(), "round trip must preserve H");
+        assertEquals(200L, restored.lastWoundProgressionGameTime(), "round trip must preserve the progression clock");
         assertFloatEquals(4.0F, restored.lastFinalDamage(), "round trip must preserve last final damage diagnostics");
         assertEquals("fall", restored.lastDamageType(), "round trip must preserve damage type diagnostics");
         assertEquals(DamageKind.BLUNT, restored.lastDamageKind(), "round trip must preserve damage classification");
@@ -175,6 +252,16 @@ public final class BodyStateRoundTripTest {
         assertEquals("none", restored.lastWeaponId(), "version 1 data must not invent a weapon ID");
     }
 
+    private static void verifyVersionTwoProgressionMigrationDefaults() {
+        CompoundTag versionTwo = new CompoundTag();
+        versionTwo.putInt("DataVersion", 2);
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(versionTwo);
+
+        assertEquals(-1L, restored.lastWoundProgressionGameTime(), "version 2 data must wait for an online progression baseline");
+    }
+
     private static void verifyWoundLimitAndActiveWindowUpdate() {
         BodyState state = new BodyState();
         long gameTime = 0L;
@@ -199,6 +286,23 @@ public final class BodyStateRoundTripTest {
             throw new AssertionError("Expected a wound for status " + result.status());
         }
         return result.wound();
+    }
+
+    private static void assertNaturalHealing(
+            WoundType type,
+            float accumulatedDamage,
+            float expectedProgress,
+            String description
+    ) {
+        WoundInstance wound = WoundInstance.create(type, accumulatedDamage, 0L, 400L);
+        assertEquals(true, wound.advanceNaturalHealing(1.0F), description + " must naturally progress");
+        assertFloatEquals(expectedProgress, wound.healingProgress(), description + " must use the reviewed rate");
+    }
+
+    private static void assertNoNaturalHealing(WoundType type, float accumulatedDamage, String description) {
+        WoundInstance wound = WoundInstance.create(type, accumulatedDamage, 0L, 400L);
+        assertEquals(false, wound.advanceNaturalHealing(1.0F), description + " must not naturally progress");
+        assertFloatEquals(100.0F, wound.healingProgress(), description + " H must remain unchanged");
     }
 
     private static void assertFloatEquals(float expected, float actual, String message) {

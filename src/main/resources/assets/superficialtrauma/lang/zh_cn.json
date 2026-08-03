@@ -19,6 +19,8 @@
   "screen.superficialtrauma.health.wounds": "创伤列表",
   "screen.superficialtrauma.health.no_wounds": "未发现创伤",
   "screen.superficialtrauma.health.wound_values": "等级 %s　A %s　H %s",
+  "screen.superficialtrauma.health.natural_healing_active": "自然愈合：H 每秒降低 %s",
+  "screen.superficialtrauma.health.natural_healing_stopped": "自然愈合：停止",
   "screen.superficialtrauma.health.more_wounds": "另有 %s 个创伤未显示",
   "screen.superficialtrauma.health.pending_blunt": "待判定钝伤 A：%s（尚未生成）",
   "screen.superficialtrauma.health.pending_wound": "待判定%s A：%s（尚未生成）",

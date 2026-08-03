@@ -19,6 +19,8 @@
   "screen.superficialtrauma.health.wounds": "Wounds",
   "screen.superficialtrauma.health.no_wounds": "No wounds found",
   "screen.superficialtrauma.health.wound_values": "Level %s  A %s  H %s",
+  "screen.superficialtrauma.health.natural_healing_active": "Natural healing: H decreases by %s/s",
+  "screen.superficialtrauma.health.natural_healing_stopped": "Natural healing: stopped",
   "screen.superficialtrauma.health.more_wounds": "%s more wound(s) not shown",
   "screen.superficialtrauma.health.pending_blunt": "Pending blunt A: %s (not yet a wound)",
   "screen.superficialtrauma.health.pending_wound": "Pending %s A: %s (not yet a wound)",
