@@ -155,4 +155,17 @@ tasks.named('jar', Jar).configure {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+    options.compilerArgs.add('-Xlint:deprecation')
+}
+
+tasks.register('bodyStateSelfTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs the phase-0 BodyState threshold and NBT round-trip regression test.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.swampd.superficialtrauma.common.body.BodyStateRoundTripTest'
+}
+
+tasks.named('check').configure {
+    dependsOn tasks.named('bodyStateSelfTest')
 }
