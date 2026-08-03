@@ -17,6 +17,7 @@
   "screen.superficialtrauma.health.wounds": "创伤列表",
   "screen.superficialtrauma.health.no_wounds": "未发现创伤",
   "screen.superficialtrauma.health.wound_values": "等级 %s　A %s　H %s",
+  "screen.superficialtrauma.health.more_wounds": "另有 %s 个创伤未显示",
   "screen.superficialtrauma.health.pending_blunt": "待判定钝伤 A：%s（尚未生成）",
   "screen.superficialtrauma.health.actions": "建议处理",
   "screen.superficialtrauma.health.no_action_needed": "目前没有需要处理的创伤。",
