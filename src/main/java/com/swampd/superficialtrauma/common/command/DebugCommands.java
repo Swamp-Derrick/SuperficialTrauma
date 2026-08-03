@@ -10,6 +10,7 @@ import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
 import com.swampd.superficialtrauma.common.damage.CgmAmmoTags;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
+import com.swampd.superficialtrauma.common.wound.WoundType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
@@ -105,6 +106,12 @@ public final class DebugCommands {
         BodyState restored = new BodyState();
         restored.deserializeNBT(original.serializeNBT());
 
+        BodyState classificationState = new BodyState();
+        WoundUpdateResult explosionPending = classificationState.applyDamage(WoundType.EXPLOSION, 3.0F, 200L);
+        WoundUpdateResult explosionCreated = classificationState.applyDamage(WoundType.EXPLOSION, 1.0F, 201L);
+        WoundUpdateResult sharpCreated = classificationState.applyDamage(WoundType.SHARP, 0.5F, 202L);
+        WoundUpdateResult burnCreated = classificationState.applyDamage(WoundType.BURN, 0.1F, 203L);
+
         boolean passed = pending.status() == WoundUpdateResult.Status.PENDING
                 && created.status() == WoundUpdateResult.Status.CREATED
                 && created.wound() != null
@@ -114,7 +121,12 @@ public final class DebugCommands {
                 && restored.dataVersion() == BodyState.CURRENT_DATA_VERSION
                 && restored.wounds().size() == 1
                 && restored.wounds().get(0).severity() == 2
-                && Math.abs(restored.wounds().get(0).accumulatedDamage() - 4.0F) < 0.0001F;
+                && Math.abs(restored.wounds().get(0).accumulatedDamage() - 4.0F) < 0.0001F
+                && explosionPending.status() == WoundUpdateResult.Status.PENDING
+                && explosionCreated.status() == WoundUpdateResult.Status.CREATED
+                && sharpCreated.status() == WoundUpdateResult.Status.CREATED
+                && burnCreated.status() == WoundUpdateResult.Status.CREATED
+                && classificationState.wounds().size() == 3;
 
         if (passed) {
             context.getSource().sendSuccess(

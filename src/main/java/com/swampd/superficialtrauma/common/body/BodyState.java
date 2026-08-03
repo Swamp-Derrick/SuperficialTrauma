@@ -177,12 +177,16 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     public WoundUpdateResult applyBluntDamage(float finalDamage, long gameTime) {
+        return applyDamage(WoundType.BLUNT, finalDamage, gameTime);
+    }
+
+    public WoundUpdateResult applyDamage(WoundType type, float finalDamage, long gameTime) {
         if (finalDamage <= 0.0F) {
             return new WoundUpdateResult(WoundUpdateResult.Status.PENDING, null, 0.0F);
         }
 
         Optional<WoundInstance> activeWound = wounds.stream()
-                .filter(wound -> wound.type() == WoundType.BLUNT)
+                .filter(wound -> wound.type() == type)
                 .filter(wound -> wound.isAccumulationWindowOpen(gameTime))
                 .max((first, second) -> Long.compare(first.createdGameTime(), second.createdGameTime()));
 
@@ -193,19 +197,19 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             return new WoundUpdateResult(WoundUpdateResult.Status.UPDATED, wound, wound.accumulatedDamage());
         }
 
-        DamageWindow pendingWindow = damageWindows.get(WoundType.BLUNT);
+        DamageWindow pendingWindow = damageWindows.get(type);
         if (pendingWindow == null || !pendingWindow.isOpen(gameTime)) {
             pendingWindow = new DamageWindow(
-                    WoundType.BLUNT,
+                    type,
                     0.0F,
                     gameTime,
                     gameTime + DAMAGE_WINDOW_TICKS
             );
-            damageWindows.put(WoundType.BLUNT, pendingWindow);
+            damageWindows.put(type, pendingWindow);
         }
         pendingWindow.addDamage(finalDamage);
 
-        int severity = WoundInstance.bluntSeverityFor(pendingWindow.accumulatedDamage());
+        int severity = WoundInstance.severityFor(type, pendingWindow.accumulatedDamage());
         if (severity == 0) {
             markChanged();
             return new WoundUpdateResult(
@@ -216,7 +220,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         }
 
         if (wounds.size() >= MAX_WOUNDS) {
-            damageWindows.remove(WoundType.BLUNT);
+            damageWindows.remove(type);
             markChanged();
             return new WoundUpdateResult(
                     WoundUpdateResult.Status.LIMIT_REACHED,
@@ -225,13 +229,14 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             );
         }
 
-        WoundInstance wound = WoundInstance.createBlunt(
+        WoundInstance wound = WoundInstance.create(
+                type,
                 pendingWindow.accumulatedDamage(),
                 pendingWindow.startedGameTime(),
                 pendingWindow.endGameTime()
         );
         wounds.add(wound);
-        damageWindows.remove(WoundType.BLUNT);
+        damageWindows.remove(type);
         markChanged();
         return new WoundUpdateResult(WoundUpdateResult.Status.CREATED, wound, wound.accumulatedDamage());
     }

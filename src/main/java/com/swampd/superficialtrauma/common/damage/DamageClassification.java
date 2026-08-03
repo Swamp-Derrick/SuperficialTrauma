@@ -21,9 +21,25 @@ public record DamageClassification(
     }
 
     public static DamageClassification blunt(String reason) {
+        return wound(WoundType.BLUNT, DamageKind.BLUNT, reason);
+    }
+
+    public static DamageClassification sharp(String reason) {
+        return wound(WoundType.SHARP, DamageKind.SHARP, reason);
+    }
+
+    public static DamageClassification burn(String reason) {
+        return wound(WoundType.BURN, DamageKind.BURN, reason);
+    }
+
+    public static DamageClassification explosion(String reason) {
+        return wound(WoundType.EXPLOSION, DamageKind.EXPLOSION, reason);
+    }
+
+    private static DamageClassification wound(WoundType type, DamageKind kind, String reason) {
         return new DamageClassification(
-                WoundType.BLUNT,
-                DamageKind.BLUNT,
+                type,
+                kind,
                 reason,
                 "none",
                 "none",

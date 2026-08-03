@@ -4,7 +4,6 @@ import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.damage.DamageWindow;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
-import com.swampd.superficialtrauma.common.wound.WoundType;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -228,13 +227,15 @@ public final class HealthScreen extends Screen {
         }
 
         int pendingY = cardY + 2;
-        state.damageWindow(WoundType.BLUNT).ifPresent(window ->
-                drawPendingWindow(graphics, window, x, pendingY, availableWidth, columnBottom)
-        );
+        List<DamageWindow> pendingWindows = new ArrayList<>(state.damageWindows().values());
+        pendingWindows.sort(Comparator.comparingLong(DamageWindow::startedGameTime));
+        for (DamageWindow window : pendingWindows) {
+            pendingY = drawPendingWindow(graphics, window, x, pendingY, availableWidth, columnBottom);
+        }
         return sortedWounds.isEmpty() ? null : sortedWounds.get(0);
     }
 
-    private void drawPendingWindow(
+    private int drawPendingWindow(
             GuiGraphics graphics,
             DamageWindow window,
             int x,
@@ -243,10 +244,11 @@ public final class HealthScreen extends Screen {
             int columnBottom
     ) {
         if (pendingY + font.lineHeight > columnBottom) {
-            return;
+            return pendingY;
         }
         Component pending = Component.translatable(
-                "screen.superficialtrauma.health.pending_blunt",
+                "screen.superficialtrauma.health.pending_wound",
+                Component.translatable(window.type().translationKey()),
                 oneDecimal(window.accumulatedDamage())
         );
         graphics.drawString(
@@ -254,21 +256,16 @@ public final class HealthScreen extends Screen {
                 font.plainSubstrByWidth(pending.getString(), availableWidth),
                 x,
                 pendingY,
-                MUTED_COLOR,
-                false
+            MUTED_COLOR,
+            false
         );
+        return pendingY + 13;
     }
 
     private String woundTagSummary(WoundInstance wound) {
         List<String> labels = new ArrayList<>();
-        if (wound.woundTags().contains(WoundTag.SLOWNESS_1)) {
-            labels.add(Component.translatable("wound_tag.superficialtrauma.slowness_1").getString());
-        }
-        if (wound.woundTags().contains(WoundTag.PAIN_1)) {
-            labels.add(Component.translatable("wound_tag.superficialtrauma.pain_1").getString());
-        }
-        if (wound.woundTags().contains(WoundTag.MOVEMENT_BLEEDING_1)) {
-            labels.add(Component.translatable("wound_tag.superficialtrauma.movement_bleeding_1").getString());
+        for (WoundTag tag : wound.woundTags()) {
+            labels.add(Component.translatable("wound_tag.superficialtrauma." + tag.serializedName()).getString());
         }
         return String.join(" · ", labels);
     }
@@ -302,11 +299,12 @@ public final class HealthScreen extends Screen {
         } else {
             graphics.drawString(font, Component.translatable(selected.displayTranslationKey()), x, lineY, TEXT_COLOR, false);
             lineY += 15;
-            Component recommendation = switch (selected.severity()) {
-                case 3 -> Component.translatable("screen.superficialtrauma.health.recommend_blunt_3");
-                case 2 -> Component.translatable("screen.superficialtrauma.health.recommend_blunt_2");
-                default -> Component.translatable("screen.superficialtrauma.health.recommend_blunt_1");
-            };
+            Component recommendation = Component.translatable(
+                    "screen.superficialtrauma.health.recommend_"
+                            + selected.type().serializedName()
+                            + "_"
+                            + selected.severity()
+            );
             lineY = drawWrappedWithin(
                     graphics,
                     recommendation,

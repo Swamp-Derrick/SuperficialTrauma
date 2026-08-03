@@ -5,6 +5,9 @@ import java.util.Locale;
 public enum DamageKind {
     UNKNOWN,
     BLUNT,
+    SHARP,
+    BURN,
+    EXPLOSION,
     CGM_LOW_VELOCITY,
     CGM_HIGH_VELOCITY,
     CGM_SHOTGUN,

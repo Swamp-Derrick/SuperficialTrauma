@@ -3,6 +3,8 @@ package com.swampd.superficialtrauma.common.body;
 import com.swampd.superficialtrauma.common.damage.DamageClassification;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
+import com.swampd.superficialtrauma.common.wound.WoundTag;
+import com.swampd.superficialtrauma.common.wound.WoundType;
 import net.minecraft.nbt.CompoundTag;
 
 import java.util.UUID;
@@ -14,16 +16,19 @@ public final class BodyStateRoundTripTest {
     }
 
     public static void main(String[] args) {
-        verifyHalfOpenBluntRanges();
+        verifyHalfOpenWoundRanges();
         verifyPendingDamageAccumulation();
+        verifyIndependentDamageWindows();
+        verifyWoundDefinitions();
         verifyNbtRoundTrip();
+        verifyNonBluntNbtRoundTrip();
         verifyCgmDamageTraceRoundTrip();
         verifyVersionOneMigrationDefaults();
         verifyWoundLimitAndActiveWindowUpdate();
         System.out.println("Superficial Trauma BodyState self-test passed.");
     }
 
-    private static void verifyHalfOpenBluntRanges() {
+    private static void verifyHalfOpenWoundRanges() {
         assertEquals(0, WoundInstance.bluntSeverityFor(0.0F), "0 must not create a wound");
         assertEquals(0, WoundInstance.bluntSeverityFor(1.4999F), "value below 1.5 must not create a wound");
         assertEquals(1, WoundInstance.bluntSeverityFor(1.5F), "1.5 must enter severity 1");
@@ -31,6 +36,27 @@ public final class BodyStateRoundTripTest {
         assertEquals(2, WoundInstance.bluntSeverityFor(4.0F), "4 must enter severity 2");
         assertEquals(2, WoundInstance.bluntSeverityFor(12.9999F), "value below 13 must remain severity 2");
         assertEquals(3, WoundInstance.bluntSeverityFor(13.0F), "13 must enter severity 3");
+
+        assertEquals(0, WoundInstance.sharpSeverityFor(0.4999F), "sharp value below 0.5 must not create a wound");
+        assertEquals(1, WoundInstance.sharpSeverityFor(0.5F), "0.5 must enter sharp severity 1");
+        assertEquals(1, WoundInstance.sharpSeverityFor(4.9999F), "sharp value below 5 must remain severity 1");
+        assertEquals(2, WoundInstance.sharpSeverityFor(5.0F), "5 must enter sharp severity 2");
+        assertEquals(2, WoundInstance.sharpSeverityFor(14.9999F), "sharp value below 15 must remain severity 2");
+        assertEquals(3, WoundInstance.sharpSeverityFor(15.0F), "15 must enter sharp severity 3");
+
+        assertEquals(0, WoundInstance.burnSeverityFor(0.0F), "zero burn damage must not create a wound");
+        assertEquals(1, WoundInstance.burnSeverityFor(0.0001F), "positive burn damage must enter severity 1");
+        assertEquals(1, WoundInstance.burnSeverityFor(4.9999F), "burn value below 5 must remain severity 1");
+        assertEquals(2, WoundInstance.burnSeverityFor(5.0F), "5 must enter burn severity 2");
+        assertEquals(2, WoundInstance.burnSeverityFor(15.9999F), "burn value below 16 must remain severity 2");
+        assertEquals(3, WoundInstance.burnSeverityFor(16.0F), "16 must enter burn severity 3");
+
+        assertEquals(0, WoundInstance.explosionSeverityFor(3.9999F), "explosion value below 4 must not create a wound");
+        assertEquals(1, WoundInstance.explosionSeverityFor(4.0F), "4 must enter explosion severity 1");
+        assertEquals(1, WoundInstance.explosionSeverityFor(7.9999F), "explosion value below 8 must remain severity 1");
+        assertEquals(2, WoundInstance.explosionSeverityFor(8.0F), "8 must enter explosion severity 2");
+        assertEquals(2, WoundInstance.explosionSeverityFor(15.9999F), "explosion value below 16 must remain severity 2");
+        assertEquals(3, WoundInstance.explosionSeverityFor(16.0F), "16 must enter explosion severity 3");
     }
 
     private static void verifyPendingDamageAccumulation() {
@@ -43,6 +69,35 @@ public final class BodyStateRoundTripTest {
         assertEquals(WoundUpdateResult.Status.CREATED, second.status(), "second hit must cross the 1.5 threshold");
         assertEquals(1, state.wounds().size(), "crossing the threshold must create one wound");
         assertFloatEquals(1.5F, state.wounds().get(0).accumulatedDamage(), "pending A must carry into the wound");
+    }
+
+    private static void verifyIndependentDamageWindows() {
+        BodyState state = new BodyState();
+        WoundUpdateResult pendingExplosion = state.applyDamage(WoundType.EXPLOSION, 3.0F, 100L);
+        WoundUpdateResult sharp = state.applyDamage(WoundType.SHARP, 0.5F, 101L);
+        WoundUpdateResult explosion = state.applyDamage(WoundType.EXPLOSION, 1.0F, 102L);
+        WoundUpdateResult burn = state.applyDamage(WoundType.BURN, 0.25F, 103L);
+
+        assertEquals(WoundUpdateResult.Status.PENDING, pendingExplosion.status(), "sub-threshold explosion damage must remain pending");
+        assertEquals(WoundUpdateResult.Status.CREATED, sharp.status(), "sharp damage must use its own window");
+        assertEquals(WoundUpdateResult.Status.CREATED, explosion.status(), "explosion damage must retain its earlier pending A");
+        assertEquals(WoundUpdateResult.Status.CREATED, burn.status(), "any positive burn damage must create a wound");
+        assertEquals(3, state.wounds().size(), "three independently classified wounds must be retained");
+        assertFloatEquals(4.0F, requireWound(explosion).accumulatedDamage(), "explosion A must accumulate independently");
+    }
+
+    private static void verifyWoundDefinitions() {
+        WoundInstance fragment = WoundInstance.create(WoundType.EXPLOSION, 4.0F, 0L, 400L);
+        assertEquals(1, fragment.severity(), "4 explosion damage must create a level-1 fragment wound");
+        assertEquals(true, fragment.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "fragment wound must need debridement");
+        assertEquals(true, fragment.woundTags().contains(WoundTag.PAIN_1), "fragment wound must carry pain 1");
+        assertFloatEquals(0.3F, fragment.baseHealingPerSecond(), "level-1 fragment healing rate must be recorded");
+
+        WoundInstance extensive = WoundInstance.create(WoundType.EXPLOSION, 16.0F, 0L, 400L);
+        assertEquals(true, extensive.woundTags().contains(WoundTag.NECROSIS_3), "level-3 explosion wound must carry necrosis 3");
+        assertEquals(true, extensive.woundTags().contains(WoundTag.BLEEDING_2), "level-3 explosion wound must carry bleeding 2");
+        assertFloatEquals(0.0F, extensive.baseHealingPerSecond(), "level-3 explosion wound must not naturally heal");
+        assertFloatEquals(10.0F, extensive.minimumHealingProgressWithoutSkinGraft(), "skin-graft floor must be recorded as H=10");
     }
 
     private static void verifyNbtRoundTrip() {
@@ -88,6 +143,22 @@ public final class BodyStateRoundTripTest {
         assertEquals("cgm:projectile", restored.lastProjectileEntityId(), "projectile ID must survive NBT");
         assertEquals("nzgexpansion:medium_bullet", restored.lastAmmoId(), "ammo ID must survive NBT");
         assertEquals("nzgexpansion:battle_rifle", restored.lastWeaponId(), "weapon ID must survive NBT");
+    }
+
+    private static void verifyNonBluntNbtRoundTrip() {
+        BodyState original = new BodyState();
+        original.applyDamage(WoundType.SHARP, 5.0F, 400L);
+        original.applyDamage(WoundType.BURN, 5.0F, 401L);
+        original.applyDamage(WoundType.EXPLOSION, 16.0F, 402L);
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(original.serializeNBT());
+
+        assertEquals(3, restored.wounds().size(), "NBT must preserve all implemented wound types");
+        assertEquals(WoundType.SHARP, restored.wounds().get(0).type(), "NBT must preserve sharp wounds");
+        assertEquals(WoundType.BURN, restored.wounds().get(1).type(), "NBT must preserve burn wounds");
+        assertEquals(WoundType.EXPLOSION, restored.wounds().get(2).type(), "NBT must preserve explosion wounds");
+        assertEquals(true, restored.wounds().get(2).woundTags().contains(WoundTag.NECROSIS_3), "NBT must preserve explosion tags");
     }
 
     private static void verifyVersionOneMigrationDefaults() {

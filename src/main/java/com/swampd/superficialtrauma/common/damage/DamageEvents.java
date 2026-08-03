@@ -3,7 +3,6 @@ package com.swampd.superficialtrauma.common.damage;
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
-import com.swampd.superficialtrauma.common.wound.WoundType;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.entity.living.LivingDamageEvent;
@@ -30,8 +29,12 @@ public final class DamageEvents {
         BodyStateCapability.get(player).ifPresent(bodyState -> {
             bodyState.recordFinalDamage(finalDamage, damageType, classification, gameTime);
 
-            if (classification.woundType() == WoundType.BLUNT) {
-                WoundUpdateResult result = bodyState.applyBluntDamage(finalDamage, gameTime);
+            if (classification.woundType() != null) {
+                WoundUpdateResult result = bodyState.applyDamage(
+                        classification.woundType(),
+                        finalDamage,
+                        gameTime
+                );
                 SuperficialTrauma.LOGGER.info(
                         "Final damage D={} type={} classified={} reason={} result={} A={}",
                         finalDamage,

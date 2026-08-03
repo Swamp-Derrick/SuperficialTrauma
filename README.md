@@ -39,8 +39,8 @@ Phase 0's first vertical slice is implemented:
 
 - versioned `BodyState` player capability with NBT persistence;
 - post-armor, post-effect, post-absorption final damage capture;
-- a 20-second blunt-damage accumulation window;
-- blunt wounds using the reviewed half-open severity ranges;
+- independent 20-second accumulation windows for each implemented wound type;
+- blunt, sharp, burn, and explosion wounds using reviewed half-open severity ranges;
 - server-to-client body-state snapshots;
 - a first-pass three-column health screen, opened with `H`;
 - `/superficialtrauma status` and `/superficialtrauma selftest` diagnostics.
@@ -53,12 +53,12 @@ Phase 0's CGM recognition slice is also implemented:
 - version-2 `BodyState` diagnostics with safe migration from version 1;
 - `/superficialtrauma classifyammo` for checking the held ammunition item.
 
-CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Blunt-wound healing, gameplay effects, treatments, the two-player target HUD, and polished HUD art are not active yet.
+Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Automatic healing, gameplay effects, treatments, the two-player target HUD, and polished HUD art are not active yet.
 
 ### Manual persistence check
 
 1. Start `runClient` and enter a test world.
-2. Take ordinary blunt or fall damage. Fire, drowning, magic, sharp weapons, and unarmored projectiles are deferred until their wound types exist.
+2. Take blunt, sharp, burn, or explosion damage. Drowning, starvation, magic, wither, and unarmored ordinary projectiles remain non-traumatic or deferred.
 3. Press `H` and confirm the final damage and wound card appear.
 4. Run `/superficialtrauma selftest`; the command should report that the BodyState/NBT round trip passed.
 5. Save and quit the world, re-enter it, and press `H` again. The wound UUID, severity, `A`, and `H` are stored in the player's capability data and should remain unchanged.
@@ -69,6 +69,17 @@ CGM shots are identified and logged, but they intentionally do not create gunsho
 2. Hold `cgm:basic_bullet`, `cgm:advanced_bullet`, `cgm:shell`, or `nzgexpansion:medium_bullet` and run `/superficialtrauma classifyammo`.
 3. In a two-player test, shoot the second player and open the victim's HUD with `H`.
 4. Confirm that the HUD classification and ammunition ID match the fired round. `/superficialtrauma status` and `latest.log` also include the classification, ammunition ID, and weapon ID.
+
+### Implemented non-gun trauma ranges
+
+| Type | No wound | Level 1 | Level 2 | Level 3 |
+|---|---:|---:|---:|---:|
+| Blunt | `[0, 1.5)` | `[1.5, 4)` | `[4, 13)` | `[13, +∞)` |
+| Sharp | `[0, 0.5)` | `[0.5, 5)` | `[5, 15)` | `[15, +∞)` |
+| Burn | `D = 0` | `(0, 5)` | `[5, 16)` | `[16, +∞)` |
+| Explosion | `[0, 4)` | `[4, 8)` | `[8, 16)` | `[16, +∞)` |
+
+Vanilla swords and axes are classified as sharp weapons. Modded sharp weapons can be appended through the `superficialtrauma:weapons/sharp` item tag.
 
 ## License
 

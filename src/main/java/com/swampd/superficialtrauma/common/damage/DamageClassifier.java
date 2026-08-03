@@ -16,6 +16,10 @@ public final class DamageClassifier {
     }
 
     public static DamageClassification classify(Player patient, DamageSource source) {
+        if (source.is(DamageTypeTags.IS_EXPLOSION)) {
+            return DamageClassification.explosion("explosion");
+        }
+
         Optional<CgmProjectileContext> cgmContext = CgmProjectileContext.inspect(source);
         if (cgmContext.isPresent()) {
             CgmProjectileContext context = cgmContext.get();
@@ -27,7 +31,7 @@ public final class DamageClassifier {
         }
 
         if (source.is(DamageTypeTags.IS_FIRE)) {
-            return DamageClassification.deferred("burn_not_implemented");
+            return DamageClassification.burn("fire_or_lava");
         }
         if (source.is(DamageTypeTags.IS_DROWNING)
                 || source.is(DamageTypes.STARVE)
@@ -45,10 +49,12 @@ public final class DamageClassifier {
             return DamageClassification.deferred("unarmored_projectile_not_implemented");
         }
 
-        if (source.getEntity() instanceof LivingEntity attacker) {
+        if (source.getDirectEntity() instanceof LivingEntity attacker) {
             ItemStack weapon = attacker.getMainHandItem();
-            if (weapon.getItem() instanceof SwordItem || weapon.getItem() instanceof AxeItem) {
-                return DamageClassification.deferred("sharp_wound_not_implemented");
+            if (weapon.getItem() instanceof SwordItem
+                    || weapon.getItem() instanceof AxeItem
+                    || weapon.is(DamageItemTags.SHARP_WEAPONS)) {
+                return DamageClassification.sharp("sharp_weapon");
             }
         }
 
