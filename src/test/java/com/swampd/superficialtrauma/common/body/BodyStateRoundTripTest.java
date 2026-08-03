@@ -1,5 +1,7 @@
 package com.swampd.superficialtrauma.common.body;
 
+import com.swampd.superficialtrauma.common.damage.DamageClassification;
+import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import net.minecraft.nbt.CompoundTag;
 
@@ -15,6 +17,8 @@ public final class BodyStateRoundTripTest {
         verifyHalfOpenBluntRanges();
         verifyPendingDamageAccumulation();
         verifyNbtRoundTrip();
+        verifyCgmDamageTraceRoundTrip();
+        verifyVersionOneMigrationDefaults();
         verifyWoundLimitAndActiveWindowUpdate();
         System.out.println("Superficial Trauma BodyState self-test passed.");
     }
@@ -43,7 +47,7 @@ public final class BodyStateRoundTripTest {
 
     private static void verifyNbtRoundTrip() {
         BodyState original = new BodyState();
-        original.recordFinalDamage(4.0F, "fall", 200L);
+        original.recordFinalDamage(4.0F, "fall", DamageClassification.blunt("fall"), 200L);
         WoundUpdateResult created = original.applyBluntDamage(4.0F, 200L);
         assertEquals(WoundUpdateResult.Status.CREATED, created.status(), "4 damage must create a severity-2 wound");
         UUID originalId = requireWound(created).id();
@@ -62,6 +66,42 @@ public final class BodyStateRoundTripTest {
         assertFloatEquals(100.0F, restoredWound.healingProgress(), "round trip must preserve H");
         assertFloatEquals(4.0F, restored.lastFinalDamage(), "round trip must preserve last final damage diagnostics");
         assertEquals("fall", restored.lastDamageType(), "round trip must preserve damage type diagnostics");
+        assertEquals(DamageKind.BLUNT, restored.lastDamageKind(), "round trip must preserve damage classification");
+        assertEquals("fall", restored.lastDamageReason(), "round trip must preserve classification reason");
+    }
+
+    private static void verifyCgmDamageTraceRoundTrip() {
+        BodyState original = new BodyState();
+        DamageClassification classification = DamageClassification.cgmProjectile(
+                DamageKind.CGM_HIGH_VELOCITY,
+                "cgm_projectile_ammo_tag",
+                "cgm:projectile",
+                "nzgexpansion:medium_bullet",
+                "nzgexpansion:battle_rifle"
+        );
+        original.recordFinalDamage(7.0F, "cgm.bullet.killed", classification, 300L);
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(original.serializeNBT());
+
+        assertEquals(DamageKind.CGM_HIGH_VELOCITY, restored.lastDamageKind(), "CGM classification must survive NBT");
+        assertEquals("cgm:projectile", restored.lastProjectileEntityId(), "projectile ID must survive NBT");
+        assertEquals("nzgexpansion:medium_bullet", restored.lastAmmoId(), "ammo ID must survive NBT");
+        assertEquals("nzgexpansion:battle_rifle", restored.lastWeaponId(), "weapon ID must survive NBT");
+    }
+
+    private static void verifyVersionOneMigrationDefaults() {
+        CompoundTag versionOne = new CompoundTag();
+        versionOne.putInt("DataVersion", 1);
+        versionOne.putFloat("LastFinalDamage", 2.0F);
+        versionOne.putString("LastDamageType", "fall");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(versionOne);
+
+        assertEquals(DamageKind.UNKNOWN, restored.lastDamageKind(), "version 1 data must use a safe unknown classification");
+        assertEquals("none", restored.lastAmmoId(), "version 1 data must not invent an ammo ID");
+        assertEquals("none", restored.lastWeaponId(), "version 1 data must not invent a weapon ID");
     }
 
     private static void verifyWoundLimitAndActiveWindowUpdate() {

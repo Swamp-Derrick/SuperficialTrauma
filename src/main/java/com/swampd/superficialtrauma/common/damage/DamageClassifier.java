@@ -1,6 +1,5 @@
 package com.swampd.superficialtrauma.common.damage;
 
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageTypes;
@@ -9,13 +8,24 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.AxeItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.SwordItem;
-import net.minecraftforge.registries.ForgeRegistries;
+
+import java.util.Optional;
 
 public final class DamageClassifier {
     private DamageClassifier() {
     }
 
     public static DamageClassification classify(Player patient, DamageSource source) {
+        Optional<CgmProjectileContext> cgmContext = CgmProjectileContext.inspect(source);
+        if (cgmContext.isPresent()) {
+            CgmProjectileContext context = cgmContext.get();
+            DamageKind kind = CgmAmmoTags.classify(context.ammoStack());
+            String reason = kind == DamageKind.CGM_UNCLASSIFIED
+                    ? "cgm_projectile_unknown_ammo"
+                    : "cgm_projectile_ammo_tag";
+            return DamageClassification.cgmProjectile(kind, reason, context);
+        }
+
         if (source.is(DamageTypeTags.IS_FIRE)) {
             return DamageClassification.deferred("burn_not_implemented");
         }
@@ -29,13 +39,6 @@ public final class DamageClassifier {
                 || source.is(DamageTypes.OUTSIDE_BORDER)
                 || source.is(DamageTypes.GENERIC_KILL)) {
             return DamageClassification.deferred("non_traumatic_damage");
-        }
-
-        if (source.getDirectEntity() != null) {
-            ResourceLocation directEntityType = ForgeRegistries.ENTITY_TYPES.getKey(source.getDirectEntity().getType());
-            if (directEntityType != null && "cgm".equals(directEntityType.getNamespace())) {
-                return DamageClassification.deferred("cgm_projectile_adapter_not_implemented");
-            }
         }
 
         if (source.is(DamageTypeTags.IS_PROJECTILE) && patient.getArmorValue() <= 0) {

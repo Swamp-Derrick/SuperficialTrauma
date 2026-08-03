@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    {
+      "id": "cgm:basic_bullet",
+      "required": false
+    }
+  ]
+}

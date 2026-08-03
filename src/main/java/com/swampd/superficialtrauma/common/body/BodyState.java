@@ -1,6 +1,8 @@
 package com.swampd.superficialtrauma.common.body;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
+import com.swampd.superficialtrauma.common.damage.DamageClassification;
+import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.DamageWindow;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundType;
@@ -18,7 +20,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 1;
+    public static final int CURRENT_DATA_VERSION = 2;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
 
@@ -37,6 +39,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_DAMAGE_WINDOWS = "DamageWindows";
     private static final String TAG_LAST_FINAL_DAMAGE = "LastFinalDamage";
     private static final String TAG_LAST_DAMAGE_TYPE = "LastDamageType";
+    private static final String TAG_LAST_DAMAGE_KIND = "LastDamageKind";
+    private static final String TAG_LAST_DAMAGE_REASON = "LastDamageReason";
+    private static final String TAG_LAST_PROJECTILE_ENTITY_ID = "LastProjectileEntityId";
+    private static final String TAG_LAST_AMMO_ID = "LastAmmoId";
+    private static final String TAG_LAST_WEAPON_ID = "LastWeaponId";
     private static final String TAG_LAST_DAMAGE_GAME_TIME = "LastDamageGameTime";
 
     private long revision;
@@ -53,6 +60,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private final EnumMap<WoundType, DamageWindow> damageWindows = new EnumMap<>(WoundType.class);
     private float lastFinalDamage;
     private String lastDamageType;
+    private DamageKind lastDamageKind;
+    private String lastDamageReason;
+    private String lastProjectileEntityId;
+    private String lastAmmoId;
+    private String lastWeaponId;
     private long lastDamageGameTime;
 
     public BodyState() {
@@ -123,13 +135,43 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return lastDamageType;
     }
 
+    public DamageKind lastDamageKind() {
+        return lastDamageKind;
+    }
+
+    public String lastDamageReason() {
+        return lastDamageReason;
+    }
+
+    public String lastProjectileEntityId() {
+        return lastProjectileEntityId;
+    }
+
+    public String lastAmmoId() {
+        return lastAmmoId;
+    }
+
+    public String lastWeaponId() {
+        return lastWeaponId;
+    }
+
     public long lastDamageGameTime() {
         return lastDamageGameTime;
     }
 
-    public void recordFinalDamage(float finalDamage, String damageType, long gameTime) {
+    public void recordFinalDamage(
+            float finalDamage,
+            String damageType,
+            DamageClassification classification,
+            long gameTime
+    ) {
         lastFinalDamage = Math.max(0.0F, finalDamage);
         lastDamageType = damageType == null ? "unknown" : damageType;
+        lastDamageKind = classification.kind();
+        lastDamageReason = classification.reason();
+        lastProjectileEntityId = classification.projectileEntityId();
+        lastAmmoId = classification.ammoId();
+        lastWeaponId = classification.weaponId();
         lastDamageGameTime = gameTime;
         markChanged();
     }
@@ -217,6 +259,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         damageWindows.clear();
         lastFinalDamage = 0.0F;
         lastDamageType = "none";
+        lastDamageKind = DamageKind.UNKNOWN;
+        lastDamageReason = "none";
+        lastProjectileEntityId = "none";
+        lastAmmoId = "none";
+        lastWeaponId = "none";
         lastDamageGameTime = -1L;
     }
 
@@ -251,6 +298,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
         tag.putFloat(TAG_LAST_FINAL_DAMAGE, lastFinalDamage);
         tag.putString(TAG_LAST_DAMAGE_TYPE, lastDamageType);
+        tag.putString(TAG_LAST_DAMAGE_KIND, lastDamageKind.serializedName());
+        tag.putString(TAG_LAST_DAMAGE_REASON, lastDamageReason);
+        tag.putString(TAG_LAST_PROJECTILE_ENTITY_ID, lastProjectileEntityId);
+        tag.putString(TAG_LAST_AMMO_ID, lastAmmoId);
+        tag.putString(TAG_LAST_WEAPON_ID, lastWeaponId);
         tag.putLong(TAG_LAST_DAMAGE_GAME_TIME, lastDamageGameTime);
         return tag;
     }
@@ -299,9 +351,20 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         lastDamageType = tag.contains(TAG_LAST_DAMAGE_TYPE, Tag.TAG_STRING)
                 ? tag.getString(TAG_LAST_DAMAGE_TYPE)
                 : "none";
+        lastDamageKind = tag.contains(TAG_LAST_DAMAGE_KIND, Tag.TAG_STRING)
+                ? DamageKind.fromSerializedName(tag.getString(TAG_LAST_DAMAGE_KIND))
+                : DamageKind.UNKNOWN;
+        lastDamageReason = getStringOrDefault(tag, TAG_LAST_DAMAGE_REASON, "none");
+        lastProjectileEntityId = getStringOrDefault(tag, TAG_LAST_PROJECTILE_ENTITY_ID, "none");
+        lastAmmoId = getStringOrDefault(tag, TAG_LAST_AMMO_ID, "none");
+        lastWeaponId = getStringOrDefault(tag, TAG_LAST_WEAPON_ID, "none");
         lastDamageGameTime = tag.contains(TAG_LAST_DAMAGE_GAME_TIME, Tag.TAG_ANY_NUMERIC)
                 ? tag.getLong(TAG_LAST_DAMAGE_GAME_TIME)
                 : -1L;
+    }
+
+    private static String getStringOrDefault(CompoundTag tag, String key, String defaultValue) {
+        return tag.contains(key, Tag.TAG_STRING) ? tag.getString(key) : defaultValue;
     }
 
     private static float clamp(float value, float minimum, float maximum) {

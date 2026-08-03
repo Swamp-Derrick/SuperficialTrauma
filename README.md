@@ -45,7 +45,15 @@ Phase 0's first vertical slice is implemented:
 - a first-pass three-column health screen, opened with `H`;
 - `/superficialtrauma status` and `/superficialtrauma selftest` diagnostics.
 
-Blunt-wound healing, gameplay effects, treatments, and polished HUD art are intentionally not active yet.
+Phase 0's CGM recognition slice is also implemented:
+
+- optional CGM projectile inspection without a hard runtime dependency;
+- server-side capture of the projectile, ammunition, and weapon registry IDs;
+- data-pack ammunition groups for low-velocity, high-velocity, and shotgun rounds;
+- version-2 `BodyState` diagnostics with safe migration from version 1;
+- `/superficialtrauma classifyammo` for checking the held ammunition item.
+
+CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Blunt-wound healing, gameplay effects, treatments, the two-player target HUD, and polished HUD art are not active yet.
 
 ### Manual persistence check
 
@@ -54,6 +62,13 @@ Blunt-wound healing, gameplay effects, treatments, and polished HUD art are inte
 3. Press `H` and confirm the final damage and wound card appear.
 4. Run `/superficialtrauma selftest`; the command should report that the BodyState/NBT round trip passed.
 5. Save and quit the world, re-enter it, and press `H` again. The wound UUID, severity, `A`, and `H` are stored in the player's capability data and should remain unchanged.
+
+### Manual CGM recognition check
+
+1. Start the compatibility client with `runClient -Penable_compatibility_mods=true`.
+2. Hold `cgm:basic_bullet`, `cgm:advanced_bullet`, `cgm:shell`, or `nzgexpansion:medium_bullet` and run `/superficialtrauma classifyammo`.
+3. In a two-player test, shoot the second player and open the victim's HUD with `H`.
+4. Confirm that the HUD classification and ammunition ID match the fired round. `/superficialtrauma status` and `latest.log` also include the classification, ammunition ID, and weapon ID.
 
 ## License
 

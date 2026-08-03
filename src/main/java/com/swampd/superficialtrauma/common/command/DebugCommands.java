@@ -7,15 +7,20 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
+import com.swampd.superficialtrauma.common.damage.CgmAmmoTags;
+import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -37,6 +42,7 @@ public final class DebugCommands {
                                         EntityArgument.getPlayer(context, "player")
                                 )))
                 )
+                .then(Commands.literal("classifyammo").executes(DebugCommands::classifyHeldAmmo))
                 .then(Commands.literal("selftest").executes(DebugCommands::runSelfTest))
         );
     }
@@ -56,6 +62,9 @@ public final class DebugCommands {
                             + " wounds=" + bodyState.wounds().size()
                             + " lastD=" + bodyState.lastFinalDamage()
                             + " type=" + bodyState.lastDamageType()
+                            + " class=" + bodyState.lastDamageKind().serializedName()
+                            + " ammo=" + bodyState.lastAmmoId()
+                            + " weapon=" + bodyState.lastWeaponId()
             ), false);
             for (WoundInstance wound : bodyState.wounds()) {
                 context.getSource().sendSuccess(() -> Component.literal(
@@ -68,6 +77,23 @@ public final class DebugCommands {
             result.set(1);
         });
         return result.get();
+    }
+
+    private static int classifyHeldAmmo(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        ItemStack heldStack = player.getMainHandItem();
+        if (heldStack.isEmpty()) {
+            context.getSource().sendFailure(Component.literal("Hold an ammunition item in your main hand first."));
+            return 0;
+        }
+
+        ResourceLocation itemId = ForgeRegistries.ITEMS.getKey(heldStack.getItem());
+        DamageKind kind = CgmAmmoTags.classify(heldStack);
+        context.getSource().sendSuccess(() -> Component.literal(
+                "Ammo " + (itemId == null ? "unknown" : itemId)
+                        + " classified=" + kind.serializedName()
+        ), false);
+        return kind == DamageKind.CGM_UNCLASSIFIED ? 0 : 1;
     }
 
     private static int runSelfTest(CommandContext<CommandSourceStack> context) {

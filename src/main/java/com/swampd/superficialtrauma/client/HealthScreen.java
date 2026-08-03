@@ -117,6 +117,12 @@ public final class HealthScreen extends Screen {
                 oneDecimal(state.lastFinalDamage()), WARN_COLOR);
         lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.damage_type",
                 state.lastDamageType(), MUTED_COLOR);
+        lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.damage_classification",
+                Component.translatable(state.lastDamageKind().translationKey()).getString(), WARN_COLOR);
+        if (!"none".equals(state.lastAmmoId())) {
+            lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.ammo",
+                    compactIdentifier(state.lastAmmoId()), MUTED_COLOR);
+        }
         drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.data_version",
                 Integer.toString(state.dataVersion()), MUTED_COLOR);
     }
@@ -340,8 +346,10 @@ public final class HealthScreen extends Screen {
     ) {
         Component label = Component.translatable(labelKey);
         graphics.drawString(font, label, x, y, MUTED_COLOR, false);
-        int valueX = x + availableWidth - font.width(value);
-        graphics.drawString(font, value, Math.max(x, valueX), y, valueColor, false);
+        int maximumValueWidth = Math.max(10, availableWidth - font.width(label) - 5);
+        String visibleValue = font.plainSubstrByWidth(value, maximumValueWidth);
+        int valueX = x + availableWidth - font.width(visibleValue);
+        graphics.drawString(font, visibleValue, Math.max(x, valueX), y, valueColor, false);
         return y + 13;
     }
 
@@ -368,6 +376,13 @@ public final class HealthScreen extends Screen {
 
     private static String oneDecimal(float value) {
         return String.format(Locale.ROOT, "%.1f", value);
+    }
+
+    private static String compactIdentifier(String identifier) {
+        int separator = identifier.indexOf(':');
+        return separator >= 0 && separator + 1 < identifier.length()
+                ? identifier.substring(separator + 1)
+                : identifier;
     }
 
     private static void drawColumn(GuiGraphics graphics, int x, int y, int width, int height) {

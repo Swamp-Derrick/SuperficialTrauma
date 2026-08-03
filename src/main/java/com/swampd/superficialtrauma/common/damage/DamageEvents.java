@@ -28,24 +28,29 @@ public final class DamageEvents {
         DamageClassification classification = DamageClassifier.classify(player, event.getSource());
 
         BodyStateCapability.get(player).ifPresent(bodyState -> {
-            bodyState.recordFinalDamage(finalDamage, damageType, gameTime);
+            bodyState.recordFinalDamage(finalDamage, damageType, classification, gameTime);
 
             if (classification.woundType() == WoundType.BLUNT) {
                 WoundUpdateResult result = bodyState.applyBluntDamage(finalDamage, gameTime);
                 SuperficialTrauma.LOGGER.info(
-                        "Final damage D={} type={} classified=blunt reason={} result={} A={}",
+                        "Final damage D={} type={} classified={} reason={} result={} A={}",
                         finalDamage,
                         damageType,
+                        classification.kind().serializedName(),
                         classification.reason(),
                         result.status(),
                         result.accumulatedDamage()
                 );
             } else {
                 SuperficialTrauma.LOGGER.info(
-                        "Final damage D={} type={} deferred reason={}",
+                        "Final damage D={} type={} classified={} reason={} projectile={} ammo={} weapon={}",
                         finalDamage,
                         damageType,
-                        classification.reason()
+                        classification.kind().serializedName(),
+                        classification.reason(),
+                        classification.projectileEntityId(),
+                        classification.ammoId(),
+                        classification.weaponId()
                 );
             }
 

@@ -22,6 +22,18 @@ Framework 0.6.16
 
 Corpse and Simple Voice Chat are independent optional integrations. Superficial Trauma must continue to load when any optional integration is absent.
 
+## Data-driven ammunition groups
+
+CGM projectiles are inspected on the server, then their actual ammunition item is classified through Superficial Trauma item tags. The built-in baseline is:
+
+| Group | Tag | Built-in optional entries |
+|---|---|---|
+| Low velocity | `superficialtrauma:ammo/low_velocity` | `cgm:basic_bullet` |
+| High velocity | `superficialtrauma:ammo/high_velocity` | `cgm:advanced_bullet`, `nzgexpansion:medium_bullet` |
+| Shotgun | `superficialtrauma:ammo/shotgun` | `cgm:shell` |
+
+The entries are optional so Superficial Trauma still loads without CGM. Other gun add-ons can append ammunition through a data pack instead of becoming compile-time dependencies.
+
 ## Development-run requirements
 
 CGM's production JAR contains an SRG refmap. The Gradle run configuration therefore disables that production refmap when the compatibility pack is enabled, allowing the original Mojang-mapped Mixin annotation names to resolve in Forge userdev. This setting affects development runs only and is not written into the released mod JAR.

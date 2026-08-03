@@ -1,0 +1,13 @@
+{
+  "replace": false,
+  "values": [
+    {
+      "id": "cgm:advanced_bullet",
+      "required": false
+    },
+    {
+      "id": "nzgexpansion:medium_bullet",
+      "required": false
+    }
+  ]
+}
