@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.common.body;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
+import com.swampd.superficialtrauma.common.damage.ModDamageTypes;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -74,7 +75,12 @@ public final class BodyStateEvents {
 
         long gameTime = serverPlayer.serverLevel().getGameTime();
         BodyStateCapability.get(serverPlayer).ifPresent(bodyState -> {
-            BodyProgressionResult result = bodyState.advanceBodyProgression(gameTime);
+            boolean traumaticMovement = serverPlayer.isSprinting()
+                    || serverPlayer.getDeltaMovement().y > 0.08D;
+            BodyProgressionResult result = bodyState.advanceBodyProgression(gameTime, traumaticMovement);
+            if (result.bleedingDamage() > 0.0F && serverPlayer.isAlive()) {
+                serverPlayer.hurt(ModDamageTypes.bleeding(serverPlayer), result.bleedingDamage());
+            }
             if (result.changed()) {
                 ModNetworking.syncBodyState(serverPlayer);
             }

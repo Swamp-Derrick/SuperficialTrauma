@@ -20,6 +20,9 @@ public final class DamageEvents {
         if (!(event.getEntity() instanceof ServerPlayer player) || event.getAmount() <= 0.0F) {
             return;
         }
+        if (ModDamageTypes.isInternal(event.getSource())) {
+            return;
+        }
 
         long gameTime = player.serverLevel().getGameTime();
         float finalDamage = event.getAmount();

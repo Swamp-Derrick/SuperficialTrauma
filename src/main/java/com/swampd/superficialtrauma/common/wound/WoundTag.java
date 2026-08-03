@@ -11,6 +11,7 @@ public enum WoundTag {
     BLEEDING_1,
     BLEEDING_2,
     BLEEDING_3,
+    BLEEDING_4,
     DISORIENTATION_1,
     NECROSIS_3,
     NEEDS_DEBRIDEMENT_1;
@@ -25,6 +26,16 @@ public enum WoundTag {
             case PAIN_2 -> 2.0F;
             case PAIN_3 -> 4.0F;
             default -> 0.0F;
+        };
+    }
+
+    public int bleedingLevel() {
+        return switch (this) {
+            case BLEEDING_1, MOVEMENT_BLEEDING_1 -> 1;
+            case BLEEDING_2 -> 2;
+            case BLEEDING_3 -> 3;
+            case BLEEDING_4 -> 4;
+            default -> 0;
         };
     }
 

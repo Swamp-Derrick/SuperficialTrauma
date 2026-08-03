@@ -6,9 +6,18 @@ public record BodyProgressionResult(
         int healedWounds,
         int expiredDamageWindows,
         int expiredTransientWoundTags,
-        float recoveredBasePain
+        float recoveredBasePain,
+        float bleedingDamage
 ) {
-    private static final BodyProgressionResult UNCHANGED = new BodyProgressionResult(false, 0, 0, 0, 0, 0.0F);
+    private static final BodyProgressionResult UNCHANGED = new BodyProgressionResult(
+            false,
+            0,
+            0,
+            0,
+            0,
+            0.0F,
+            0.0F
+    );
 
     public static BodyProgressionResult unchanged() {
         return UNCHANGED;

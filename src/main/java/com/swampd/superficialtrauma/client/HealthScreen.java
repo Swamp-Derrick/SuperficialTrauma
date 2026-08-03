@@ -209,7 +209,7 @@ public final class HealthScreen extends Screen {
                     TEXT_COLOR,
                     false
             );
-            String tagSummary = woundTagSummary(wound);
+            String tagSummary = woundTagSummary(wound, state.movementBleedingActive());
             if (!tagSummary.isEmpty()) {
                 graphics.drawString(
                         font,
@@ -276,9 +276,15 @@ public final class HealthScreen extends Screen {
         return pendingY + 13;
     }
 
-    private String woundTagSummary(WoundInstance wound) {
+    private String woundTagSummary(WoundInstance wound, boolean movementBleedingActive) {
         List<String> labels = new ArrayList<>();
         for (WoundTag tag : wound.woundTags()) {
+            if (tag == WoundTag.MOVEMENT_BLEEDING_1) {
+                if (movementBleedingActive) {
+                    labels.add(Component.translatable("wound_tag.superficialtrauma.bleeding_1").getString());
+                }
+                continue;
+            }
             labels.add(Component.translatable("wound_tag.superficialtrauma." + tag.serializedName()).getString());
         }
         return String.join(" · ", labels);

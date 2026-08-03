@@ -83,10 +83,15 @@
   "wound_tag.superficialtrauma.bleeding_1": "出血 1",
   "wound_tag.superficialtrauma.bleeding_2": "出血 2",
   "wound_tag.superficialtrauma.bleeding_3": "出血 3",
+  "wound_tag.superficialtrauma.bleeding_4": "出血 4",
   "wound_tag.superficialtrauma.disorientation_1": "紊乱 1",
   "wound_tag.superficialtrauma.necrosis_3": "坏死 3",
   "wound_tag.superficialtrauma.needs_debridement_1": "需要清创 1",
-  "triage.superficialtrauma.observe": "可观察",
-  "triage.superficialtrauma.soon": "尽快处理",
-  "triage.superficialtrauma.immediate": "立即处理"
+  "triage.superficialtrauma.observe": "轻微",
+  "triage.superficialtrauma.soon": "中等",
+  "triage.superficialtrauma.immediate": "严重",
+  "death.attack.superficialtrauma.bleeding": "%1$s因失血过多而死",
+  "death.attack.superficialtrauma.bleeding.player": "%1$s在与%2$s交战后因失血过多而死",
+  "death.attack.superficialtrauma.internal_bleeding": "%1$s死于内出血",
+  "death.attack.superficialtrauma.internal_bleeding.player": "%1$s在与%2$s交战后死于内出血"
 }

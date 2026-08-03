@@ -67,6 +67,7 @@ public final class DebugCommands {
                             + " basePain=" + bodyState.basePain()
                             + " woundPain=" + bodyState.woundPainContribution()
                             + " stress=" + bodyState.stressRemainingTicks(gameTime) + "t"
+                            + " movementBleeding=" + bodyState.movementBleedingActive()
                             + " lastD=" + bodyState.lastFinalDamage()
                             + " type=" + bodyState.lastDamageType()
                             + " class=" + bodyState.lastDamageKind().serializedName()
@@ -80,6 +81,8 @@ public final class DebugCommands {
                                 + " A=" + wound.accumulatedDamage()
                                 + " H=" + wound.healingProgress()
                                 + " natural=" + wound.baseHealingPerSecond() + "/s"
+                                + " bleeding=" + wound.bleedingLevel(bodyState.movementBleedingActive())
+                                + " nextBleed=" + wound.nextBleedingGameTime()
                 ), false);
             }
             result.set(1);
@@ -129,6 +132,11 @@ public final class DebugCommands {
         painState.resumeBodyProgression(0L);
         BodyProgressionResult painRecovery = painState.advanceBodyProgression(430L);
 
+        BodyState bleedingState = new BodyState();
+        bleedingState.applyDamage(WoundType.SHARP, 15.0F, 0L);
+        bleedingState.resumeBodyProgression(0L);
+        BodyProgressionResult bleedingPulse = bleedingState.advanceBodyProgression(100L);
+
         boolean passed = pending.status() == WoundUpdateResult.Status.PENDING
                 && created.status() == WoundUpdateResult.Status.CREATED
                 && created.wound() != null
@@ -151,7 +159,8 @@ public final class DebugCommands {
                 && Math.abs(progressionState.basePain() - 1.5F) < 0.0001F
                 && Math.abs(painRecovery.recoveredBasePain() - 1.0F) < 0.0001F
                 && Math.abs(painState.basePain() - 4.0F) < 0.0001F
-                && Math.abs(painState.pain() - 5.0F) < 0.0001F;
+                && Math.abs(painState.pain() - 5.0F) < 0.0001F
+                && Math.abs(bleedingPulse.bleedingDamage() - 1.0F) < 0.0001F;
 
         if (passed) {
             context.getSource().sendSuccess(

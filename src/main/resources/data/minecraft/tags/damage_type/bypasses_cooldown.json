@@ -1,0 +1,7 @@
+{
+  "replace": false,
+  "values": [
+    "superficialtrauma:bleeding",
+    "superficialtrauma:internal_bleeding"
+  ]
+}

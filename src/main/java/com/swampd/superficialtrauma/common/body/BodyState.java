@@ -5,6 +5,7 @@ import com.swampd.superficialtrauma.common.damage.DamageClassification;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.DamageWindow;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
+import com.swampd.superficialtrauma.common.wound.WoundTag;
 import com.swampd.superficialtrauma.common.wound.WoundType;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -21,12 +22,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 4;
+    public static final int CURRENT_DATA_VERSION = 5;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
     public static final long STRESS_DURATION_TICKS = 20L * 20L;
     public static final long PAIN_RECOVERY_INTERVAL_TICKS = 30L;
+    public static final long MOVEMENT_BLEEDING_LINGER_TICKS = 2L * 20L;
 
     private static final String TAG_DATA_VERSION = "DataVersion";
     private static final String TAG_REVISION = "Revision";
@@ -46,6 +48,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_STRESS_END_GAME_TIME = "StressEndGameTime";
     private static final String TAG_NEXT_PAIN_RECOVERY_GAME_TIME = "NextPainRecoveryGameTime";
     private static final String TAG_PROGRESSION_PAUSED_AT_GAME_TIME = "ProgressionPausedAtGameTime";
+    private static final String TAG_MOVEMENT_BLEEDING_END_GAME_TIME = "MovementBleedingEndGameTime";
+    private static final String TAG_MOVEMENT_BLEEDING_ACTIVE = "MovementBleedingActive";
     private static final String TAG_LAST_FINAL_DAMAGE = "LastFinalDamage";
     private static final String TAG_LAST_DAMAGE_TYPE = "LastDamageType";
     private static final String TAG_LAST_DAMAGE_KIND = "LastDamageKind";
@@ -71,6 +75,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private long stressEndGameTime;
     private long nextPainRecoveryGameTime;
     private long progressionPausedAtGameTime;
+    private long movementBleedingEndGameTime;
+    private boolean movementBleedingActive;
     private float lastFinalDamage;
     private String lastDamageType;
     private DamageKind lastDamageKind;
@@ -124,6 +130,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public long progressionPausedAtGameTime() {
         return progressionPausedAtGameTime;
+    }
+
+    public boolean movementBleedingActive() {
+        return movementBleedingActive;
     }
 
     public long stressRemainingTicks(long gameTime) {
@@ -245,7 +255,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
         if (activeWound.isPresent()) {
             WoundInstance wound = activeWound.get();
-            wound.addAccumulatedDamage(finalDamage);
+            wound.addAccumulatedDamage(finalDamage, gameTime);
             markChanged();
             return new WoundUpdateResult(WoundUpdateResult.Status.UPDATED, wound, wound.accumulatedDamage());
         }
@@ -299,8 +309,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             long pausedTicks = gameTime - progressionPausedAtGameTime;
             stressEndGameTime = shiftDeadline(stressEndGameTime, pausedTicks);
             nextPainRecoveryGameTime = shiftDeadline(nextPainRecoveryGameTime, pausedTicks);
+            movementBleedingEndGameTime = shiftDeadline(movementBleedingEndGameTime, pausedTicks);
             for (WoundInstance wound : wounds) {
-                wound.shiftTransientDeadlines(pausedTicks);
+                wound.shiftProgressionDeadlines(pausedTicks);
             }
         }
         progressionPausedAtGameTime = -1L;
@@ -313,6 +324,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     public BodyProgressionResult advanceBodyProgression(long gameTime) {
+        return advanceBodyProgression(gameTime, false);
+    }
+
+    public BodyProgressionResult advanceBodyProgression(long gameTime, boolean traumaticMovement) {
         if (gameTime < 0L) {
             return BodyProgressionResult.unchanged();
         }
@@ -329,6 +344,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         if (lastWoundProgressionGameTime < 0L || gameTime < lastWoundProgressionGameTime) {
             resumeBodyProgression(gameTime);
         }
+
+        boolean movementBleedingStateChanged = updateMovementBleedingState(gameTime, traumaticMovement);
 
         int expiredTransientWoundTags = 0;
         for (WoundInstance wound : wounds) {
@@ -360,13 +377,28 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             }
         }
 
+        if (healedWounds > 0) {
+            movementBleedingStateChanged |= updateMovementBleedingState(gameTime, traumaticMovement);
+        }
+
+        float bleedingDamage = 0.0F;
+        boolean bleedingTimerChanged = false;
+        for (WoundInstance wound : wounds) {
+            long previousDeadline = wound.nextBleedingGameTime();
+            bleedingDamage += wound.advanceBleeding(gameTime, movementBleedingActive);
+            bleedingTimerChanged |= previousDeadline != wound.nextBleedingGameTime();
+        }
+
         float recoveredBasePain = recoverBasePain(gameTime);
         return finishBodyProgression(
                 progressedWounds,
                 healedWounds,
                 expiredDamageWindows,
                 expiredTransientWoundTags,
-                recoveredBasePain
+                recoveredBasePain,
+                bleedingDamage,
+                bleedingTimerChanged,
+                movementBleedingStateChanged
         );
     }
 
@@ -375,13 +407,19 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             int healedWounds,
             int expiredDamageWindows,
             int expiredTransientWoundTags,
-            float recoveredBasePain
+            float recoveredBasePain,
+            float bleedingDamage,
+            boolean bleedingTimerChanged,
+            boolean movementBleedingStateChanged
     ) {
         if (progressedWounds == 0
                 && healedWounds == 0
                 && expiredDamageWindows == 0
                 && expiredTransientWoundTags == 0
-                && recoveredBasePain <= 0.0F) {
+                && recoveredBasePain <= 0.0F
+                && bleedingDamage <= 0.0F
+                && !bleedingTimerChanged
+                && !movementBleedingStateChanged) {
             return BodyProgressionResult.unchanged();
         }
 
@@ -392,8 +430,27 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 healedWounds,
                 expiredDamageWindows,
                 expiredTransientWoundTags,
-                recoveredBasePain
+                recoveredBasePain,
+                bleedingDamage
         );
+    }
+
+    private boolean updateMovementBleedingState(long gameTime, boolean traumaticMovement) {
+        boolean previousState = movementBleedingActive;
+        boolean hasMovementBleedingWound = wounds.stream()
+                .anyMatch(wound -> wound.woundTags().contains(WoundTag.MOVEMENT_BLEEDING_1));
+        if (!hasMovementBleedingWound) {
+            movementBleedingEndGameTime = -1L;
+            movementBleedingActive = false;
+            return previousState;
+        }
+
+        if (traumaticMovement) {
+            movementBleedingEndGameTime = gameTime + MOVEMENT_BLEEDING_LINGER_TICKS;
+        }
+        movementBleedingActive = movementBleedingEndGameTime >= 0L
+                && gameTime < movementBleedingEndGameTime;
+        return previousState != movementBleedingActive;
     }
 
     private void addTraumaticPain(float finalDamage, long gameTime) {
@@ -448,6 +505,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         stressEndGameTime = -1L;
         nextPainRecoveryGameTime = -1L;
         progressionPausedAtGameTime = -1L;
+        movementBleedingEndGameTime = -1L;
+        movementBleedingActive = false;
         lastFinalDamage = 0.0F;
         lastDamageType = "none";
         lastDamageKind = DamageKind.UNKNOWN;
@@ -490,6 +549,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         tag.putLong(TAG_STRESS_END_GAME_TIME, stressEndGameTime);
         tag.putLong(TAG_NEXT_PAIN_RECOVERY_GAME_TIME, nextPainRecoveryGameTime);
         tag.putLong(TAG_PROGRESSION_PAUSED_AT_GAME_TIME, progressionPausedAtGameTime);
+        tag.putLong(TAG_MOVEMENT_BLEEDING_END_GAME_TIME, movementBleedingEndGameTime);
+        tag.putBoolean(TAG_MOVEMENT_BLEEDING_ACTIVE, movementBleedingActive);
 
         tag.putFloat(TAG_LAST_FINAL_DAMAGE, lastFinalDamage);
         tag.putString(TAG_LAST_DAMAGE_TYPE, lastDamageType);
@@ -555,6 +616,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         progressionPausedAtGameTime = tag.contains(TAG_PROGRESSION_PAUSED_AT_GAME_TIME, Tag.TAG_ANY_NUMERIC)
                 ? tag.getLong(TAG_PROGRESSION_PAUSED_AT_GAME_TIME)
                 : -1L;
+        movementBleedingEndGameTime = tag.contains(TAG_MOVEMENT_BLEEDING_END_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                ? tag.getLong(TAG_MOVEMENT_BLEEDING_END_GAME_TIME)
+                : -1L;
+        movementBleedingActive = tag.getBoolean(TAG_MOVEMENT_BLEEDING_ACTIVE);
 
         lastFinalDamage = Math.max(0.0F, tag.getFloat(TAG_LAST_FINAL_DAMAGE));
         lastDamageType = tag.contains(TAG_LAST_DAMAGE_TYPE, Tag.TAG_STRING)

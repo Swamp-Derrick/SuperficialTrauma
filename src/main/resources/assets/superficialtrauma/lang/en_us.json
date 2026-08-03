@@ -83,10 +83,15 @@
   "wound_tag.superficialtrauma.bleeding_1": "Bleeding 1",
   "wound_tag.superficialtrauma.bleeding_2": "Bleeding 2",
   "wound_tag.superficialtrauma.bleeding_3": "Bleeding 3",
+  "wound_tag.superficialtrauma.bleeding_4": "Bleeding 4",
   "wound_tag.superficialtrauma.disorientation_1": "Disorientation 1",
   "wound_tag.superficialtrauma.necrosis_3": "Necrosis 3",
   "wound_tag.superficialtrauma.needs_debridement_1": "Needs debridement 1",
-  "triage.superficialtrauma.observe": "Observe",
-  "triage.superficialtrauma.soon": "Treat soon",
-  "triage.superficialtrauma.immediate": "Immediate"
+  "triage.superficialtrauma.observe": "Minor",
+  "triage.superficialtrauma.soon": "Moderate",
+  "triage.superficialtrauma.immediate": "Severe",
+  "death.attack.superficialtrauma.bleeding": "%1$s bled to death",
+  "death.attack.superficialtrauma.bleeding.player": "%1$s bled to death after fighting %2$s",
+  "death.attack.superficialtrauma.internal_bleeding": "%1$s died from internal bleeding",
+  "death.attack.superficialtrauma.internal_bleeding.player": "%1$s died from internal bleeding after fighting %2$s"
 }

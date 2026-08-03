@@ -20,6 +20,8 @@ public final class WoundInstance {
     private static final String TAG_WINDOW_END_GAME_TIME = "WindowEndGameTime";
     private static final String TAG_WOUND_TAGS = "WoundTags";
     private static final String TAG_TRANSIENT_PAIN_END_GAME_TIME = "TransientPainEndGameTime";
+    private static final String TAG_NEXT_BLEEDING_GAME_TIME = "NextBleedingGameTime";
+    private static final String TAG_BLEEDING_TIMER_LEVEL = "BleedingTimerLevel";
     private static final long SHARP_LEVEL_ONE_PAIN_TICKS = 10L * 20L;
 
     private final UUID id;
@@ -31,6 +33,8 @@ public final class WoundInstance {
     private final long windowEndGameTime;
     private final EnumSet<WoundTag> woundTags;
     private long transientPainEndGameTime;
+    private long nextBleedingGameTime;
+    private int bleedingTimerLevel;
 
     private WoundInstance(
             UUID id,
@@ -41,7 +45,9 @@ public final class WoundInstance {
             long createdGameTime,
             long windowEndGameTime,
             EnumSet<WoundTag> woundTags,
-            long transientPainEndGameTime
+            long transientPainEndGameTime,
+            long nextBleedingGameTime,
+            int bleedingTimerLevel
     ) {
         this.id = id;
         this.type = type;
@@ -52,6 +58,8 @@ public final class WoundInstance {
         this.windowEndGameTime = Math.max(createdGameTime, windowEndGameTime);
         this.woundTags = woundTags.clone();
         this.transientPainEndGameTime = transientPainEndGameTime;
+        this.nextBleedingGameTime = nextBleedingGameTime;
+        this.bleedingTimerLevel = Math.max(0, Math.min(4, bleedingTimerLevel));
     }
 
     public static WoundInstance createBlunt(float accumulatedDamage, long createdGameTime, long windowEndGameTime) {
@@ -70,6 +78,8 @@ public final class WoundInstance {
                     type.serializedName() + " wounds do not meet their minimum accumulated-damage threshold"
             );
         }
+        EnumSet<WoundTag> initialTags = tagsFor(type, severity);
+        int initialBleedingLevel = bleedingLevel(initialTags, false);
         return new WoundInstance(
                 UUID.randomUUID(),
                 type,
@@ -78,8 +88,12 @@ public final class WoundInstance {
                 100.0F,
                 createdGameTime,
                 windowEndGameTime,
-                tagsFor(type, severity),
-                transientPainEndFor(type, severity, createdGameTime)
+                initialTags,
+                transientPainEndFor(type, severity, createdGameTime),
+                initialBleedingLevel > 0
+                        ? createdGameTime + bleedingIntervalTicksFor(initialBleedingLevel)
+                        : -1L,
+                initialBleedingLevel
         );
     }
 
@@ -119,11 +133,20 @@ public final class WoundInstance {
         return transientPainEndGameTime;
     }
 
+    public long nextBleedingGameTime() {
+        return nextBleedingGameTime;
+    }
+
+    public int bleedingLevel(boolean movementBleedingActive) {
+        return bleedingLevel(woundTags, movementBleedingActive);
+    }
+
     public boolean isAccumulationWindowOpen(long gameTime) {
         return gameTime < windowEndGameTime;
     }
 
-    public void addAccumulatedDamage(float amount) {
+    public void addAccumulatedDamage(float amount, long gameTime) {
+        int previousBleedingLevel = bleedingLevel(false);
         accumulatedDamage = Math.max(0.0F, accumulatedDamage + amount);
         int newSeverity = severityFor(type, accumulatedDamage);
         if (newSeverity > severity) {
@@ -131,7 +154,38 @@ public final class WoundInstance {
             woundTags.clear();
             woundTags.addAll(tagsFor(type, severity));
             transientPainEndGameTime = transientPainEndFor(type, severity, createdGameTime);
+
+            int newBleedingLevel = bleedingLevel(false);
+            if (newBleedingLevel != previousBleedingLevel) {
+                bleedingTimerLevel = newBleedingLevel;
+                nextBleedingGameTime = newBleedingLevel > 0
+                        ? gameTime + bleedingIntervalTicksFor(newBleedingLevel)
+                        : -1L;
+            }
         }
+    }
+
+    public float advanceBleeding(long gameTime, boolean movementBleedingActive) {
+        int effectiveLevel = bleedingLevel(movementBleedingActive);
+        if (effectiveLevel <= 0) {
+            nextBleedingGameTime = -1L;
+            bleedingTimerLevel = 0;
+            return 0.0F;
+        }
+
+        long intervalTicks = bleedingIntervalTicksFor(effectiveLevel);
+        if (nextBleedingGameTime < 0L || bleedingTimerLevel != effectiveLevel) {
+            bleedingTimerLevel = effectiveLevel;
+            nextBleedingGameTime = gameTime + intervalTicks;
+            return 0.0F;
+        }
+        if (gameTime < nextBleedingGameTime) {
+            return 0.0F;
+        }
+
+        long completedPulses = 1L + (gameTime - nextBleedingGameTime) / intervalTicks;
+        nextBleedingGameTime += completedPulses * intervalTicks;
+        return completedPulses * bleedingDamagePerPulseFor(effectiveLevel);
     }
 
     public boolean expireTransientTags(long gameTime) {
@@ -143,9 +197,12 @@ public final class WoundInstance {
         return woundTags.remove(WoundTag.PAIN_1);
     }
 
-    public void shiftTransientDeadlines(long deltaTicks) {
+    public void shiftProgressionDeadlines(long deltaTicks) {
         if (transientPainEndGameTime >= 0L && deltaTicks > 0L) {
             transientPainEndGameTime += deltaTicks;
+        }
+        if (nextBleedingGameTime >= 0L && deltaTicks > 0L) {
+            nextBleedingGameTime += deltaTicks;
         }
     }
 
@@ -288,6 +345,31 @@ public final class WoundInstance {
                 : -1L;
     }
 
+    private static int bleedingLevel(Set<WoundTag> tags, boolean movementBleedingActive) {
+        int level = 0;
+        for (WoundTag tag : tags) {
+            if (tag == WoundTag.MOVEMENT_BLEEDING_1 && !movementBleedingActive) {
+                continue;
+            }
+            level = Math.max(level, tag.bleedingLevel());
+        }
+        return level;
+    }
+
+    private static long bleedingIntervalTicksFor(int bleedingLevel) {
+        return switch (bleedingLevel) {
+            case 1 -> 10L * 20L;
+            case 2 -> 7L * 20L;
+            case 3 -> 5L * 20L;
+            case 4 -> 6L * 20L;
+            default -> throw new IllegalArgumentException("Unsupported bleeding level: " + bleedingLevel);
+        };
+    }
+
+    private static float bleedingDamagePerPulseFor(int bleedingLevel) {
+        return bleedingLevel == 4 ? 2.0F : 1.0F;
+    }
+
     public CompoundTag serializeNBT() {
         CompoundTag tag = new CompoundTag();
         tag.putUUID(TAG_ID, id);
@@ -298,6 +380,8 @@ public final class WoundInstance {
         tag.putLong(TAG_CREATED_GAME_TIME, createdGameTime);
         tag.putLong(TAG_WINDOW_END_GAME_TIME, windowEndGameTime);
         tag.putLong(TAG_TRANSIENT_PAIN_END_GAME_TIME, transientPainEndGameTime);
+        tag.putLong(TAG_NEXT_BLEEDING_GAME_TIME, nextBleedingGameTime);
+        tag.putInt(TAG_BLEEDING_TIMER_LEVEL, bleedingTimerLevel);
 
         ListTag woundTagList = new ListTag();
         for (WoundTag woundTag : woundTags) {
@@ -336,7 +420,13 @@ public final class WoundInstance {
                 woundTags,
                 hasTransientPainMetadata
                         ? tag.getLong(TAG_TRANSIENT_PAIN_END_GAME_TIME)
-                        : transientPainEndFor(type, severity, tag.getLong(TAG_CREATED_GAME_TIME))
+                        : transientPainEndFor(type, severity, tag.getLong(TAG_CREATED_GAME_TIME)),
+                tag.contains(TAG_NEXT_BLEEDING_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                        ? tag.getLong(TAG_NEXT_BLEEDING_GAME_TIME)
+                        : -1L,
+                tag.contains(TAG_BLEEDING_TIMER_LEVEL, Tag.TAG_ANY_NUMERIC)
+                        ? tag.getInt(TAG_BLEEDING_TIMER_LEVEL)
+                        : 0
         );
     }
 }

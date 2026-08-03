@@ -6,6 +6,8 @@ import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
 import com.swampd.superficialtrauma.common.wound.WoundType;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 
 import java.util.UUID;
 
@@ -25,6 +27,9 @@ public final class BodyStateRoundTripTest {
         verifyPainTagFloorAndClamp();
         verifyPainOfflinePauseAndNbt();
         verifyTransientSharpPain();
+        verifyBleedingSchedulesAndStacking();
+        verifyMovementBleeding();
+        verifyBleedingOfflinePauseAndNbt();
         verifyNaturalHealingRates();
         verifyTimedWoundProgression();
         verifyPendingWindowExpiry();
@@ -34,6 +39,7 @@ public final class BodyStateRoundTripTest {
         verifyVersionOneMigrationDefaults();
         verifyVersionTwoProgressionMigrationDefaults();
         verifyVersionThreePainMigrationDefaults();
+        verifyVersionFourBleedingMigrationDefaults();
         verifyWoundLimitAndActiveWindowUpdate();
         System.out.println("Superficial Trauma BodyState self-test passed.");
     }
@@ -212,6 +218,68 @@ public final class BodyStateRoundTripTest {
         assertFloatEquals(1.0F, paused.woundPainContribution(), "offline time must not consume transient sharp pain");
     }
 
+    private static void verifyBleedingSchedulesAndStacking() {
+        BodyState severeSharp = new BodyState();
+        severeSharp.applyDamage(WoundType.SHARP, 15.0F, 0L);
+        severeSharp.resumeBodyProgression(0L);
+
+        BodyProgressionResult beforeFirstPulse = severeSharp.advanceBodyProgression(99L);
+        assertFloatEquals(0.0F, beforeFirstPulse.bleedingDamage(), "bleeding 3 must not pulse before five seconds");
+        BodyProgressionResult firstPulse = severeSharp.advanceBodyProgression(100L);
+        assertFloatEquals(1.0F, firstPulse.bleedingDamage(), "bleeding 3 must remove one health point every five seconds");
+        BodyProgressionResult delayedPulses = severeSharp.advanceBodyProgression(300L);
+        assertFloatEquals(2.0F, delayedPulses.bleedingDamage(), "delayed processing must catch up complete bleeding intervals");
+
+        BodyState stacked = new BodyState();
+        stacked.applyDamage(WoundType.SHARP, 5.0F, 0L);
+        stacked.applyDamage(WoundType.EXPLOSION, 16.0F, 0L);
+        stacked.resumeBodyProgression(0L);
+
+        stacked.advanceBodyProgression(139L);
+        BodyProgressionResult simultaneous = stacked.advanceBodyProgression(140L);
+        assertFloatEquals(2.0F, simultaneous.bleedingDamage(), "separate bleeding-2 wounds must each contribute at the same deadline");
+    }
+
+    private static void verifyMovementBleeding() {
+        BodyState state = new BodyState();
+        state.applyDamage(WoundType.BLUNT, 13.0F, 0L);
+        state.resumeBodyProgression(0L);
+
+        state.advanceBodyProgression(0L, false);
+        assertEquals(false, state.movementBleedingActive(), "level-3 blunt movement bleeding must start hidden");
+        assertEquals(-1L, state.wounds().get(0).nextBleedingGameTime(), "inactive movement bleeding must not have a running timer");
+
+        state.advanceBodyProgression(1L, true);
+        assertEquals(true, state.movementBleedingActive(), "sprinting or jumping must activate movement bleeding");
+        assertEquals(201L, state.wounds().get(0).nextBleedingGameTime(), "movement bleeding 1 must schedule a ten-second pulse");
+
+        state.advanceBodyProgression(200L, true);
+        BodyProgressionResult movementPulse = state.advanceBodyProgression(201L, false);
+        assertFloatEquals(1.0F, movementPulse.bleedingDamage(), "continued movement must produce bleeding-1 damage");
+        state.advanceBodyProgression(239L, false);
+        assertEquals(true, state.movementBleedingActive(), "movement bleeding must linger for two seconds after movement stops");
+        state.advanceBodyProgression(240L, false);
+        assertEquals(false, state.movementBleedingActive(), "movement bleeding must stop at the half-open two-second deadline");
+        assertEquals(-1L, state.wounds().get(0).nextBleedingGameTime(), "stopped movement bleeding must reset its timer");
+    }
+
+    private static void verifyBleedingOfflinePauseAndNbt() {
+        BodyState original = new BodyState();
+        original.applyDamage(WoundType.SHARP, 5.0F, 0L);
+        original.resumeBodyProgression(0L);
+        original.pauseBodyProgression(100L);
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(original.serializeNBT());
+        assertEquals(140L, restored.wounds().get(0).nextBleedingGameTime(), "NBT must preserve the bleeding deadline");
+
+        restored.resumeBodyProgression(1_100L);
+        assertEquals(1_140L, restored.wounds().get(0).nextBleedingGameTime(), "offline time must shift bleeding deadlines forward");
+        restored.advanceBodyProgression(1_139L);
+        BodyProgressionResult resumedPulse = restored.advanceBodyProgression(1_140L);
+        assertFloatEquals(1.0F, resumedPulse.bleedingDamage(), "offline time must not grant free bleeding pulses");
+    }
+
     private static void verifyNaturalHealingRates() {
         assertNaturalHealing(WoundType.BLUNT, 1.5F, 99.0F, "level-1 blunt");
         assertNaturalHealing(WoundType.BLUNT, 4.0F, 99.5F, "level-2 blunt");
@@ -293,7 +361,7 @@ public final class BodyStateRoundTripTest {
 
         CompoundTag serialized = original.serializeNBT();
         assertEquals(BodyState.CURRENT_DATA_VERSION, serialized.getInt("DataVersion"), "serialized data version must be current");
-        assertFloatEquals(4.0F, serialized.getFloat("BasePain"), "version 4 NBT must store base pain separately");
+        assertFloatEquals(4.0F, serialized.getFloat("BasePain"), "version 5 NBT must store base pain separately");
 
         BodyState restored = new BodyState();
         restored.deserializeNBT(serialized);
@@ -347,6 +415,7 @@ public final class BodyStateRoundTripTest {
         assertEquals(WoundType.BURN, restored.wounds().get(1).type(), "NBT must preserve burn wounds");
         assertEquals(WoundType.EXPLOSION, restored.wounds().get(2).type(), "NBT must preserve explosion wounds");
         assertEquals(true, restored.wounds().get(2).woundTags().contains(WoundTag.NECROSIS_3), "NBT must preserve explosion tags");
+        assertEquals(540L, restored.wounds().get(0).nextBleedingGameTime(), "NBT must preserve a sharp wound's bleeding timer");
     }
 
     private static void verifyVersionOneMigrationDefaults() {
@@ -384,6 +453,27 @@ public final class BodyStateRoundTripTest {
         assertFloatEquals(7.0F, restored.basePain(), "version 3 Pain must migrate to version 4 base pain");
         assertFloatEquals(7.0F, restored.pain(), "migrated pain without wounds must remain visible");
         assertEquals(-1L, restored.stressEndGameTime(), "version 3 data must not invent an active stress timer");
+    }
+
+    private static void verifyVersionFourBleedingMigrationDefaults() {
+        BodyState current = new BodyState();
+        current.applyDamage(WoundType.SHARP, 5.0F, 0L);
+        CompoundTag versionFour = current.serializeNBT();
+        versionFour.putInt("DataVersion", 4);
+        ListTag wounds = versionFour.getList("Wounds", Tag.TAG_COMPOUND);
+        wounds.getCompound(0).remove("NextBleedingGameTime");
+        wounds.getCompound(0).remove("BleedingTimerLevel");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(versionFour);
+        assertEquals(-1L, restored.wounds().get(0).nextBleedingGameTime(), "version 4 wounds must migrate without retroactive bleeding");
+
+        BodyProgressionResult scheduled = restored.advanceBodyProgression(0L);
+        assertFloatEquals(0.0F, scheduled.bleedingDamage(), "migration must schedule a fresh interval instead of dealing immediate damage");
+        assertEquals(140L, restored.wounds().get(0).nextBleedingGameTime(), "migrated bleeding 2 must receive a seven-second deadline");
+        restored.advanceBodyProgression(139L);
+        BodyProgressionResult firstPulse = restored.advanceBodyProgression(140L);
+        assertFloatEquals(1.0F, firstPulse.bleedingDamage(), "migrated bleeding must begin after its first full interval");
     }
 
     private static void verifyWoundLimitAndActiveWindowUpdate() {
