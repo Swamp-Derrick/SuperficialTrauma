@@ -1,0 +1,33 @@
+# Gradle outputs and caches
+.gradle/
+build/
+out/
+
+# Minecraft development runs
+run/
+run-data/
+src/generated/resources/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+
+# Local machine settings and diagnostics
+gradle-local.properties
+*.log
+logs/
+crash-reports/
+hs_err_pid*
+replay_pid*
+
+# Operating system files
+.DS_Store
+Thumbs.db
