@@ -52,6 +52,7 @@ public final class ClientForgeEvents {
     @SubscribeEvent
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         ClientBodyState.clear();
+        ClientDownedPoses.clear();
         ClientBloodLossOverlay.clear();
     }
 }

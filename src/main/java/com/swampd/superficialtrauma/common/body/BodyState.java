@@ -22,7 +22,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 7;
+    public static final int CURRENT_DATA_VERSION = 8;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
@@ -51,6 +51,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_BRAIN_DEATH_DEADLINE = "BrainDeathDeadlineGameTime";
     private static final String TAG_CARDIAC_ARREST_EVENT_ID = "CardiacArrestEventId";
     private static final String TAG_ACCUMULATED_CPR_SECONDS = "AccumulatedCprSeconds";
+    private static final String TAG_DOWNED_GAME_TIME = "DownedGameTime";
+    private static final String TAG_DOWNED_BODY_YAW = "DownedBodyYaw";
+    private static final String TAG_DOWNED_POSTURE = "DownedPosture";
+    private static final String TAG_DOWNED_FALL_DIRECTION = "DownedFallDirection";
     private static final String TAG_WOUNDS = "Wounds";
     private static final String TAG_DAMAGE_WINDOWS = "DamageWindows";
     private static final String TAG_LAST_WOUND_PROGRESSION_GAME_TIME = "LastWoundProgressionGameTime";
@@ -81,6 +85,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private long brainDeathDeadlineGameTime;
     private UUID cardiacArrestEventId;
     private int accumulatedCprSeconds;
+    private long downedGameTime;
+    private float downedBodyYaw;
+    private DownedPosture downedPosture;
+    private DownedFallDirection downedFallDirection;
     private final List<WoundInstance> wounds = new ArrayList<>();
     private final EnumMap<WoundType, DamageWindow> damageWindows = new EnumMap<>(WoundType.class);
     private long lastWoundProgressionGameTime;
@@ -273,6 +281,30 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public int accumulatedCprSeconds() {
         return accumulatedCprSeconds;
+    }
+
+    public Optional<DownedPoseSnapshot> downedPoseSnapshot() {
+        if (downedGameTime < 0L || lifeState == BodyLifeState.ACTIVE) {
+            return Optional.empty();
+        }
+        return Optional.of(new DownedPoseSnapshot(
+                downedGameTime,
+                downedBodyYaw,
+                downedPosture,
+                downedFallDirection
+        ));
+    }
+
+    public boolean captureDownedPose(DownedPoseSnapshot snapshot) {
+        if (snapshot == null || lifeState == BodyLifeState.ACTIVE || downedGameTime >= 0L) {
+            return false;
+        }
+        downedGameTime = snapshot.downedGameTime();
+        downedBodyYaw = snapshot.bodyYaw();
+        downedPosture = snapshot.posture();
+        downedFallDirection = snapshot.fallDirection();
+        markChanged();
+        return true;
     }
 
     public List<WoundInstance> wounds() {
@@ -601,6 +633,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     private void enterIncapacitated(CollapseReason reason, long gameTime) {
+        clearDownedPoseSnapshot();
         lifeState = BodyLifeState.INCAPACITATED;
         collapseReason = reason == null || reason == CollapseReason.NONE
                 ? CollapseReason.LETHAL_DAMAGE
@@ -684,7 +717,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 || bloodOxygenDeadlineGameTime >= 0L
                 || brainDeathDeadlineGameTime >= 0L
                 || cardiacArrestEventId != null
-                || accumulatedCprSeconds > 0;
+                || accumulatedCprSeconds > 0
+                || downedGameTime >= 0L;
         if (!changed) {
             return false;
         }
@@ -698,10 +732,17 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         brainDeathDeadlineGameTime = -1L;
         cardiacArrestEventId = null;
         accumulatedCprSeconds = 0;
+        clearDownedPoseSnapshot();
         stressEndGameTime = -1L;
         nextPainRecoveryGameTime = -1L;
         markChanged();
         return true;
+    }
+
+    public void resetAllForDebug() {
+        long nextRevision = revision == Long.MAX_VALUE ? Long.MAX_VALUE : revision + 1L;
+        resetToDefaults();
+        revision = nextRevision;
     }
 
     private boolean updateMovementBleedingState(long gameTime, boolean traumaticMovement) {
@@ -777,6 +818,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         brainDeathDeadlineGameTime = -1L;
         cardiacArrestEventId = null;
         accumulatedCprSeconds = 0;
+        clearDownedPoseSnapshot();
         wounds.clear();
         damageWindows.clear();
         lastWoundProgressionGameTime = -1L;
@@ -794,6 +836,13 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         lastAmmoId = "none";
         lastWeaponId = "none";
         lastDamageGameTime = -1L;
+    }
+
+    private void clearDownedPoseSnapshot() {
+        downedGameTime = -1L;
+        downedBodyYaw = 0.0F;
+        downedPosture = DownedPosture.UNSAFE;
+        downedFallDirection = DownedFallDirection.FADE_ONLY;
     }
 
     @Override
@@ -814,6 +863,12 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             tag.putUUID(TAG_CARDIAC_ARREST_EVENT_ID, cardiacArrestEventId);
         }
         tag.putInt(TAG_ACCUMULATED_CPR_SECONDS, accumulatedCprSeconds);
+        if (downedGameTime >= 0L && lifeState != BodyLifeState.ACTIVE) {
+            tag.putLong(TAG_DOWNED_GAME_TIME, downedGameTime);
+            tag.putFloat(TAG_DOWNED_BODY_YAW, downedBodyYaw);
+            tag.putString(TAG_DOWNED_POSTURE, downedPosture.serializedName());
+            tag.putString(TAG_DOWNED_FALL_DIRECTION, downedFallDirection.serializedName());
+        }
 
         ListTag woundList = new ListTag();
         for (WoundInstance wound : wounds) {
@@ -881,6 +936,18 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 ? tag.getUUID(TAG_CARDIAC_ARREST_EVENT_ID)
                 : null;
         accumulatedCprSeconds = Math.max(0, tag.getInt(TAG_ACCUMULATED_CPR_SECONDS));
+        if (lifeState != BodyLifeState.ACTIVE && tag.contains(TAG_DOWNED_GAME_TIME, Tag.TAG_ANY_NUMERIC)) {
+            DownedPoseSnapshot snapshot = new DownedPoseSnapshot(
+                    Math.max(0L, tag.getLong(TAG_DOWNED_GAME_TIME)),
+                    tag.getFloat(TAG_DOWNED_BODY_YAW),
+                    DownedPosture.fromSerializedName(tag.getString(TAG_DOWNED_POSTURE)),
+                    DownedFallDirection.fromSerializedName(tag.getString(TAG_DOWNED_FALL_DIRECTION))
+            );
+            downedGameTime = snapshot.downedGameTime();
+            downedBodyYaw = snapshot.bodyYaw();
+            downedPosture = snapshot.posture();
+            downedFallDirection = snapshot.fallDirection();
+        }
 
         ListTag woundList = tag.getList(TAG_WOUNDS, Tag.TAG_COMPOUND);
         for (int i = 0; i < woundList.size() && wounds.size() < MAX_WOUNDS; i++) {

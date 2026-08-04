@@ -9,6 +9,9 @@ import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.BodyProgressionResult;
 import com.swampd.superficialtrauma.common.body.BodyLifeState;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
+import com.swampd.superficialtrauma.common.body.DownedFallDirection;
+import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
+import com.swampd.superficialtrauma.common.body.DownedPosture;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
 import com.swampd.superficialtrauma.common.damage.CgmAmmoTags;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
@@ -22,6 +25,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -49,11 +53,20 @@ public final class DebugCommands {
                 )
                 .then(Commands.literal("classifyammo").executes(DebugCommands::classifyHeldAmmo))
                 .then(Commands.literal("selftest").executes(DebugCommands::runSelfTest))
+                .then(Commands.literal("reset")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(DebugCommands::resetSelf)
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .executes(context -> resetPlayer(
+                                        context,
+                                        EntityArgument.getPlayer(context, "player")
+                                )))
+                )
                 .then(Commands.literal("recover")
                         .requires(source -> source.hasPermission(2))
-                        .executes(DebugCommands::recoverSelf)
+                        .executes(DebugCommands::resetSelf)
                         .then(Commands.argument("player", EntityArgument.player())
-                                .executes(context -> recoverPlayer(
+                                .executes(context -> resetPlayer(
                                         context,
                                         EntityArgument.getPlayer(context, "player")
                                 )))
@@ -70,6 +83,12 @@ public final class DebugCommands {
         AtomicInteger result = new AtomicInteger(0);
         long gameTime = player.serverLevel().getGameTime();
         BodyStateCapability.get(player).ifPresent(bodyState -> {
+            String poseDescription = bodyState.downedPoseSnapshot()
+                    .map(snapshot -> snapshot.posture().serializedName()
+                            + "/" + snapshot.fallDirection().serializedName()
+                            + " yaw=" + snapshot.bodyYaw()
+                            + " at=" + snapshot.downedGameTime())
+                    .orElse("none");
             context.getSource().sendSuccess(() -> Component.literal(
                     player.getGameProfile().getName()
                             + " BodyState v" + bodyState.dataVersion()
@@ -84,6 +103,7 @@ public final class DebugCommands {
                             + " shockWarning=" + bodyState.shockWarningRemainingTicks(gameTime) + "t"
                             + " danger=" + bodyState.downedDangerRemainingTicks(gameTime) + "t"
                             + " oxygen=" + bodyState.bloodOxygen()
+                            + " downedPose=" + poseDescription
                             + " movementBleeding=" + bodyState.movementBleedingActive()
                             + " lastD=" + bodyState.lastFinalDamage()
                             + " type=" + bodyState.lastDamageType()
@@ -124,33 +144,49 @@ public final class DebugCommands {
         return kind == DamageKind.CGM_UNCLASSIFIED ? 0 : 1;
     }
 
-    private static int recoverSelf(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
-        return recoverPlayer(context, context.getSource().getPlayerOrException());
+    private static int resetSelf(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        return resetPlayer(context, context.getSource().getPlayerOrException());
     }
 
-    private static int recoverPlayer(CommandContext<CommandSourceStack> context, ServerPlayer player) {
+    private static int resetPlayer(CommandContext<CommandSourceStack> context, ServerPlayer player) {
         AtomicInteger result = new AtomicInteger(0);
         BodyStateCapability.get(player).ifPresent(bodyState -> {
-            boolean changed = bodyState.forceRecoverForDebug();
+            bodyState.resetAllForDebug();
+            resetVanillaState(player);
+            ModNetworking.syncBodyState(player);
+            ModNetworking.syncDownedPose(player);
             String playerName = player.getGameProfile().getName();
-            if (changed) {
-                ModNetworking.syncBodyState(player);
-                context.getSource().sendSuccess(
-                        () -> Component.translatable(
-                                "command.superficialtrauma.recover.success",
-                                playerName
-                        ),
-                        true
-                );
-                result.set(1);
-            } else {
-                context.getSource().sendFailure(Component.translatable(
-                        "command.superficialtrauma.recover.unchanged",
-                        playerName
-                ));
-            }
+            context.getSource().sendSuccess(
+                    () -> Component.translatable(
+                            "command.superficialtrauma.reset.success",
+                            playerName
+                    ),
+                    true
+            );
+            result.set(1);
         });
         return result.get();
+    }
+
+    private static void resetVanillaState(ServerPlayer player) {
+        player.stopUsingItem();
+        player.removeAllEffects();
+        player.clearFire();
+        player.setTicksFrozen(0);
+        player.setAirSupply(player.getMaxAirSupply());
+        player.setAbsorptionAmount(0.0F);
+        player.setArrowCount(0);
+        player.setStingerCount(0);
+        player.getFoodData().setFoodLevel(20);
+        player.getFoodData().setSaturation(5.0F);
+        player.getFoodData().setExhaustion(0.0F);
+        player.setHealth(player.getMaxHealth());
+        player.fallDistance = 0.0F;
+        player.invulnerableTime = 0;
+        player.hurtTime = 0;
+        player.hurtDuration = 0;
+        player.setSprinting(false);
+        player.setDeltaMovement(Vec3.ZERO);
     }
 
     private static int runSelfTest(CommandContext<CommandSourceStack> context) {
@@ -191,8 +227,19 @@ public final class DebugCommands {
 
         BodyState downedState = new BodyState();
         boolean enteredDowned = downedState.incapacitate(CollapseReason.LETHAL_DAMAGE, 1_000L);
+        boolean capturedPose = downedState.captureDownedPose(new DownedPoseSnapshot(
+                1_000L,
+                45.0F,
+                DownedPosture.STANDING,
+                DownedFallDirection.BACKWARD
+        ));
         var downedHit = downedState.applyDownedDamage(2.5F, 1_000L);
         BodyProgressionResult cardiacArrest = downedState.advanceBodyProgression(4_100L);
+
+        BodyState resetState = new BodyState();
+        resetState.applyDamage(WoundType.SHARP, 5.0F, 0L);
+        resetState.incapacitate(CollapseReason.LETHAL_DAMAGE, 1L);
+        resetState.resetAllForDebug();
 
         boolean passed = pending.status() == WoundUpdateResult.Status.PENDING
                 && created.status() == WoundUpdateResult.Status.CREATED
@@ -223,11 +270,16 @@ public final class DebugCommands {
                 && shockState.lifeState() == BodyLifeState.INCAPACITATED
                 && shockState.collapseReason() == CollapseReason.TRAUMATIC_SHOCK
                 && enteredDowned
+                && capturedPose
+                && downedState.downedPoseSnapshot().isPresent()
                 && downedHit.applied()
                 && downedHit.shortenedTicks() == 500L
                 && downedHit.remainingTicks() == 3_100L
                 && cardiacArrest.becameCardiacArrest()
-                && downedState.lifeState() == BodyLifeState.CARDIAC_ARREST;
+                && downedState.lifeState() == BodyLifeState.CARDIAC_ARREST
+                && resetState.lifeState() == BodyLifeState.ACTIVE
+                && resetState.wounds().isEmpty()
+                && resetState.downedPoseSnapshot().isEmpty();
 
         if (passed) {
             context.getSource().sendSuccess(

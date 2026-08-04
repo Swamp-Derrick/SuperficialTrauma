@@ -67,6 +67,7 @@
   "message.superficialtrauma.hemorrhagic_shock_incapacitated": "Haemorrhagic shock has incapacitated you",
   "message.superficialtrauma.cardiac_arrest": "Your heart has stopped",
   "message.superficialtrauma.brain_death": "The rescue window has expired",
+  "command.superficialtrauma.reset.success": "Reset all Superficial Trauma and vanilla survival states for %s",
   "command.superficialtrauma.recover.success": "Restored %s's ability to act and cleared base pain",
   "command.superficialtrauma.recover.unchanged": "%s does not currently need recovery",
   "damage_kind.superficialtrauma.unknown": "No record",

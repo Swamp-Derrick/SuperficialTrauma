@@ -42,18 +42,21 @@ Phase 0's first vertical slice is implemented:
 - independent 20-second accumulation windows for each implemented wound type;
 - blunt, sharp, burn, and explosion wounds using reviewed half-open severity ranges;
 - server-authoritative natural healing that updates `H` once per complete second and removes wounds at `H = 0`;
-- version-7 body state with persistent pain, stress, shock warnings, collapse reasons, downed deadlines, per-wound bleeding clocks, and safe migration from earlier saves;
+- version-8 body state with persistent pain, stress, shock warnings, collapse reasons, downed deadlines, downed-pose snapshots, per-wound bleeding clocks, and safe migration from earlier saves;
 - server-authoritative bleeding pulses for bleeding levels 1-4, including the two-second movement-bleeding linger on level-3 blunt wounds;
 - silent blood-loss health deduction that bypasses the vanilla hurt animation and instead sends a short two-or-three-spot blood overlay to the affected client;
 - traumatic-shock progression: stress suppresses collapse, pain 20 starts a ten-second warning, and pain still at 20 incapacitates the player at the deadline;
 - lethal final damage is clamped to preserve up to one vanilla health point and moves an active player into the incapacitated state;
 - incapacitation starts a 180-second blood-oxygen countdown; expiry enters cardiac arrest and starts the separate 180-second brain-death deadline;
 - final damage while downed skips trauma, pain, and stress, then shortens the current danger countdown by `10 × D` seconds;
+- collapse captures one fixed server-owned snapshot containing downing time, body yaw, standing/crouching/sprinting posture, and forward/backward/left/right fall direction; unsafe, swimming, and crawling states select fade-only;
+- compact downed-pose snapshots are synchronized to the victim, current tracking players, and players who begin tracking later, ready for the visual animation slice;
 - brain-death expiry performs one normal server death handoff so later corpse compatibility can remain downstream of the life-state machine;
 - server-side incapacitation restrictions for movement, attacks, block breaking, interaction, and item use;
 - server-to-client body-state snapshots;
 - a first-pass three-column health screen, opened with `H`;
-- `/superficialtrauma status` and `/superficialtrauma selftest` diagnostics.
+- `/superficialtrauma status` and `/superficialtrauma selftest` diagnostics;
+- `/superficialtrauma reset [player]` completely clears the mod body state and restores vanilla survival health, hunger, air, effects, absorption, fire, freezing, embedded arrows/stingers, hurt cooldowns, and movement for repeatable cross-version testing; `/recover` remains an alias.
 
 Phase 0's CGM recognition slice is also implemented:
 
@@ -63,7 +66,7 @@ Phase 0's CGM recognition slice is also implemented:
 - version-2 `BodyState` diagnostics with safe migration from version 1;
 - `/superficialtrauma classifyammo` for checking the held ammunition item.
 
-Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the hidden-duration pain-20 shock warning, traumatic-shock incapacitation, lethal-hit downing, blood-oxygen countdown, downed-damage deadline reduction, cardiac arrest, and brain-death expiry are active. Awakening through treatment, CPR, ventricular fibrillation, internal bleeding derivation, treatments, the two-player target HUD, corpse handoff verification, downed presentation, and polished HUD art are not active yet. The agreed downed camera and third-person pose direction is recorded in [DESIGN_NOTES.md](DESIGN_NOTES.md).
+Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the hidden-duration pain-20 shock warning, traumatic-shock incapacitation, lethal-hit downing, blood-oxygen countdown, downed-damage deadline reduction, cardiac arrest, brain-death expiry, and the synchronized downed-pose data foundation are active. Awakening through treatment, CPR, ventricular fibrillation, internal bleeding derivation, treatments, the two-player target HUD, corpse handoff verification, visual downed presentation, and polished HUD art are not active yet. The agreed downed camera and third-person pose direction is recorded in [DESIGN_NOTES.md](DESIGN_NOTES.md).
 
 Natural healing and pain timers advance only while the injured player is online. Logging out pauses the progression clock, preventing logout time from being used as free treatment or stress recovery. Whole intervals are calculated from server game time, so delayed processing does not lose elapsed progress.
 
@@ -87,7 +90,7 @@ Blood-loss pulses deduct vanilla health directly on the server instead of invoki
 5. Log out while stress is active, wait on a still-running server, and reconnect. The remaining stress and base pain must resume rather than elapse offline.
 6. Reach effective pain 20 and wait for stress to end. The server starts its internal ten-second traumatic-shock warning, but the action bar and health HUD only show the non-numeric warning text; automatic base-pain recovery remains paused for the full warning.
 7. If effective pain is still 20 at the deadline, the life state becomes incapacitated and the player can no longer move horizontally, sprint, attack, break blocks, interact, or start using an item.
-8. During development, an operator can run `/superficialtrauma recover` or `/superficialtrauma recover <player>` to restore active state and clear base pain.
+8. During development, an operator can run `/superficialtrauma reset` or `/superficialtrauma reset <player>` to clear all mod state and restore vanilla survival state. `/superficialtrauma recover` remains an alias.
 9. Take final damage equal to or greater than current vanilla health. Health stops at one and the collapse reason becomes lethal injury; ordinary external-hit feedback is retained.
 
 ### Manual downed countdown check
@@ -100,6 +103,14 @@ Blood-loss pulses deduct vanilla health directly on the server instead of invoki
 6. Take another `D = 2` hit during cardiac arrest. This time the brain-death countdown must lose 20 seconds.
 7. Run `/superficialtrauma status` during both states and confirm that `danger` matches the HUD in server ticks. NBT deadline migration and round trips are covered by `bodyStateSelfTest`; the reviewed disconnect-immediately-dies rule is not connected yet.
 8. At brain-death expiry, exactly one normal player death must occur. Corpse-mod ownership and item handoff still require a later compatibility test.
+9. On the first collapse, `/superficialtrauma status` must report a fixed `downedPose` containing posture, fall direction, body yaw, and downing game time. Later mouse movement and further damage must not change it.
+
+### Manual cross-version reset check
+
+1. Create several wounds, pain, stress, bleeding, effects, missing health, hunger, fire, freezing, and a downed state.
+2. Run `/superficialtrauma reset <player>` as an operator. The no-argument form targets the command sender.
+3. Confirm full vanilla health, hunger, saturation, air, no absorption/effects/fire/freezing/arrows/stingers, active life state, no wounds, no pain, no pending damage windows, and no downed-pose snapshot.
+4. Inventory, experience, game mode, location, and advancements are deliberately preserved.
 
 ### Manual bleeding check
 

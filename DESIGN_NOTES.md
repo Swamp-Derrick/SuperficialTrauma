@@ -22,8 +22,8 @@ The downed state is server-authoritative, but its camera and model animation are
 
 ### Planned implementation order
 
-1. Persist downing time, body yaw, movement posture, and four-way fall direction.
-2. Synchronize a compact downed-pose snapshot to the victim and tracking players, including late trackers.
+1. **Implemented:** persist downing time, body yaw, movement posture, and four-way fall direction.
+2. **Implemented:** synchronize a compact downed-pose snapshot to the victim and tracking players, including late trackers.
 3. Add the rigid third-person render pose and fade-only victim transition.
 4. Add four first-person camera profiles and safe-state fallbacks.
 5. Polish limb positioning, CGM weapon placement, camera collision, and accessibility settings.

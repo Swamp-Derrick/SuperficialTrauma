@@ -9,6 +9,7 @@ import com.swampd.superficialtrauma.common.wound.WoundType;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.UUID;
 
@@ -29,6 +30,7 @@ public final class BodyStateRoundTripTest {
         verifyShockWarningCancellationAndNbt();
         verifyLethalDamageIncapacitation();
         verifyDownedDamageCountdowns();
+        verifyDownedPoseSnapshotAndReset();
         verifyPainTagFloorAndClamp();
         verifyPainOfflinePauseAndNbt();
         verifyTransientSharpPain();
@@ -47,6 +49,7 @@ public final class BodyStateRoundTripTest {
         verifyVersionFourBleedingMigrationDefaults();
         verifyVersionFiveShockMigrationDefaults();
         verifyVersionSixDownedMigrationDefaults();
+        verifyVersionSevenPoseMigrationDefaults();
         verifyWoundLimitAndActiveWindowUpdate();
         System.out.println("Superficial Trauma BodyState self-test passed.");
     }
@@ -238,6 +241,69 @@ public final class BodyStateRoundTripTest {
         BodyProgressionResult brainDeath = state.advanceBodyProgression(7_300L);
         assertEquals(true, brainDeath.becameBrainDead(), "the shortened brain-death deadline must be authoritative");
         assertEquals(BodyLifeState.BRAIN_DEAD, state.lifeState(), "deadline expiry must enter brain death");
+    }
+
+    private static void verifyDownedPoseSnapshotAndReset() {
+        assertEquals(
+                DownedFallDirection.FORWARD,
+                DownedPoseCapture.classifyFallDirection(0.0F, new Vec3(0.0D, 0.0D, 1.0D)),
+                "a world-south fall must be forward for body yaw zero"
+        );
+        assertEquals(
+                DownedFallDirection.BACKWARD,
+                DownedPoseCapture.classifyFallDirection(0.0F, new Vec3(0.0D, 0.0D, -1.0D)),
+                "a world-north fall must be backward for body yaw zero"
+        );
+        assertEquals(
+                DownedFallDirection.LEFT,
+                DownedPoseCapture.classifyFallDirection(0.0F, new Vec3(1.0D, 0.0D, 0.0D)),
+                "a world-east fall must be left for body yaw zero"
+        );
+        assertEquals(
+                DownedFallDirection.RIGHT,
+                DownedPoseCapture.classifyFallDirection(0.0F, new Vec3(-1.0D, 0.0D, 0.0D)),
+                "a world-west fall must be right for body yaw zero"
+        );
+
+        BodyState original = new BodyState();
+        original.applyDamage(WoundType.SHARP, 5.0F, 900L);
+        original.incapacitate(CollapseReason.LETHAL_DAMAGE, 1_000L);
+        assertEquals(
+                true,
+                original.captureDownedPose(new DownedPoseSnapshot(
+                        1_000L,
+                        725.0F,
+                        DownedPosture.CROUCHING,
+                        DownedFallDirection.LEFT
+                )),
+                "the first collapse must capture one pose snapshot"
+        );
+        assertEquals(
+                false,
+                original.captureDownedPose(new DownedPoseSnapshot(
+                        1_001L,
+                        90.0F,
+                        DownedPosture.STANDING,
+                        DownedFallDirection.RIGHT
+                )),
+                "later updates must not rotate an already downed body"
+        );
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(original.serializeNBT());
+        DownedPoseSnapshot restoredPose = restored.downedPoseSnapshot()
+                .orElseThrow(() -> new AssertionError("NBT must preserve a downed pose snapshot"));
+        assertEquals(1_000L, restoredPose.downedGameTime(), "NBT must preserve the downing time");
+        assertFloatEquals(5.0F, restoredPose.bodyYaw(), "NBT must wrap and preserve body yaw");
+        assertEquals(DownedPosture.CROUCHING, restoredPose.posture(), "NBT must preserve collapse posture");
+        assertEquals(DownedFallDirection.LEFT, restoredPose.fallDirection(), "NBT must preserve fall direction");
+
+        restored.resetAllForDebug();
+        assertEquals(BodyLifeState.ACTIVE, restored.lifeState(), "full debug reset must restore active state");
+        assertEquals(0, restored.wounds().size(), "full debug reset must remove every wound");
+        assertFloatEquals(0.0F, restored.pain(), "full debug reset must clear all pain sources");
+        assertEquals(false, restored.downedPoseSnapshot().isPresent(), "full debug reset must clear the downed pose");
+        assertEquals("none", restored.lastDamageType(), "full debug reset must clear damage diagnostics");
     }
 
     private static void verifyShockWarningCancellationAndNbt() {
@@ -621,6 +687,22 @@ public final class BodyStateRoundTripTest {
         restored.advanceBodyProgression(500L);
         assertEquals(4_100L, restored.bloodOxygenDeadlineGameTime(), "the first online tick must give a migrated downed player a full oxygen timer");
         assertEquals(BodyLifeState.INCAPACITATED, restored.lifeState(), "migration must not immediately cause cardiac arrest");
+    }
+
+    private static void verifyVersionSevenPoseMigrationDefaults() {
+        CompoundTag versionSeven = new CompoundTag();
+        versionSeven.putInt("DataVersion", 7);
+        versionSeven.putString("LifeState", "incapacitated");
+        versionSeven.putString("CollapseReason", "lethal_damage");
+        versionSeven.putFloat("BloodOxygen", 20.0F);
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(versionSeven);
+        assertEquals(
+                false,
+                restored.downedPoseSnapshot().isPresent(),
+                "version 7 data must wait for the server to capture a safe migration pose"
+        );
     }
 
     private static void verifyWoundLimitAndActiveWindowUpdate() {

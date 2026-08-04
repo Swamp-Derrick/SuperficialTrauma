@@ -4,6 +4,7 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.DownedDamageResult;
+import com.swampd.superficialtrauma.common.body.DownedPoseCapture;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.network.chat.Component;
@@ -36,6 +37,9 @@ public final class DamageEvents {
             bodyState.recordFinalDamage(finalDamage, damageType, classification, gameTime);
 
             if (!bodyState.canAct()) {
+                boolean poseCaptured = bodyState.captureDownedPose(
+                        DownedPoseCapture.capture(player, event.getSource(), gameTime)
+                );
                 DownedDamageResult downedResult = bodyState.applyDownedDamage(finalDamage, gameTime);
                 event.setAmount(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
                 SuperficialTrauma.LOGGER.info(
@@ -48,6 +52,9 @@ public final class DamageEvents {
                         downedResult.resultingState().serializedName()
                 );
                 ModNetworking.syncBodyState(player);
+                if (poseCaptured) {
+                    ModNetworking.syncDownedPose(player);
+                }
                 return;
             }
 
@@ -83,7 +90,10 @@ public final class DamageEvents {
             if (lethalHit) {
                 event.setAmount(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
             }
-            if (lethalHit && bodyState.incapacitate(CollapseReason.LETHAL_DAMAGE, gameTime)) {
+            boolean becameDowned = lethalHit
+                    && bodyState.incapacitate(CollapseReason.LETHAL_DAMAGE, gameTime);
+            if (becameDowned) {
+                bodyState.captureDownedPose(DownedPoseCapture.capture(player, event.getSource(), gameTime));
                 player.displayClientMessage(
                         Component.translatable("message.superficialtrauma.lethal_damage_incapacitated"),
                         true
@@ -91,6 +101,9 @@ public final class DamageEvents {
             }
 
             ModNetworking.syncBodyState(player);
+            if (becameDowned) {
+                ModNetworking.syncDownedPose(player);
+            }
         });
     }
 }

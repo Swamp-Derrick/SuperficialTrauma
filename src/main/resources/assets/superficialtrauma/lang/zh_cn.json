@@ -67,6 +67,7 @@
   "message.superficialtrauma.hemorrhagic_shock_incapacitated": "你因失血性休克失去了行动能力",
   "message.superficialtrauma.cardiac_arrest": "你的心脏停止了跳动",
   "message.superficialtrauma.brain_death": "抢救时间已经耗尽",
+  "command.superficialtrauma.reset.success": "已将 %s 的模组身体状态和原版生存状态全部重置",
   "command.superficialtrauma.recover.success": "已恢复 %s 的行动能力并清除基础疼痛",
   "command.superficialtrauma.recover.unchanged": "%s 当前无需恢复",
   "damage_kind.superficialtrauma.unknown": "尚无记录",

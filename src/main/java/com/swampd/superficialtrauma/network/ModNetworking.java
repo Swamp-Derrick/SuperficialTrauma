@@ -4,6 +4,7 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.network.packet.BloodLossFeedbackS2CPacket;
 import com.swampd.superficialtrauma.network.packet.BodyStateSyncS2CPacket;
+import com.swampd.superficialtrauma.network.packet.DownedPoseSyncS2CPacket;
 import com.swampd.superficialtrauma.network.packet.RequestBodyStateC2SPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -18,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "2";
+    private static final String PROTOCOL_VERSION = "3";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -57,6 +58,14 @@ public final class ModNetworking {
                 BloodLossFeedbackS2CPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT)
         );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                DownedPoseSyncS2CPacket.class,
+                DownedPoseSyncS2CPacket::encode,
+                DownedPoseSyncS2CPacket::decode,
+                DownedPoseSyncS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
     }
 
     public static void syncBodyState(ServerPlayer player) {
@@ -64,6 +73,27 @@ public final class ModNetworking {
                 PacketDistributor.PLAYER.with(() -> player),
                 new BodyStateSyncS2CPacket(bodyState.serializeNBT())
         ));
+    }
+
+    public static void syncDownedPose(ServerPlayer player) {
+        CHANNEL.send(
+                PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
+                createDownedPosePacket(player)
+        );
+    }
+
+    public static void syncDownedPoseTo(ServerPlayer subject, ServerPlayer receiver) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> receiver),
+                createDownedPosePacket(subject)
+        );
+    }
+
+    public static void clearDownedPoseFor(ServerPlayer receiver, int subjectEntityId) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> receiver),
+                DownedPoseSyncS2CPacket.active(subjectEntityId)
+        );
     }
 
     public static void requestOwnBodyState() {
@@ -91,5 +121,13 @@ public final class ModNetworking {
 
     public static void forgetPlayer(UUID playerId) {
         LAST_BODY_STATE_REQUEST.remove(playerId);
+    }
+
+    private static DownedPoseSyncS2CPacket createDownedPosePacket(ServerPlayer player) {
+        return BodyStateCapability.get(player)
+                .resolve()
+                .flatMap(bodyState -> bodyState.downedPoseSnapshot())
+                .map(snapshot -> DownedPoseSyncS2CPacket.downed(player.getId(), snapshot))
+                .orElseGet(() -> DownedPoseSyncS2CPacket.active(player.getId()));
     }
 }

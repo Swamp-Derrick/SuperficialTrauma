@@ -70,6 +70,23 @@ public final class BodyStateEvents {
     }
 
     @SubscribeEvent
+    public static void onStartTracking(PlayerEvent.StartTracking event) {
+        if (event.getEntity() instanceof ServerPlayer receiver
+                && event.getTarget() instanceof ServerPlayer subject) {
+            ensureDownedPoseSnapshot(subject);
+            ModNetworking.syncDownedPoseTo(subject, receiver);
+        }
+    }
+
+    @SubscribeEvent
+    public static void onStopTracking(PlayerEvent.StopTracking event) {
+        if (event.getEntity() instanceof ServerPlayer receiver
+                && event.getTarget() instanceof ServerPlayer subject) {
+            ModNetworking.clearDownedPoseFor(receiver, subject.getId());
+        }
+    }
+
+    @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
         if (event.phase != TickEvent.Phase.END || !(event.player instanceof ServerPlayer serverPlayer)) {
             return;
@@ -80,21 +97,29 @@ public final class BodyStateEvents {
             boolean traumaticMovement = serverPlayer.isSprinting()
                     || serverPlayer.getDeltaMovement().y > 0.08D;
             BodyProgressionResult result = bodyState.advanceBodyProgression(gameTime, traumaticMovement);
+            boolean poseCaptured = !bodyState.canAct()
+                    && bodyState.captureDownedPose(DownedPoseCapture.capture(serverPlayer, null, gameTime));
             if (result.bleedingDamage() > 0.0F && serverPlayer.isAlive()) {
                 BloodLossDamage.apply(serverPlayer, result.bleedingDamage());
             }
             notifyShockState(serverPlayer, bodyState, result, gameTime);
             notifyDownedState(serverPlayer, result);
             if (bodyState.lifeState() == BodyLifeState.BRAIN_DEAD) {
-                if (result.changed()) {
+                if (result.changed() || poseCaptured) {
                     ModNetworking.syncBodyState(serverPlayer);
+                }
+                if (poseCaptured) {
+                    ModNetworking.syncDownedPose(serverPlayer);
                 }
                 triggerTrueDeath(serverPlayer);
                 return;
             }
             enforceIncapacitation(serverPlayer, bodyState);
-            if (result.changed()) {
+            if (result.changed() || poseCaptured) {
                 ModNetworking.syncBodyState(serverPlayer);
+            }
+            if (poseCaptured) {
+                ModNetworking.syncDownedPose(serverPlayer);
             }
         });
     }
@@ -162,8 +187,19 @@ public final class BodyStateEvents {
 
     private static void syncIfServerPlayer(Player player) {
         if (player instanceof ServerPlayer serverPlayer) {
+            ensureDownedPoseSnapshot(serverPlayer);
             ModNetworking.syncBodyState(serverPlayer);
+            ModNetworking.syncDownedPose(serverPlayer);
         }
+    }
+
+    private static void ensureDownedPoseSnapshot(ServerPlayer player) {
+        long gameTime = player.serverLevel().getGameTime();
+        BodyStateCapability.get(player).ifPresent(bodyState -> {
+            if (!bodyState.canAct()) {
+                bodyState.captureDownedPose(DownedPoseCapture.capture(player, null, gameTime));
+            }
+        });
     }
 
     private static void resumeProgressionIfServerPlayer(Player player) {
