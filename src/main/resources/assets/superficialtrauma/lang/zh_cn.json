@@ -139,5 +139,8 @@
   "death.attack.superficialtrauma.bleeding": "%1$s因失血过多而死",
   "death.attack.superficialtrauma.bleeding.player": "%1$s在与%2$s交战后因失血过多而死",
   "death.attack.superficialtrauma.internal_bleeding": "%1$s死于内出血",
-  "death.attack.superficialtrauma.internal_bleeding.player": "%1$s在与%2$s交战后死于内出血"
+  "death.attack.superficialtrauma.internal_bleeding.player": "%1$s在与%2$s交战后死于内出血",
+  "screen.superficialtrauma.loot.title": "搜刮 %s",
+  "screen.superficialtrauma.loot.take_all": "一键拿取全部",
+  "message.superficialtrauma.loot.busy": "%s 正在被其他人搜刮"
 }

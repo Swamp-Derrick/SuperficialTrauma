@@ -3,6 +3,7 @@ package com.swampd.superficialtrauma.common.body;
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.damage.BloodLossDamage;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAggregator;
+import com.swampd.superficialtrauma.common.loot.LootingService;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.chat.Component;
@@ -53,6 +54,7 @@ public final class BodyStateEvents {
     @SubscribeEvent
     public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         ShotgunVolleyAggregator.clearPlayer(event.getEntity().getUUID());
+        LootingService.forgetPlayer(event.getEntity().getUUID());
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
             BodyStateCapability.get(serverPlayer).ifPresent(bodyState ->
                     bodyState.pauseBodyProgression(serverPlayer.serverLevel().getGameTime())
@@ -99,6 +101,7 @@ public final class BodyStateEvents {
         }
 
         long gameTime = serverPlayer.serverLevel().getGameTime();
+        LootingService.closeIfInvalid(serverPlayer);
         BodyStateCapability.get(serverPlayer).ifPresent(bodyState -> {
             boolean shotgunVolleyResolved = ShotgunVolleyAggregator.resolveReady(
                     serverPlayer,
@@ -139,6 +142,7 @@ public final class BodyStateEvents {
     @SubscribeEvent
     public static void onServerStopped(ServerStoppedEvent event) {
         ShotgunVolleyAggregator.clearAll();
+        LootingService.clearAll();
     }
 
     private static void notifyDownedState(ServerPlayer player, BodyProgressionResult result) {

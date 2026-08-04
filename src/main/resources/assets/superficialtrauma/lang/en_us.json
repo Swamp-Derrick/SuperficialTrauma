@@ -139,5 +139,8 @@
   "death.attack.superficialtrauma.bleeding": "%1$s bled to death",
   "death.attack.superficialtrauma.bleeding.player": "%1$s bled to death after fighting %2$s",
   "death.attack.superficialtrauma.internal_bleeding": "%1$s died from internal bleeding",
-  "death.attack.superficialtrauma.internal_bleeding.player": "%1$s died from internal bleeding after fighting %2$s"
+  "death.attack.superficialtrauma.internal_bleeding.player": "%1$s died from internal bleeding after fighting %2$s",
+  "screen.superficialtrauma.loot.title": "Loot %s",
+  "screen.superficialtrauma.loot.take_all": "Take All",
+  "message.superficialtrauma.loot.busy": "%s is already being looted"
 }

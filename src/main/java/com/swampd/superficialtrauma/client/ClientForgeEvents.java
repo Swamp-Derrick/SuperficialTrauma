@@ -3,12 +3,17 @@ package com.swampd.superficialtrauma.client;
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.client.event.RenderGuiOverlayEvent;
 import net.minecraftforge.client.event.RenderGuiEvent;
 import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
@@ -41,6 +46,23 @@ public final class ClientForgeEvents {
                 minecraft.setScreen(new HealthScreen());
             }
         }
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
+        if (!event.getLevel().isClientSide
+                || event.getHand() != InteractionHand.MAIN_HAND
+                || !(event.getTarget() instanceof Player target)
+                || event.getEntity() != Minecraft.getInstance().player
+                || event.getEntity() == target
+                || ClientDownedPoses.get(event.getEntity().getId()).isPresent()
+                || ClientDownedPoses.get(target.getId()).isEmpty()) {
+            return;
+        }
+
+        ModNetworking.requestLootTarget(target.getId());
+        event.setCancellationResult(InteractionResult.SUCCESS);
+        event.setCanceled(true);
     }
 
     @SubscribeEvent

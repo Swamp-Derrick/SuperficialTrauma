@@ -6,6 +6,7 @@ import com.swampd.superficialtrauma.network.packet.BloodLossFeedbackS2CPacket;
 import com.swampd.superficialtrauma.network.packet.BodyStateSyncS2CPacket;
 import com.swampd.superficialtrauma.network.packet.DownedPoseSyncS2CPacket;
 import com.swampd.superficialtrauma.network.packet.RequestBodyStateC2SPacket;
+import com.swampd.superficialtrauma.network.packet.RequestLootTargetC2SPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkDirection;
@@ -19,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "4";
+    private static final String PROTOCOL_VERSION = "5";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -66,6 +67,14 @@ public final class ModNetworking {
                 DownedPoseSyncS2CPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT)
         );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                RequestLootTargetC2SPacket.class,
+                RequestLootTargetC2SPacket::encode,
+                RequestLootTargetC2SPacket::decode,
+                RequestLootTargetC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
     }
 
     public static void syncBodyState(ServerPlayer player) {
@@ -98,6 +107,10 @@ public final class ModNetworking {
 
     public static void requestOwnBodyState() {
         CHANNEL.sendToServer(new RequestBodyStateC2SPacket());
+    }
+
+    public static void requestLootTarget(int targetEntityId) {
+        CHANNEL.sendToServer(new RequestLootTargetC2SPacket(targetEntityId));
     }
 
     public static void sendBloodLossFeedback(ServerPlayer player, float amount) {
