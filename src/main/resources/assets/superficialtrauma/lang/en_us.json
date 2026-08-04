@@ -48,6 +48,8 @@
   "screen.superficialtrauma.health.recommend_explosion_3": "Treat immediately: debridement, bleeding control, and skin grafting are required; H cannot fall below 10 before grafting.",
   "screen.superficialtrauma.health.actions_placeholder": "Treatment buttons arrive in the next stage. This prototype only inspects server-owned injury data.",
   "screen.superficialtrauma.health.close_hint": "Press Esc to close. Press H to open your Health HUD.",
+  "screen.superficialtrauma.downed.title": "You are incapacitated",
+  "screen.superficialtrauma.downed.health_hint": "Press H to view your health status",
   "life_state.superficialtrauma.active": "Active",
   "life_state.superficialtrauma.incapacitated": "Incapacitated",
   "life_state.superficialtrauma.awakening": "Awakening",

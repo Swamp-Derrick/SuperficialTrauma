@@ -30,6 +30,7 @@ public final class BodyStateRoundTripTest {
         verifyShockWarningCancellationAndNbt();
         verifyLethalDamageIncapacitation();
         verifyDownedDamageCountdowns();
+        verifyDownedPostureClassification();
         verifyDownedPoseSnapshotAndReset();
         verifyPainTagFloorAndClamp();
         verifyPainOfflinePauseAndNbt();
@@ -304,6 +305,39 @@ public final class BodyStateRoundTripTest {
         assertFloatEquals(0.0F, restored.pain(), "full debug reset must clear all pain sources");
         assertEquals(false, restored.downedPoseSnapshot().isPresent(), "full debug reset must clear the downed pose");
         assertEquals("none", restored.lastDamageType(), "full debug reset must clear damage diagnostics");
+    }
+
+    private static void verifyDownedPostureClassification() {
+        assertEquals(
+                DownedPosture.UNSAFE,
+                DownedPoseCapture.classifyPosture(true, true, true, true, true),
+                "unsafe movement states must take priority over every ordinary posture"
+        );
+        assertEquals(
+                DownedPosture.CRAWLING,
+                DownedPoseCapture.classifyPosture(false, true, true, false, false),
+                "a forced one-block visual crawl must not depend on the swimming flag"
+        );
+        assertEquals(
+                DownedPosture.SWIMMING,
+                DownedPoseCapture.classifyPosture(false, false, true, true, false),
+                "visual swimming must take priority over sprinting"
+        );
+        assertEquals(
+                DownedPosture.SPRINTING,
+                DownedPoseCapture.classifyPosture(false, false, false, true, true),
+                "sprinting must take priority over crouching"
+        );
+        assertEquals(
+                DownedPosture.CROUCHING,
+                DownedPoseCapture.classifyPosture(false, false, false, false, true),
+                "crouching must be retained when no higher-priority posture applies"
+        );
+        assertEquals(
+                DownedPosture.STANDING,
+                DownedPoseCapture.classifyPosture(false, false, false, false, false),
+                "ordinary movement must fall back to standing"
+        );
     }
 
     private static void verifyShockWarningCancellationAndNbt() {

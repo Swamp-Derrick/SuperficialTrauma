@@ -11,6 +11,7 @@ The downed state is server-authoritative, but its camera and model animation are
 - Store a fixed downed body yaw so the model does not rotate when the victim moves their mouse, reconnects, changes dimension, or enters another player's tracking range.
 - A render-only pose does not change the hitbox. Downed targeting and interaction dimensions must be designed separately instead of silently inheriting the small vanilla sleeping hitbox.
 - A fully animated custom limb pose is optional later polish. Begin with a rigid whole-model pose; later model-part adjustments may add bent limbs, slumping, and breathing after CGM weapon and armor compatibility is understood.
+- The first pass leaves `unsafe` snapshots (vehicles, climbing, sleeping, and elytra flight) in their vanilla third-person pose because those states already inject incompatible render rotations. They still use the fade-only victim overlay.
 
 ### First-person transition
 
@@ -24,7 +25,7 @@ The downed state is server-authoritative, but its camera and model animation are
 
 1. **Implemented:** persist downing time, body yaw, movement posture, and four-way fall direction.
 2. **Implemented:** synchronize a compact downed-pose snapshot to the victim and tracking players, including late trackers.
-3. Add the rigid third-person render pose and fade-only victim transition.
+3. **Implemented (first pass):** add the rigid third-person render pose and fade-only victim transition.
 4. Add four first-person camera profiles and safe-state fallbacks.
 5. Polish limb positioning, CGM weapon placement, camera collision, and accessibility settings.
 

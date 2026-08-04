@@ -50,7 +50,8 @@ Phase 0's first vertical slice is implemented:
 - incapacitation starts a 180-second blood-oxygen countdown; expiry enters cardiac arrest and starts the separate 180-second brain-death deadline;
 - final damage while downed skips trauma, pain, and stress, then shortens the current danger countdown by `10 × D` seconds;
 - collapse captures one fixed server-owned snapshot containing downing time, body yaw, standing/crouching/sprinting posture, and forward/backward/left/right fall direction; unsafe, swimming, and crawling states select fade-only;
-- compact downed-pose snapshots are synchronized to the victim, current tracking players, and players who begin tracking later, ready for the visual animation slice;
+- compact downed-pose snapshots are synchronized to the victim, current tracking players, and players who begin tracking later;
+- a first-pass client presentation applies a render-only rigid horizontal transform to the complete third-person player render and fades the victim into a persistent dark downed overlay in about 0.9 seconds;
 - brain-death expiry performs one normal server death handoff so later corpse compatibility can remain downstream of the life-state machine;
 - server-side incapacitation restrictions for movement, attacks, block breaking, interaction, and item use;
 - server-to-client body-state snapshots;
@@ -66,7 +67,7 @@ Phase 0's CGM recognition slice is also implemented:
 - version-2 `BodyState` diagnostics with safe migration from version 1;
 - `/superficialtrauma classifyammo` for checking the held ammunition item.
 
-Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the hidden-duration pain-20 shock warning, traumatic-shock incapacitation, lethal-hit downing, blood-oxygen countdown, downed-damage deadline reduction, cardiac arrest, brain-death expiry, and the synchronized downed-pose data foundation are active. Awakening through treatment, CPR, ventricular fibrillation, internal bleeding derivation, treatments, the two-player target HUD, corpse handoff verification, visual downed presentation, and polished HUD art are not active yet. The agreed downed camera and third-person pose direction is recorded in [DESIGN_NOTES.md](DESIGN_NOTES.md).
+Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the hidden-duration pain-20 shock warning, traumatic-shock incapacitation, lethal-hit downing, blood-oxygen countdown, downed-damage deadline reduction, cardiac arrest, brain-death expiry, synchronized downed-pose data, the rigid third-person downed transform, and the fade-only victim overlay are active. Awakening through treatment, CPR, ventricular fibrillation, internal bleeding derivation, treatments, the two-player target HUD, corpse handoff verification, directional first-person fall cameras, and polished HUD art are not active yet. The agreed downed camera and third-person pose direction is recorded in [DESIGN_NOTES.md](DESIGN_NOTES.md).
 
 Natural healing and pain timers advance only while the injured player is online. Logging out pauses the progression clock, preventing logout time from being used as free treatment or stress recovery. Whole intervals are calculated from server game time, so delayed processing does not lose elapsed progress.
 
@@ -104,6 +105,16 @@ Blood-loss pulses deduct vanilla health directly on the server instead of invoki
 7. Run `/superficialtrauma status` during both states and confirm that `danger` matches the HUD in server ticks. NBT deadline migration and round trips are covered by `bodyStateSelfTest`; the reviewed disconnect-immediately-dies rule is not connected yet.
 8. At brain-death expiry, exactly one normal player death must occur. Corpse-mod ownership and item handoff still require a later compatibility test.
 9. On the first collapse, `/superficialtrauma status` must report a fixed `downedPose` containing posture, fall direction, body yaw, and downing game time. Later mouse movement and further damage must not change it.
+
+### Manual downed presentation check
+
+1. Replace the mod JAR on both clients because the downed-pose network protocol is required on both sides.
+2. Down one standing, crouching, and sprinting player. The observer must see the complete player render lying horizontally, including armor and held-item layers, without changing the server hitbox.
+3. Move the downed player's camera. The rendered body direction must remain fixed and the nameplate must remain hidden.
+4. Enter a one-block-high space using a trapdoor and become incapacitated. `/superficialtrauma status` must report `crawling/fade_only`, not `standing`.
+5. Swim and become incapacitated. Status must report `swimming/fade_only`. Riding, climbing, sleeping, and elytra cases remain `unsafe/fade_only`; this first pass deliberately keeps their vanilla third-person pose instead of applying a potentially conflicting rigid transform.
+6. The victim must fade into the dark downed overlay in about 0.9 seconds. Pressing `H` must still allow the health screen to be inspected.
+7. `/superficialtrauma reset <player>` must immediately remove both the overlay and third-person transform.
 
 ### Manual cross-version reset check
 

@@ -38,15 +38,20 @@ public final class ClientForgeEvents {
     @SubscribeEvent
     public static void onRenderGui(RenderGuiEvent.Post event) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null || minecraft.options.hideGui) {
+        if (minecraft.player == null) {
             return;
         }
-        ClientBloodLossOverlay.render(
-                event.getGuiGraphics(),
-                event.getWindow().getGuiScaledWidth(),
-                event.getWindow().getGuiScaledHeight(),
-                event.getPartialTick()
-        );
+        int width = event.getWindow().getGuiScaledWidth();
+        int height = event.getWindow().getGuiScaledHeight();
+        if (!minecraft.options.hideGui) {
+            ClientBloodLossOverlay.render(
+                    event.getGuiGraphics(),
+                    width,
+                    height,
+                    event.getPartialTick()
+            );
+        }
+        ClientDownedOverlay.render(event.getGuiGraphics(), width, height);
     }
 
     @SubscribeEvent

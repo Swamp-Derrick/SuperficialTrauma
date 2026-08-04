@@ -48,6 +48,8 @@
   "screen.superficialtrauma.health.recommend_explosion_3": "立即处理：需要清创、止血和植皮；植皮前 H 最低为 10。",
   "screen.superficialtrauma.health.actions_placeholder": "治疗按钮会在下一阶段接入；当前界面只用于检查服务器保存的伤情。",
   "screen.superficialtrauma.health.close_hint": "按 Esc 关闭。默认按 H 打开自己的健康 HUD。",
+  "screen.superficialtrauma.downed.title": "你已失去行动能力",
+  "screen.superficialtrauma.downed.health_hint": "按 H 查看健康状况",
   "life_state.superficialtrauma.active": "正常行动",
   "life_state.superficialtrauma.incapacitated": "失去行动能力",
   "life_state.superficialtrauma.awakening": "苏醒期",

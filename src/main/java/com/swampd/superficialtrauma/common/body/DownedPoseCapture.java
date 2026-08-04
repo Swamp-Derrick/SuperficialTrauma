@@ -26,19 +26,39 @@ public final class DownedPoseCapture {
     }
 
     static DownedPosture classifyPosture(ServerPlayer player) {
-        if (player.isPassenger()
+        boolean unsafe = player.isPassenger()
                 || player.isFallFlying()
                 || player.onClimbable()
-                || player.isSleeping()) {
+                || player.isSleeping();
+        return classifyPosture(
+                unsafe,
+                player.isVisuallyCrawling(),
+                player.isVisuallySwimming(),
+                player.isSprinting(),
+                player.isCrouching()
+        );
+    }
+
+    static DownedPosture classifyPosture(
+            boolean unsafe,
+            boolean visuallyCrawling,
+            boolean visuallySwimming,
+            boolean sprinting,
+            boolean crouching
+    ) {
+        if (unsafe) {
             return DownedPosture.UNSAFE;
         }
-        if (player.isSwimming()) {
-            return player.isInWater() ? DownedPosture.SWIMMING : DownedPosture.CRAWLING;
+        if (visuallyCrawling) {
+            return DownedPosture.CRAWLING;
         }
-        if (player.isSprinting()) {
+        if (visuallySwimming) {
+            return DownedPosture.SWIMMING;
+        }
+        if (sprinting) {
             return DownedPosture.SPRINTING;
         }
-        if (player.isCrouching()) {
+        if (crouching) {
             return DownedPosture.CROUCHING;
         }
         return DownedPosture.STANDING;
