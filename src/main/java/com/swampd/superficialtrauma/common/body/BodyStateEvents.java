@@ -4,8 +4,10 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.damage.ModDamageTypes;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -81,10 +83,58 @@ public final class BodyStateEvents {
             if (result.bleedingDamage() > 0.0F && serverPlayer.isAlive()) {
                 serverPlayer.hurt(ModDamageTypes.bleeding(serverPlayer), result.bleedingDamage());
             }
+            notifyShockState(serverPlayer, bodyState, result, gameTime);
+            enforceIncapacitation(serverPlayer, bodyState);
             if (result.changed()) {
                 ModNetworking.syncBodyState(serverPlayer);
             }
         });
+    }
+
+    private static void notifyShockState(
+            ServerPlayer player,
+            BodyState bodyState,
+            BodyProgressionResult result,
+            long gameTime
+    ) {
+        if (result.becameIncapacitated()) {
+            player.displayClientMessage(
+                    Component.translatable("message.superficialtrauma.traumatic_shock_incapacitated"),
+                    true
+            );
+            return;
+        }
+        if (result.shockWarningCancelled()) {
+            player.displayClientMessage(
+                    Component.translatable("message.superficialtrauma.shock_warning_cancelled"),
+                    true
+            );
+            return;
+        }
+        if (bodyState.isShockWarningActive(gameTime)
+                && (result.shockWarningStarted() || gameTime % 20L == 0L)) {
+            long remainingSeconds = Math.max(
+                    1L,
+                    (bodyState.shockWarningRemainingTicks(gameTime) + 19L) / 20L
+            );
+            player.displayClientMessage(
+                    Component.translatable(
+                            "message.superficialtrauma.shock_warning",
+                            remainingSeconds
+                    ),
+                    true
+            );
+        }
+    }
+
+    private static void enforceIncapacitation(ServerPlayer player, BodyState bodyState) {
+        if (bodyState.canAct()) {
+            return;
+        }
+
+        player.setSprinting(false);
+        Vec3 movement = player.getDeltaMovement();
+        player.setDeltaMovement(0.0D, Math.min(0.0D, movement.y), 0.0D);
     }
 
     private static void syncIfServerPlayer(Player player) {

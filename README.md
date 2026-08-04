@@ -42,8 +42,10 @@ Phase 0's first vertical slice is implemented:
 - independent 20-second accumulation windows for each implemented wound type;
 - blunt, sharp, burn, and explosion wounds using reviewed half-open severity ranges;
 - server-authoritative natural healing that updates `H` once per complete second and removes wounds at `H = 0`;
-- version-5 body state with persistent pain, stress, per-wound bleeding clocks, and safe migration from earlier saves;
+- version-6 body state with persistent pain, stress, shock warnings, collapse reasons, per-wound bleeding clocks, and safe migration from earlier saves;
 - server-authoritative bleeding pulses for bleeding levels 1-4, including the two-second movement-bleeding linger on level-3 blunt wounds;
+- traumatic-shock progression: stress suppresses collapse, pain 20 starts a ten-second warning, and pain still at 20 incapacitates the player at the deadline;
+- server-side incapacitation restrictions for movement, attacks, block breaking, interaction, and item use;
 - server-to-client body-state snapshots;
 - a first-pass three-column health screen, opened with `H`;
 - `/superficialtrauma status` and `/superficialtrauma selftest` diagnostics.
@@ -56,7 +58,7 @@ Phase 0's CGM recognition slice is also implemented:
 - version-2 `BodyState` diagnostics with safe migration from version 1;
 - `/superficialtrauma classifyammo` for checking the held ammunition item.
 
-Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, and external bleeding damage are active. The pain-20 shock warning and incapacitation transition, internal bleeding derivation, treatments, the two-player target HUD, and polished HUD art are not active yet.
+Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the pain-20 shock warning, and traumatic-shock incapacitation are active. Lethal-hit interception, blood-oxygen countdown, cardiac arrest, awakening through treatment, internal bleeding derivation, treatments, the two-player target HUD, and polished HUD art are not active yet.
 
 Natural healing and pain timers advance only while the injured player is online. Logging out pauses the progression clock, preventing logout time from being used as free treatment or stress recovery. Whole intervals are calculated from server game time, so delayed processing does not lose elapsed progress.
 
@@ -78,6 +80,9 @@ Bleeding uses dedicated internal damage types that bypass armor, defensive effec
 3. Base pain must remain unchanged throughout stress and for the following 1.5 seconds.
 4. After that point, effective pain decreases by one every 1.5 seconds until only the current wound-tag contribution remains.
 5. Log out while stress is active, wait on a still-running server, and reconnect. The remaining stress and base pain must resume rather than elapse offline.
+6. Reach effective pain 20 and wait for stress to end. A ten-second traumatic-shock warning appears in the action bar and health HUD; automatic base-pain recovery remains paused for the full warning.
+7. If effective pain is still 20 at the deadline, the life state becomes incapacitated and the player can no longer move horizontally, sprint, attack, break blocks, interact, or start using an item.
+8. During development, an operator can run `/superficialtrauma recover` or `/superficialtrauma recover <player>` to restore active state and clear base pain.
 
 ### Manual bleeding check
 

@@ -7,7 +7,10 @@ public record BodyProgressionResult(
         int expiredDamageWindows,
         int expiredTransientWoundTags,
         float recoveredBasePain,
-        float bleedingDamage
+        float bleedingDamage,
+        boolean shockWarningStarted,
+        boolean shockWarningCancelled,
+        boolean becameIncapacitated
 ) {
     private static final BodyProgressionResult UNCHANGED = new BodyProgressionResult(
             false,
@@ -16,7 +19,10 @@ public record BodyProgressionResult(
             0,
             0,
             0.0F,
-            0.0F
+            0.0F,
+            false,
+            false,
+            false
     );
 
     public static BodyProgressionResult unchanged() {

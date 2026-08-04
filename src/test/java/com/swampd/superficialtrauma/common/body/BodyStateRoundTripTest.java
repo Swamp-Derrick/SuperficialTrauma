@@ -24,6 +24,8 @@ public final class BodyStateRoundTripTest {
         verifyWoundDefinitions();
         verifyPainAccumulationAndTags();
         verifyStressAndPainRecovery();
+        verifyTraumaticShockWarningAndCollapse();
+        verifyShockWarningCancellationAndNbt();
         verifyPainTagFloorAndClamp();
         verifyPainOfflinePauseAndNbt();
         verifyTransientSharpPain();
@@ -40,6 +42,7 @@ public final class BodyStateRoundTripTest {
         verifyVersionTwoProgressionMigrationDefaults();
         verifyVersionThreePainMigrationDefaults();
         verifyVersionFourBleedingMigrationDefaults();
+        verifyVersionFiveShockMigrationDefaults();
         verifyWoundLimitAndActiveWindowUpdate();
         System.out.println("Superficial Trauma BodyState self-test passed.");
     }
@@ -147,6 +150,67 @@ public final class BodyStateRoundTripTest {
         BodyProgressionResult delayedRecovery = state.advanceBodyProgression(490L);
         assertFloatEquals(2.0F, delayedRecovery.recoveredBasePain(), "delayed processing must catch up complete recovery intervals");
         assertFloatEquals(2.0F, state.basePain(), "two additional intervals must remove two points");
+    }
+
+    private static void verifyTraumaticShockWarningAndCollapse() {
+        BodyState belowThreshold = new BodyState();
+        belowThreshold.applyDamage(WoundType.SHARP, 15.0F, 0L);
+        belowThreshold.resumeBodyProgression(0L);
+        BodyProgressionResult safe = belowThreshold.advanceBodyProgression(400L);
+        assertEquals(false, safe.shockWarningStarted(), "effective pain 19 must not start a shock warning");
+        assertEquals(BodyLifeState.ACTIVE, belowThreshold.lifeState(), "pain below twenty must retain active movement");
+
+        BodyState state = new BodyState();
+        state.applyDamage(WoundType.SHARP, 16.0F, 0L);
+        state.resumeBodyProgression(0L);
+
+        BodyProgressionResult stressed = state.advanceBodyProgression(399L);
+        assertEquals(false, stressed.shockWarningStarted(), "active stress must suppress traumatic shock");
+        BodyProgressionResult warning = state.advanceBodyProgression(400L);
+        assertEquals(true, warning.shockWarningStarted(), "effective pain twenty must start warning when stress ends");
+        assertEquals(600L, state.shockWarningEndGameTime(), "shock warning must last exactly ten seconds");
+        assertEquals(true, state.canAct(), "the warning period must not incapacitate the player early");
+
+        state.advanceBodyProgression(599L);
+        assertFloatEquals(16.0F, state.basePain(), "automatic pain recovery must pause throughout the warning");
+        BodyProgressionResult collapse = state.advanceBodyProgression(600L);
+        assertEquals(true, collapse.becameIncapacitated(), "pain still at twenty must incapacitate at the warning deadline");
+        assertEquals(BodyLifeState.INCAPACITATED, state.lifeState(), "collapse must enter the incapacitated state");
+        assertEquals(CollapseReason.TRAUMATIC_SHOCK, state.collapseReason(), "collapse reason must be traumatic shock");
+        assertEquals(false, state.canAct(), "incapacitated players must not be allowed to act");
+
+        assertEquals(true, state.forceRecoverForDebug(), "the administrator recovery path must change an incapacitated state");
+        assertEquals(BodyLifeState.ACTIVE, state.lifeState(), "administrator recovery must restore active state");
+        assertEquals(CollapseReason.NONE, state.collapseReason(), "administrator recovery must clear collapse reason");
+        assertFloatEquals(0.0F, state.basePain(), "administrator recovery must clear base pain for repeatable testing");
+    }
+
+    private static void verifyShockWarningCancellationAndNbt() {
+        BodyState state = new BodyState();
+        state.applyDamage(WoundType.SHARP, 16.0F, 0L);
+        state.resumeBodyProgression(0L);
+        state.advanceBodyProgression(400L);
+
+        BodyState warningRestored = new BodyState();
+        warningRestored.deserializeNBT(state.serializeNBT());
+        assertEquals(600L, warningRestored.shockWarningEndGameTime(), "NBT must preserve an active shock warning deadline");
+        assertEquals(CollapseReason.NONE, warningRestored.collapseReason(), "a warning must not invent a collapse reason");
+
+        warningRestored.applyDamage(WoundType.BLUNT, 1.0F, 450L);
+        BodyProgressionResult cancelled = warningRestored.advanceBodyProgression(450L);
+        assertEquals(true, cancelled.shockWarningCancelled(), "new stress must cancel the current shock warning");
+        assertEquals(-1L, warningRestored.shockWarningEndGameTime(), "cancelled warning must clear its deadline");
+        assertEquals(BodyLifeState.ACTIVE, warningRestored.lifeState(), "warning cancellation must retain active state");
+
+        BodyState collapsed = new BodyState();
+        collapsed.applyDamage(WoundType.SHARP, 16.0F, 0L);
+        collapsed.resumeBodyProgression(0L);
+        collapsed.advanceBodyProgression(400L);
+        collapsed.advanceBodyProgression(600L);
+        BodyState collapsedRestored = new BodyState();
+        collapsedRestored.deserializeNBT(collapsed.serializeNBT());
+        assertEquals(BodyLifeState.INCAPACITATED, collapsedRestored.lifeState(), "NBT must preserve incapacitation");
+        assertEquals(CollapseReason.TRAUMATIC_SHOCK, collapsedRestored.collapseReason(), "NBT must preserve the collapse reason");
     }
 
     private static void verifyPainTagFloorAndClamp() {
@@ -474,6 +538,18 @@ public final class BodyStateRoundTripTest {
         restored.advanceBodyProgression(139L);
         BodyProgressionResult firstPulse = restored.advanceBodyProgression(140L);
         assertFloatEquals(1.0F, firstPulse.bleedingDamage(), "migrated bleeding must begin after its first full interval");
+    }
+
+    private static void verifyVersionFiveShockMigrationDefaults() {
+        CompoundTag versionFive = new CompoundTag();
+        versionFive.putInt("DataVersion", 5);
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(versionFive);
+
+        assertEquals(BodyLifeState.ACTIVE, restored.lifeState(), "version 5 data must migrate to active state by default");
+        assertEquals(CollapseReason.NONE, restored.collapseReason(), "version 5 data must not invent a collapse reason");
+        assertEquals(-1L, restored.shockWarningEndGameTime(), "version 5 data must not invent a shock warning");
     }
 
     private static void verifyWoundLimitAndActiveWindowUpdate() {

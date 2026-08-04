@@ -7,11 +7,14 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.BodyProgressionResult;
+import com.swampd.superficialtrauma.common.body.BodyLifeState;
+import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
 import com.swampd.superficialtrauma.common.damage.CgmAmmoTags;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundType;
+import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
@@ -46,6 +49,15 @@ public final class DebugCommands {
                 )
                 .then(Commands.literal("classifyammo").executes(DebugCommands::classifyHeldAmmo))
                 .then(Commands.literal("selftest").executes(DebugCommands::runSelfTest))
+                .then(Commands.literal("recover")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(DebugCommands::recoverSelf)
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .executes(context -> recoverPlayer(
+                                        context,
+                                        EntityArgument.getPlayer(context, "player")
+                                )))
+                )
         );
     }
 
@@ -62,11 +74,14 @@ public final class DebugCommands {
                     player.getGameProfile().getName()
                             + " BodyState v" + bodyState.dataVersion()
                             + " revision=" + bodyState.revision()
+                            + " lifeState=" + bodyState.lifeState().serializedName()
+                            + " collapseReason=" + bodyState.collapseReason().serializedName()
                             + " wounds=" + bodyState.wounds().size()
                             + " pain=" + bodyState.pain()
                             + " basePain=" + bodyState.basePain()
                             + " woundPain=" + bodyState.woundPainContribution()
                             + " stress=" + bodyState.stressRemainingTicks(gameTime) + "t"
+                            + " shockWarning=" + bodyState.shockWarningRemainingTicks(gameTime) + "t"
                             + " movementBleeding=" + bodyState.movementBleedingActive()
                             + " lastD=" + bodyState.lastFinalDamage()
                             + " type=" + bodyState.lastDamageType()
@@ -107,6 +122,35 @@ public final class DebugCommands {
         return kind == DamageKind.CGM_UNCLASSIFIED ? 0 : 1;
     }
 
+    private static int recoverSelf(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        return recoverPlayer(context, context.getSource().getPlayerOrException());
+    }
+
+    private static int recoverPlayer(CommandContext<CommandSourceStack> context, ServerPlayer player) {
+        AtomicInteger result = new AtomicInteger(0);
+        BodyStateCapability.get(player).ifPresent(bodyState -> {
+            boolean changed = bodyState.forceRecoverForDebug();
+            String playerName = player.getGameProfile().getName();
+            if (changed) {
+                ModNetworking.syncBodyState(player);
+                context.getSource().sendSuccess(
+                        () -> Component.translatable(
+                                "command.superficialtrauma.recover.success",
+                                playerName
+                        ),
+                        true
+                );
+                result.set(1);
+            } else {
+                context.getSource().sendFailure(Component.translatable(
+                        "command.superficialtrauma.recover.unchanged",
+                        playerName
+                ));
+            }
+        });
+        return result.get();
+    }
+
     private static int runSelfTest(CommandContext<CommandSourceStack> context) {
         BodyState original = new BodyState();
         WoundUpdateResult pending = original.applyBluntDamage(1.0F, 100L);
@@ -137,6 +181,12 @@ public final class DebugCommands {
         bleedingState.resumeBodyProgression(0L);
         BodyProgressionResult bleedingPulse = bleedingState.advanceBodyProgression(100L);
 
+        BodyState shockState = new BodyState();
+        shockState.applyDamage(WoundType.SHARP, 16.0F, 0L);
+        shockState.resumeBodyProgression(0L);
+        BodyProgressionResult shockWarning = shockState.advanceBodyProgression(400L);
+        BodyProgressionResult incapacitated = shockState.advanceBodyProgression(600L);
+
         boolean passed = pending.status() == WoundUpdateResult.Status.PENDING
                 && created.status() == WoundUpdateResult.Status.CREATED
                 && created.wound() != null
@@ -160,7 +210,11 @@ public final class DebugCommands {
                 && Math.abs(painRecovery.recoveredBasePain() - 1.0F) < 0.0001F
                 && Math.abs(painState.basePain() - 4.0F) < 0.0001F
                 && Math.abs(painState.pain() - 5.0F) < 0.0001F
-                && Math.abs(bleedingPulse.bleedingDamage() - 1.0F) < 0.0001F;
+                && Math.abs(bleedingPulse.bleedingDamage() - 1.0F) < 0.0001F
+                && shockWarning.shockWarningStarted()
+                && incapacitated.becameIncapacitated()
+                && shockState.lifeState() == BodyLifeState.INCAPACITATED
+                && shockState.collapseReason() == CollapseReason.TRAUMATIC_SHOCK;
 
         if (passed) {
             context.getSource().sendSuccess(

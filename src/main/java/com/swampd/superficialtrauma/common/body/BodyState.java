@@ -22,17 +22,20 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 5;
+    public static final int CURRENT_DATA_VERSION = 6;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
     public static final long STRESS_DURATION_TICKS = 20L * 20L;
     public static final long PAIN_RECOVERY_INTERVAL_TICKS = 30L;
     public static final long MOVEMENT_BLEEDING_LINGER_TICKS = 2L * 20L;
+    public static final float TRAUMATIC_SHOCK_PAIN_THRESHOLD = 20.0F;
+    public static final long SHOCK_WARNING_DURATION_TICKS = 10L * 20L;
 
     private static final String TAG_DATA_VERSION = "DataVersion";
     private static final String TAG_REVISION = "Revision";
     private static final String TAG_LIFE_STATE = "LifeState";
+    private static final String TAG_COLLAPSE_REASON = "CollapseReason";
     private static final String TAG_BASE_PAIN = "BasePain";
     private static final String LEGACY_TAG_PAIN = "Pain";
     private static final String TAG_INFECTION = "Infection";
@@ -50,6 +53,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_PROGRESSION_PAUSED_AT_GAME_TIME = "ProgressionPausedAtGameTime";
     private static final String TAG_MOVEMENT_BLEEDING_END_GAME_TIME = "MovementBleedingEndGameTime";
     private static final String TAG_MOVEMENT_BLEEDING_ACTIVE = "MovementBleedingActive";
+    private static final String TAG_SHOCK_WARNING_END_GAME_TIME = "ShockWarningEndGameTime";
     private static final String TAG_LAST_FINAL_DAMAGE = "LastFinalDamage";
     private static final String TAG_LAST_DAMAGE_TYPE = "LastDamageType";
     private static final String TAG_LAST_DAMAGE_KIND = "LastDamageKind";
@@ -61,6 +65,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     private long revision;
     private BodyLifeState lifeState;
+    private CollapseReason collapseReason;
     private float basePain;
     private float infection;
     private float bloodDrugConcentration;
@@ -77,6 +82,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private long progressionPausedAtGameTime;
     private long movementBleedingEndGameTime;
     private boolean movementBleedingActive;
+    private long shockWarningEndGameTime;
     private float lastFinalDamage;
     private String lastDamageType;
     private DamageKind lastDamageKind;
@@ -100,6 +106,14 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public BodyLifeState lifeState() {
         return lifeState;
+    }
+
+    public CollapseReason collapseReason() {
+        return collapseReason;
+    }
+
+    public boolean canAct() {
+        return lifeState == BodyLifeState.ACTIVE;
     }
 
     public float pain() {
@@ -134,6 +148,20 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public boolean movementBleedingActive() {
         return movementBleedingActive;
+    }
+
+    public long shockWarningEndGameTime() {
+        return shockWarningEndGameTime;
+    }
+
+    public long shockWarningRemainingTicks(long gameTime) {
+        return shockWarningEndGameTime < 0L
+                ? 0L
+                : Math.max(0L, shockWarningEndGameTime - gameTime);
+    }
+
+    public boolean isShockWarningActive(long gameTime) {
+        return lifeState == BodyLifeState.ACTIVE && shockWarningRemainingTicks(gameTime) > 0L;
     }
 
     public long stressRemainingTicks(long gameTime) {
@@ -310,6 +338,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             stressEndGameTime = shiftDeadline(stressEndGameTime, pausedTicks);
             nextPainRecoveryGameTime = shiftDeadline(nextPainRecoveryGameTime, pausedTicks);
             movementBleedingEndGameTime = shiftDeadline(movementBleedingEndGameTime, pausedTicks);
+            shockWarningEndGameTime = shiftDeadline(shockWarningEndGameTime, pausedTicks);
             for (WoundInstance wound : wounds) {
                 wound.shiftProgressionDeadlines(pausedTicks);
             }
@@ -389,7 +418,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             bleedingTimerChanged |= previousDeadline != wound.nextBleedingGameTime();
         }
 
-        float recoveredBasePain = recoverBasePain(gameTime);
+        ShockProgression shockProgression = advanceTraumaticShock(gameTime);
+        float recoveredBasePain = isShockWarningActive(gameTime)
+                ? 0.0F
+                : recoverBasePain(gameTime);
         return finishBodyProgression(
                 progressedWounds,
                 healedWounds,
@@ -398,7 +430,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 recoveredBasePain,
                 bleedingDamage,
                 bleedingTimerChanged,
-                movementBleedingStateChanged
+                movementBleedingStateChanged,
+                shockProgression
         );
     }
 
@@ -410,7 +443,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             float recoveredBasePain,
             float bleedingDamage,
             boolean bleedingTimerChanged,
-            boolean movementBleedingStateChanged
+            boolean movementBleedingStateChanged,
+            ShockProgression shockProgression
     ) {
         if (progressedWounds == 0
                 && healedWounds == 0
@@ -419,7 +453,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 && recoveredBasePain <= 0.0F
                 && bleedingDamage <= 0.0F
                 && !bleedingTimerChanged
-                && !movementBleedingStateChanged) {
+                && !movementBleedingStateChanged
+                && !shockProgression.changed()) {
             return BodyProgressionResult.unchanged();
         }
 
@@ -431,8 +466,79 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 expiredDamageWindows,
                 expiredTransientWoundTags,
                 recoveredBasePain,
-                bleedingDamage
+                bleedingDamage,
+                shockProgression.warningStarted(),
+                shockProgression.warningCancelled(),
+                shockProgression.becameIncapacitated()
         );
+    }
+
+    private ShockProgression advanceTraumaticShock(long gameTime) {
+        if (lifeState != BodyLifeState.ACTIVE) {
+            if (shockWarningEndGameTime >= 0L) {
+                shockWarningEndGameTime = -1L;
+                return ShockProgression.cancelled();
+            }
+            return ShockProgression.unchanged();
+        }
+
+        if (isStressActive(gameTime)) {
+            if (shockWarningEndGameTime >= 0L) {
+                shockWarningEndGameTime = -1L;
+                return ShockProgression.cancelled();
+            }
+            return ShockProgression.unchanged();
+        }
+
+        if (shockWarningEndGameTime >= 0L) {
+            if (pain() < TRAUMATIC_SHOCK_PAIN_THRESHOLD) {
+                shockWarningEndGameTime = -1L;
+                nextPainRecoveryGameTime = basePain > 0.0F
+                        ? gameTime + PAIN_RECOVERY_INTERVAL_TICKS
+                        : -1L;
+                return ShockProgression.cancelled();
+            }
+            if (gameTime >= shockWarningEndGameTime) {
+                shockWarningEndGameTime = -1L;
+                lifeState = BodyLifeState.INCAPACITATED;
+                collapseReason = CollapseReason.TRAUMATIC_SHOCK;
+                nextPainRecoveryGameTime = basePain > 0.0F
+                        ? gameTime + PAIN_RECOVERY_INTERVAL_TICKS
+                        : -1L;
+                return ShockProgression.incapacitated();
+            }
+            return ShockProgression.unchanged();
+        }
+
+        if (pain() >= TRAUMATIC_SHOCK_PAIN_THRESHOLD) {
+            shockWarningEndGameTime = gameTime + SHOCK_WARNING_DURATION_TICKS;
+            nextPainRecoveryGameTime = basePain > 0.0F
+                    ? shockWarningEndGameTime + PAIN_RECOVERY_INTERVAL_TICKS
+                    : -1L;
+            return ShockProgression.started();
+        }
+        return ShockProgression.unchanged();
+    }
+
+    public boolean forceRecoverForDebug() {
+        boolean changed = lifeState != BodyLifeState.ACTIVE
+                || collapseReason != CollapseReason.NONE
+                || shockWarningEndGameTime >= 0L
+                || basePain > 0.0F
+                || stressEndGameTime >= 0L
+                || nextPainRecoveryGameTime >= 0L;
+        if (!changed) {
+            return false;
+        }
+
+        lifeState = BodyLifeState.ACTIVE;
+        collapseReason = CollapseReason.NONE;
+        shockWarningEndGameTime = -1L;
+        basePain = 0.0F;
+        stressEndGameTime = -1L;
+        nextPainRecoveryGameTime = -1L;
+        markChanged();
+        return true;
     }
 
     private boolean updateMovementBleedingState(long gameTime, boolean traumaticMovement) {
@@ -491,6 +597,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private void resetToDefaults() {
         revision = 0L;
         lifeState = BodyLifeState.ACTIVE;
+        collapseReason = CollapseReason.NONE;
         basePain = 0.0F;
         infection = 0.0F;
         bloodDrugConcentration = 0.0F;
@@ -507,6 +614,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         progressionPausedAtGameTime = -1L;
         movementBleedingEndGameTime = -1L;
         movementBleedingActive = false;
+        shockWarningEndGameTime = -1L;
         lastFinalDamage = 0.0F;
         lastDamageType = "none";
         lastDamageKind = DamageKind.UNKNOWN;
@@ -523,6 +631,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         tag.putInt(TAG_DATA_VERSION, CURRENT_DATA_VERSION);
         tag.putLong(TAG_REVISION, revision);
         tag.putString(TAG_LIFE_STATE, lifeState.serializedName());
+        tag.putString(TAG_COLLAPSE_REASON, collapseReason.serializedName());
         tag.putFloat(TAG_BASE_PAIN, basePain);
         tag.putFloat(TAG_INFECTION, infection);
         tag.putFloat(TAG_BLOOD_DRUG_CONCENTRATION, bloodDrugConcentration);
@@ -551,6 +660,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         tag.putLong(TAG_PROGRESSION_PAUSED_AT_GAME_TIME, progressionPausedAtGameTime);
         tag.putLong(TAG_MOVEMENT_BLEEDING_END_GAME_TIME, movementBleedingEndGameTime);
         tag.putBoolean(TAG_MOVEMENT_BLEEDING_ACTIVE, movementBleedingActive);
+        tag.putLong(TAG_SHOCK_WARNING_END_GAME_TIME, shockWarningEndGameTime);
 
         tag.putFloat(TAG_LAST_FINAL_DAMAGE, lastFinalDamage);
         tag.putString(TAG_LAST_DAMAGE_TYPE, lastDamageType);
@@ -577,6 +687,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
         revision = Math.max(0L, tag.getLong(TAG_REVISION));
         lifeState = BodyLifeState.fromSerializedName(tag.getString(TAG_LIFE_STATE));
+        collapseReason = tag.contains(TAG_COLLAPSE_REASON, Tag.TAG_STRING)
+                ? CollapseReason.fromSerializedName(tag.getString(TAG_COLLAPSE_REASON))
+                : CollapseReason.NONE;
         basePain = tag.contains(TAG_BASE_PAIN, Tag.TAG_ANY_NUMERIC)
                 ? clamp(tag.getFloat(TAG_BASE_PAIN), 0.0F, 30.0F)
                 : clamp(tag.getFloat(LEGACY_TAG_PAIN), 0.0F, 30.0F);
@@ -620,6 +733,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 ? tag.getLong(TAG_MOVEMENT_BLEEDING_END_GAME_TIME)
                 : -1L;
         movementBleedingActive = tag.getBoolean(TAG_MOVEMENT_BLEEDING_ACTIVE);
+        shockWarningEndGameTime = tag.contains(TAG_SHOCK_WARNING_END_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                ? tag.getLong(TAG_SHOCK_WARNING_END_GAME_TIME)
+                : -1L;
 
         lastFinalDamage = Math.max(0.0F, tag.getFloat(TAG_LAST_FINAL_DAMAGE));
         lastDamageType = tag.contains(TAG_LAST_DAMAGE_TYPE, Tag.TAG_STRING)
@@ -643,5 +759,33 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     private static float clamp(float value, float minimum, float maximum) {
         return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    private record ShockProgression(
+            boolean warningStarted,
+            boolean warningCancelled,
+            boolean becameIncapacitated
+    ) {
+        private static final ShockProgression UNCHANGED = new ShockProgression(false, false, false);
+
+        private static ShockProgression unchanged() {
+            return UNCHANGED;
+        }
+
+        private static ShockProgression started() {
+            return new ShockProgression(true, false, false);
+        }
+
+        private static ShockProgression cancelled() {
+            return new ShockProgression(false, true, false);
+        }
+
+        private static ShockProgression incapacitated() {
+            return new ShockProgression(false, false, true);
+        }
+
+        private boolean changed() {
+            return warningStarted || warningCancelled || becameIncapacitated;
+        }
     }
 }
