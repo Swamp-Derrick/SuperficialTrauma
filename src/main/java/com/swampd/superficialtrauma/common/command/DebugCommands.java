@@ -10,6 +10,7 @@ import com.swampd.superficialtrauma.common.body.BodyProgressionResult;
 import com.swampd.superficialtrauma.common.body.BodyLifeState;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.DownedFallDirection;
+import com.swampd.superficialtrauma.common.body.DownedHitbox;
 import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
 import com.swampd.superficialtrauma.common.body.DownedPosture;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
@@ -153,6 +154,7 @@ public final class DebugCommands {
         BodyStateCapability.get(player).ifPresent(bodyState -> {
             bodyState.resetAllForDebug();
             resetVanillaState(player);
+            DownedHitbox.restore(player);
             ModNetworking.syncBodyState(player);
             ModNetworking.syncDownedPose(player);
             String playerName = player.getGameProfile().getName();

@@ -21,12 +21,18 @@ public final class ClientForgeEvents {
 
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase == TickEvent.Phase.START) {
+            ClientDownedInput.suppressKeyActions();
+            return;
+        }
         if (event.phase != TickEvent.Phase.END) {
             return;
         }
 
         Minecraft minecraft = Minecraft.getInstance();
         ClientBloodLossOverlay.tick();
+        ClientDownedInput.enforceMovementLock();
+        ClientDownedHitbox.tick();
         while (ClientModEvents.OPEN_HEALTH_HUD.consumeClick()) {
             if (minecraft.player != null && minecraft.screen == null) {
                 ModNetworking.requestOwnBodyState();

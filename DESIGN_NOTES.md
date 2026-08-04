@@ -26,8 +26,15 @@ The downed state is server-authoritative, but its camera and model animation are
 1. **Implemented:** persist downing time, body yaw, movement posture, and four-way fall direction.
 2. **Implemented:** synchronize a compact downed-pose snapshot to the victim and tracking players, including late trackers.
 3. **Implemented (first pass):** add the rigid third-person render pose and fade-only victim transition.
-4. Add four first-person camera profiles and safe-state fallbacks.
+4. **Implemented (first pass):** add four first-person camera profiles and safe-state fade-only fallbacks.
 5. Polish limb positioning, CGM weapon placement, camera collision, and accessibility settings.
+
+### Downed targeting volume
+
+- The visible rigid body is centered on the entity origin so its shadow no longer remains at the old standing foot position.
+- Downed players use a 0.6-block-high server-authoritative target volume based on a 1.8-block-long and 0.6-block-wide prone body. Minecraft entity boxes cannot rotate, so the runtime box is the smallest axis-aligned box enclosing that direction.
+- Tracking clients reconstruct the same box from the synchronized fixed pose snapshot. This keeps local ray selection, F3+B, server melee validation, and projectile collision aligned as closely as the vanilla entity-box system permits.
+- Reset and recovery must refresh dimensions immediately. The low hitbox must never survive after the body state returns to active.
 
 ## Downed damage rule
 

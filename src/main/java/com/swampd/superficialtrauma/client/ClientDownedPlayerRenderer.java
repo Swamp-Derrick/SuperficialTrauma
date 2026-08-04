@@ -3,7 +3,7 @@ package com.swampd.superficialtrauma.client;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import com.swampd.superficialtrauma.SuperficialTrauma;
-import com.swampd.superficialtrauma.common.body.DownedFallDirection;
+import com.swampd.superficialtrauma.common.body.DownedGeometry;
 import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
 import com.swampd.superficialtrauma.common.body.DownedPosture;
 import net.minecraft.client.Minecraft;
@@ -72,13 +72,12 @@ public final class ClientDownedPlayerRenderer {
             float partialTick
     ) {
         float currentBodyYaw = Mth.rotLerp(partialTick, player.yBodyRotO, player.yBodyRot);
-        float groundYaw = Mth.wrapDegrees(
-                snapshot.bodyYaw() + fallDirectionYawOffset(snapshot.fallDirection())
-        );
+        float groundYaw = DownedGeometry.groundYaw(snapshot);
         float swimRotation = currentSwimRotation(player, partialTick);
 
         poseStack.translate(0.0F, GROUND_CLEARANCE, 0.0F);
         poseStack.mulPose(Axis.YP.rotationDegrees(180.0F - groundYaw));
+        poseStack.translate(0.0F, 0.0F, -DownedGeometry.MODEL_CENTER_OFFSET);
         poseStack.mulPose(Axis.XP.rotationDegrees(90.0F));
         if (player.isVisuallySwimming()) {
             poseStack.translate(0.0F, 1.0F, -0.3F);
@@ -96,15 +95,6 @@ public final class ClientDownedPlayerRenderer {
                 || player.isInFluidType((fluidType, height) -> player.canSwimInFluidType(fluidType));
         float targetRotation = swimmingInFluid ? -90.0F - player.getXRot() : -90.0F;
         return Mth.lerp(swimAmount, 0.0F, targetRotation);
-    }
-
-    private static float fallDirectionYawOffset(DownedFallDirection direction) {
-        return switch (direction) {
-            case FORWARD, FADE_ONLY -> 0.0F;
-            case BACKWARD -> 180.0F;
-            case LEFT -> -90.0F;
-            case RIGHT -> 90.0F;
-        };
     }
 
     private static boolean isLocalInventoryPreview(Player player) {

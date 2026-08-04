@@ -52,6 +52,10 @@ Phase 0's first vertical slice is implemented:
 - collapse captures one fixed server-owned snapshot containing downing time, body yaw, standing/crouching/sprinting posture, and forward/backward/left/right fall direction; unsafe, swimming, and crawling states select fade-only;
 - compact downed-pose snapshots are synchronized to the victim, current tracking players, and players who begin tracking later;
 - a first-pass client presentation applies a render-only rigid horizontal transform to the complete third-person player render and fades the victim into a persistent dark downed overlay in about 0.9 seconds;
+- standing, crouching, and sprinting collapse snapshots drive first-person forward/backward/left/right fall angles while swimming, crawling, and unsafe postures retain direct fade-only handling;
+- the horizontal model is centered over a server-authoritative `1.8 x 0.6 x 0.6` directional bounding volume, with the same bounds reconstructed on tracking clients for aiming, F3+B diagnostics, and centered shadow placement;
+- downed input suppresses movement, inventory/container screens, chat, item dropping, and offhand swapping on the client, while the server independently freezes movement, closes open containers, and rejects item tosses;
+- the completed downed fade is fully opaque, covers the hotbar and chat HUD, hides the first-person held item, and still permits the dedicated `H` health screen;
 - brain-death expiry performs one normal server death handoff so later corpse compatibility can remain downstream of the life-state machine;
 - server-side incapacitation restrictions for movement, attacks, block breaking, interaction, and item use;
 - server-to-client body-state snapshots;
@@ -67,7 +71,7 @@ Phase 0's CGM recognition slice is also implemented:
 - version-2 `BodyState` diagnostics with safe migration from version 1;
 - `/superficialtrauma classifyammo` for checking the held ammunition item.
 
-Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the hidden-duration pain-20 shock warning, traumatic-shock incapacitation, lethal-hit downing, blood-oxygen countdown, downed-damage deadline reduction, cardiac arrest, brain-death expiry, synchronized downed-pose data, the rigid third-person downed transform, and the fade-only victim overlay are active. Awakening through treatment, CPR, ventricular fibrillation, internal bleeding derivation, treatments, the two-player target HUD, corpse handoff verification, directional first-person fall cameras, and polished HUD art are not active yet. The agreed downed camera and third-person pose direction is recorded in [DESIGN_NOTES.md](DESIGN_NOTES.md).
+Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the hidden-duration pain-20 shock warning, traumatic-shock incapacitation, lethal-hit downing, blood-oxygen countdown, downed-damage deadline reduction, cardiac arrest, brain-death expiry, synchronized downed-pose data, the rigid third-person downed transform, the first directional camera pass, the low directional hitbox, and the opaque victim overlay are active. Awakening through treatment, CPR, ventricular fibrillation, internal bleeding derivation, treatments, the two-player target HUD, corpse handoff verification, camera collision polish, accessibility settings, and polished HUD art are not active yet. The agreed downed camera and third-person pose direction is recorded in [DESIGN_NOTES.md](DESIGN_NOTES.md).
 
 Natural healing and pain timers advance only while the injured player is online. Logging out pauses the progression clock, preventing logout time from being used as free treatment or stress recovery. Whole intervals are calculated from server game time, so delayed processing does not lose elapsed progress.
 
@@ -113,8 +117,12 @@ Blood-loss pulses deduct vanilla health directly on the server instead of invoki
 3. Move the downed player's camera. The rendered body direction must remain fixed and the nameplate must remain hidden.
 4. Enter a one-block-high space using a trapdoor and become incapacitated. `/superficialtrauma status` must report `crawling/fade_only`, not `standing`.
 5. Swim and become incapacitated. Status must report `swimming/fade_only`. Riding, climbing, sleeping, and elytra cases remain `unsafe/fade_only`; this first pass deliberately keeps their vanilla third-person pose instead of applying a potentially conflicting rigid transform.
-6. The victim must fade into the dark downed overlay in about 0.9 seconds. Pressing `H` must still allow the health screen to be inspected.
-7. `/superficialtrauma reset <player>` must immediately remove both the overlay and third-person transform.
+6. In first person, repeat standing, crouching, and sprinting collapses for all four directions. The camera must descend and pitch or roll toward the captured fall direction before the screen becomes black; swimming, crawling, and unsafe cases must fade without forced camera rotation.
+7. After about 0.9 seconds the black overlay must completely cover the hotbar, received-chat background, and held item. `E`, `T`, `/`, movement, jumping, sprinting, sneaking, `Q`, and offhand swap must do nothing, while `H` must still open the health screen.
+8. Enable F3+B. The downed box must be 0.6 blocks high and extend along the fixed body direction. Shoot or melee the visible torso and head area and confirm that the hit shortens the correct danger countdown.
+9. The body must be centered over its shadow instead of extending outward from the old standing feet origin.
+10. Let the oxygen countdown reach cardiac arrest. The health display may change to cardiac arrest, but no separate heart-stopped action-bar message should appear.
+11. `/superficialtrauma reset <player>` must immediately restore the ordinary hitbox and remove the overlay, camera lock, and third-person transform.
 
 ### Manual cross-version reset check
 

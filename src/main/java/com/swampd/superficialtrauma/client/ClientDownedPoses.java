@@ -19,14 +19,22 @@ public final class ClientDownedPoses {
     }
 
     public static void update(int playerEntityId, DownedPoseSnapshot snapshot) {
+        boolean transitionChanged;
         if (snapshot == null) {
-            SNAPSHOTS.remove(playerEntityId);
+            transitionChanged = SNAPSHOTS.remove(playerEntityId) != null;
             TRANSITION_STARTED_NANOS.remove(playerEntityId);
         } else {
             DownedPoseSnapshot previous = SNAPSHOTS.put(playerEntityId, snapshot);
-            if (previous == null || previous.downedGameTime() != snapshot.downedGameTime()) {
+            transitionChanged = previous == null
+                    || previous.downedGameTime() != snapshot.downedGameTime();
+            if (transitionChanged) {
                 TRANSITION_STARTED_NANOS.put(playerEntityId, System.nanoTime());
             }
+        }
+        ClientDownedHitbox.onPoseChanged(playerEntityId);
+        ClientDownedInput.onPoseChanged(playerEntityId);
+        if (transitionChanged) {
+            ClientDownedCamera.onPoseChanged(playerEntityId);
         }
     }
 
@@ -45,5 +53,6 @@ public final class ClientDownedPoses {
     public static void clear() {
         SNAPSHOTS.clear();
         TRANSITION_STARTED_NANOS.clear();
+        ClientDownedCamera.reset();
     }
 }

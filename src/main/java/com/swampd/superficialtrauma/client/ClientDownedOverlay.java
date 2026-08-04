@@ -6,7 +6,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 
 public final class ClientDownedOverlay {
-    private static final int MAX_BACKGROUND_ALPHA = 224;
+    private static final int MAX_BACKGROUND_ALPHA = 255;
+    private static final float FADE_DELAY_PROGRESS = 0.15F;
 
     private ClientDownedOverlay() {
     }
@@ -19,7 +20,12 @@ public final class ClientDownedOverlay {
         }
 
         float progress = ClientDownedPoses.transitionProgress(minecraft.player.getId());
-        float easedProgress = smoothStep(progress);
+        float fadeProgress = Mth.clamp(
+                (progress - FADE_DELAY_PROGRESS) / (1.0F - FADE_DELAY_PROGRESS),
+                0.0F,
+                1.0F
+        );
+        float easedProgress = smoothStep(fadeProgress);
         int backgroundAlpha = Mth.clamp(
                 Math.round(MAX_BACKGROUND_ALPHA * easedProgress),
                 0,
@@ -27,7 +33,7 @@ public final class ClientDownedOverlay {
         );
         graphics.fill(0, 0, width, height, backgroundAlpha << 24);
 
-        float textProgress = Mth.clamp((progress - 0.45F) / 0.55F, 0.0F, 1.0F);
+        float textProgress = Mth.clamp((progress - 0.65F) / 0.35F, 0.0F, 1.0F);
         int textAlpha = Mth.clamp(Math.round(255.0F * textProgress), 4, 255);
         int primaryColor = textAlpha << 24 | 0x00E8E8E8;
         int secondaryColor = textAlpha << 24 | 0x00A8A8A8;

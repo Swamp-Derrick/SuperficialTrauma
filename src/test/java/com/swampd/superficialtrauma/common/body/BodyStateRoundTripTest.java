@@ -9,6 +9,7 @@ import com.swampd.superficialtrauma.common.wound.WoundType;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.UUID;
@@ -31,6 +32,7 @@ public final class BodyStateRoundTripTest {
         verifyLethalDamageIncapacitation();
         verifyDownedDamageCountdowns();
         verifyDownedPostureClassification();
+        verifyDownedGeometry();
         verifyDownedPoseSnapshotAndReset();
         verifyPainTagFloorAndClamp();
         verifyPainOfflinePauseAndNbt();
@@ -337,6 +339,29 @@ public final class BodyStateRoundTripTest {
                 DownedPosture.STANDING,
                 DownedPoseCapture.classifyPosture(false, false, false, false, false),
                 "ordinary movement must fall back to standing"
+        );
+    }
+
+    private static void verifyDownedGeometry() {
+        Vec2 northSouth = DownedGeometry.horizontalHalfExtents(0.0F);
+        assertFloatEquals(0.3F, northSouth.x, "north-south downed hitbox half-width");
+        assertFloatEquals(0.9F, northSouth.y, "north-south downed hitbox half-length");
+
+        Vec2 eastWest = DownedGeometry.horizontalHalfExtents(90.0F);
+        assertFloatEquals(0.9F, eastWest.x, "east-west downed hitbox half-length");
+        assertFloatEquals(0.3F, eastWest.y, "east-west downed hitbox half-width");
+
+        Vec2 diagonal = DownedGeometry.horizontalHalfExtents(45.0F);
+        float expectedDiagonalHalfExtent = (float) (Math.sqrt(0.5D) * 1.2D);
+        assertFloatEquals(
+                expectedDiagonalHalfExtent,
+                diagonal.x,
+                "diagonal downed hitbox X extent"
+        );
+        assertFloatEquals(
+                expectedDiagonalHalfExtent,
+                diagonal.y,
+                "diagonal downed hitbox Z extent"
         );
     }
 

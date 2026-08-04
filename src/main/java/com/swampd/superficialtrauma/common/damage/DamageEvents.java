@@ -4,6 +4,7 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.DownedDamageResult;
+import com.swampd.superficialtrauma.common.body.DownedHitbox;
 import com.swampd.superficialtrauma.common.body.DownedPoseCapture;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
 import com.swampd.superficialtrauma.network.ModNetworking;
@@ -94,6 +95,7 @@ public final class DamageEvents {
                     && bodyState.incapacitate(CollapseReason.LETHAL_DAMAGE, gameTime);
             if (becameDowned) {
                 bodyState.captureDownedPose(DownedPoseCapture.capture(player, event.getSource(), gameTime));
+                DownedHitbox.update(player, bodyState);
                 player.displayClientMessage(
                         Component.translatable("message.superficialtrauma.lethal_damage_incapacitated"),
                         true

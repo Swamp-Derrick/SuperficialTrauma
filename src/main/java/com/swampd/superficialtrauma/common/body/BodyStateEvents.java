@@ -99,6 +99,7 @@ public final class BodyStateEvents {
             BodyProgressionResult result = bodyState.advanceBodyProgression(gameTime, traumaticMovement);
             boolean poseCaptured = !bodyState.canAct()
                     && bodyState.captureDownedPose(DownedPoseCapture.capture(serverPlayer, null, gameTime));
+            DownedHitbox.update(serverPlayer, bodyState);
             if (result.bleedingDamage() > 0.0F && serverPlayer.isAlive()) {
                 BloodLossDamage.apply(serverPlayer, result.bleedingDamage());
             }
@@ -128,11 +129,6 @@ public final class BodyStateEvents {
         if (result.becameBrainDead()) {
             player.displayClientMessage(
                     Component.translatable("message.superficialtrauma.brain_death"),
-                    true
-            );
-        } else if (result.becameCardiacArrest()) {
-            player.displayClientMessage(
-                    Component.translatable("message.superficialtrauma.cardiac_arrest"),
                     true
             );
         }
@@ -181,6 +177,10 @@ public final class BodyStateEvents {
         }
 
         player.setSprinting(false);
+        player.setShiftKeyDown(false);
+        if (player.containerMenu != player.inventoryMenu) {
+            player.closeContainer();
+        }
         Vec3 movement = player.getDeltaMovement();
         player.setDeltaMovement(0.0D, Math.min(0.0D, movement.y), 0.0D);
     }
@@ -198,6 +198,7 @@ public final class BodyStateEvents {
         BodyStateCapability.get(player).ifPresent(bodyState -> {
             if (!bodyState.canAct()) {
                 bodyState.captureDownedPose(DownedPoseCapture.capture(player, null, gameTime));
+                DownedHitbox.update(player, bodyState);
             }
         });
     }
