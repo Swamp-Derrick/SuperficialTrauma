@@ -117,18 +117,14 @@ public final class HealthScreen extends Screen {
                 : Component.translatable("screen.superficialtrauma.health.stress_inactive").getString();
         lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.stress",
                 stressValue, stressTicks > 0L ? WARN_COLOR : MUTED_COLOR);
-        long shockWarningTicks = state.shockWarningRemainingTicks(gameTime);
-        if (shockWarningTicks > 0L) {
+        if (state.isShockWarningActive(gameTime)) {
             lineY = drawValue(
                     graphics,
                     x,
                     lineY,
                     availableWidth,
                     "screen.superficialtrauma.health.shock_warning",
-                    Component.translatable(
-                            "screen.superficialtrauma.health.shock_warning_active",
-                            oneDecimal(shockWarningTicks / 20.0F)
-                    ).getString(),
+                    Component.translatable("screen.superficialtrauma.health.shock_warning_active").getString(),
                     DANGER_COLOR
             );
         }

@@ -1,7 +1,7 @@
 package com.swampd.superficialtrauma.common.body;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
-import com.swampd.superficialtrauma.common.damage.ModDamageTypes;
+import com.swampd.superficialtrauma.common.damage.BloodLossDamage;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.chat.Component;
@@ -81,7 +81,7 @@ public final class BodyStateEvents {
                     || serverPlayer.getDeltaMovement().y > 0.08D;
             BodyProgressionResult result = bodyState.advanceBodyProgression(gameTime, traumaticMovement);
             if (result.bleedingDamage() > 0.0F && serverPlayer.isAlive()) {
-                serverPlayer.hurt(ModDamageTypes.bleeding(serverPlayer), result.bleedingDamage());
+                BloodLossDamage.apply(serverPlayer, result.bleedingDamage());
             }
             notifyShockState(serverPlayer, bodyState, result, gameTime);
             enforceIncapacitation(serverPlayer, bodyState);
@@ -113,15 +113,8 @@ public final class BodyStateEvents {
         }
         if (bodyState.isShockWarningActive(gameTime)
                 && (result.shockWarningStarted() || gameTime % 20L == 0L)) {
-            long remainingSeconds = Math.max(
-                    1L,
-                    (bodyState.shockWarningRemainingTicks(gameTime) + 19L) / 20L
-            );
             player.displayClientMessage(
-                    Component.translatable(
-                            "message.superficialtrauma.shock_warning",
-                            remainingSeconds
-                    ),
+                    Component.translatable("message.superficialtrauma.shock_warning"),
                     true
             );
         }

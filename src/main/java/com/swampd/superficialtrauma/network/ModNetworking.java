@@ -2,6 +2,7 @@ package com.swampd.superficialtrauma.network;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
+import com.swampd.superficialtrauma.network.packet.BloodLossFeedbackS2CPacket;
 import com.swampd.superficialtrauma.network.packet.BodyStateSyncS2CPacket;
 import com.swampd.superficialtrauma.network.packet.RequestBodyStateC2SPacket;
 import net.minecraft.resources.ResourceLocation;
@@ -17,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "1";
+    private static final String PROTOCOL_VERSION = "2";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -48,6 +49,14 @@ public final class ModNetworking {
                 RequestBodyStateC2SPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER)
         );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                BloodLossFeedbackS2CPacket.class,
+                BloodLossFeedbackS2CPacket::encode,
+                BloodLossFeedbackS2CPacket::decode,
+                BloodLossFeedbackS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
     }
 
     public static void syncBodyState(ServerPlayer player) {
@@ -59,6 +68,13 @@ public final class ModNetworking {
 
     public static void requestOwnBodyState() {
         CHANNEL.sendToServer(new RequestBodyStateC2SPacket());
+    }
+
+    public static void sendBloodLossFeedback(ServerPlayer player, float amount) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> player),
+                new BloodLossFeedbackS2CPacket(amount)
+        );
     }
 
     public static void handleBodyStateRequest(ServerPlayer player) {

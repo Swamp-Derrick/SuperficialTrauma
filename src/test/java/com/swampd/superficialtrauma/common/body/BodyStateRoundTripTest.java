@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.common.body;
 
 import com.swampd.superficialtrauma.common.damage.DamageClassification;
+import com.swampd.superficialtrauma.common.damage.DamageDowning;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
@@ -26,6 +27,7 @@ public final class BodyStateRoundTripTest {
         verifyStressAndPainRecovery();
         verifyTraumaticShockWarningAndCollapse();
         verifyShockWarningCancellationAndNbt();
+        verifyLethalDamageIncapacitation();
         verifyPainTagFloorAndClamp();
         verifyPainOfflinePauseAndNbt();
         verifyTransientSharpPain();
@@ -178,11 +180,33 @@ public final class BodyStateRoundTripTest {
         assertEquals(BodyLifeState.INCAPACITATED, state.lifeState(), "collapse must enter the incapacitated state");
         assertEquals(CollapseReason.TRAUMATIC_SHOCK, state.collapseReason(), "collapse reason must be traumatic shock");
         assertEquals(false, state.canAct(), "incapacitated players must not be allowed to act");
+        assertFloatEquals(20.0F, state.bloodOxygen(), "first incapacitation must initialize blood oxygen to twenty");
 
         assertEquals(true, state.forceRecoverForDebug(), "the administrator recovery path must change an incapacitated state");
         assertEquals(BodyLifeState.ACTIVE, state.lifeState(), "administrator recovery must restore active state");
         assertEquals(CollapseReason.NONE, state.collapseReason(), "administrator recovery must clear collapse reason");
         assertFloatEquals(0.0F, state.basePain(), "administrator recovery must clear base pain for repeatable testing");
+        assertFloatEquals(30.0F, state.bloodOxygen(), "administrator recovery must restore full debug blood oxygen");
+    }
+
+    private static void verifyLethalDamageIncapacitation() {
+        assertEquals(false, DamageDowning.wouldBeFatal(20.0F, 19.999F), "sub-lethal damage must remain unchanged");
+        assertEquals(true, DamageDowning.wouldBeFatal(20.0F, 20.0F), "damage equal to health must be lethal");
+        assertFloatEquals(19.0F, DamageDowning.clampToPreserveLife(20.0F, 40.0F), "lethal damage must preserve one health");
+        assertFloatEquals(0.0F, DamageDowning.clampToPreserveLife(0.5F, 5.0F), "the downing floor must never heal low health");
+
+        BodyState state = new BodyState();
+        assertEquals(true, state.incapacitate(CollapseReason.LETHAL_DAMAGE), "a lethal hit must incapacitate an active player");
+        assertEquals(false, state.incapacitate(CollapseReason.TRAUMATIC_SHOCK), "an existing collapse reason must not be overwritten");
+        assertEquals(BodyLifeState.INCAPACITATED, state.lifeState(), "lethal damage must enter the incapacitated state");
+        assertEquals(CollapseReason.LETHAL_DAMAGE, state.collapseReason(), "lethal damage must be recorded as collapse reason");
+        assertFloatEquals(20.0F, state.bloodOxygen(), "lethal damage must initialize the downed blood-oxygen reserve");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(state.serializeNBT());
+        assertEquals(BodyLifeState.INCAPACITATED, restored.lifeState(), "NBT must preserve lethal incapacitation");
+        assertEquals(CollapseReason.LETHAL_DAMAGE, restored.collapseReason(), "NBT must preserve lethal collapse reason");
+        assertFloatEquals(20.0F, restored.bloodOxygen(), "NBT must preserve downed blood oxygen");
     }
 
     private static void verifyShockWarningCancellationAndNbt() {

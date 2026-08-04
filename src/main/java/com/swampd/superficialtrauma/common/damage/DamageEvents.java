@@ -2,8 +2,10 @@ package com.swampd.superficialtrauma.common.damage;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
+import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
 import com.swampd.superficialtrauma.network.ModNetworking;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.entity.living.LivingDamageEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
@@ -57,6 +59,18 @@ public final class DamageEvents {
                         classification.projectileEntityId(),
                         classification.ammoId(),
                         classification.weaponId()
+                );
+            }
+
+            boolean alreadyIncapacitated = !bodyState.canAct();
+            boolean lethalHit = DamageDowning.wouldBeFatal(player.getHealth(), finalDamage);
+            if (alreadyIncapacitated || lethalHit) {
+                event.setAmount(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
+            }
+            if (lethalHit && bodyState.incapacitate(CollapseReason.LETHAL_DAMAGE)) {
+                player.displayClientMessage(
+                        Component.translatable("message.superficialtrauma.lethal_damage_incapacitated"),
+                        true
                 );
             }
 

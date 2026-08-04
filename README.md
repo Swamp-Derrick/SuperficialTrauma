@@ -44,7 +44,9 @@ Phase 0's first vertical slice is implemented:
 - server-authoritative natural healing that updates `H` once per complete second and removes wounds at `H = 0`;
 - version-6 body state with persistent pain, stress, shock warnings, collapse reasons, per-wound bleeding clocks, and safe migration from earlier saves;
 - server-authoritative bleeding pulses for bleeding levels 1-4, including the two-second movement-bleeding linger on level-3 blunt wounds;
+- silent blood-loss health deduction that bypasses the vanilla hurt animation and instead sends a short two-or-three-spot blood overlay to the affected client;
 - traumatic-shock progression: stress suppresses collapse, pain 20 starts a ten-second warning, and pain still at 20 incapacitates the player at the deadline;
+- lethal final damage is clamped to preserve up to one vanilla health point and moves an active player into the incapacitated state;
 - server-side incapacitation restrictions for movement, attacks, block breaking, interaction, and item use;
 - server-to-client body-state snapshots;
 - a first-pass three-column health screen, opened with `H`;
@@ -58,11 +60,11 @@ Phase 0's CGM recognition slice is also implemented:
 - version-2 `BodyState` diagnostics with safe migration from version 1;
 - `/superficialtrauma classifyammo` for checking the held ammunition item.
 
-Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the pain-20 shock warning, and traumatic-shock incapacitation are active. Lethal-hit interception, blood-oxygen countdown, cardiac arrest, awakening through treatment, internal bleeding derivation, treatments, the two-player target HUD, and polished HUD art are not active yet.
+Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the hidden-duration pain-20 shock warning, traumatic-shock incapacitation, and lethal-hit downing are active. Blood-oxygen countdown, downed-damage deadline reduction, cardiac arrest, awakening through treatment, internal bleeding derivation, treatments, the two-player target HUD, and polished HUD art are not active yet.
 
 Natural healing and pain timers advance only while the injured player is online. Logging out pauses the progression clock, preventing logout time from being used as free treatment or stress recovery. Whole intervals are calculated from server game time, so delayed processing does not lose elapsed progress.
 
-Bleeding uses dedicated internal damage types that bypass armor, defensive effects, and the normal hurt cooldown. These damage events are explicitly excluded from trauma classification, pain, stress, and latest-hit diagnostics, preventing recursive wounds. Absorption hearts still receive damage through the normal Minecraft health pipeline.
+Blood-loss pulses deduct vanilla health directly on the server instead of invoking the vanilla hurt pipeline. They therefore bypass armor, defensive effects, absorption hearts, and hurt cooldowns without producing camera hurt wobble, knockback, hurt sounds, new wounds, pain, stress, or latest-hit diagnostics. Each pulse sends only a brief translucent blood-spot overlay to the injured client. The dedicated bleeding damage types remain reserved for compatibility and future true-death attribution.
 
 ### Manual persistence check
 
@@ -80,16 +82,17 @@ Bleeding uses dedicated internal damage types that bypass armor, defensive effec
 3. Base pain must remain unchanged throughout stress and for the following 1.5 seconds.
 4. After that point, effective pain decreases by one every 1.5 seconds until only the current wound-tag contribution remains.
 5. Log out while stress is active, wait on a still-running server, and reconnect. The remaining stress and base pain must resume rather than elapse offline.
-6. Reach effective pain 20 and wait for stress to end. A ten-second traumatic-shock warning appears in the action bar and health HUD; automatic base-pain recovery remains paused for the full warning.
+6. Reach effective pain 20 and wait for stress to end. The server starts its internal ten-second traumatic-shock warning, but the action bar and health HUD only show the non-numeric warning text; automatic base-pain recovery remains paused for the full warning.
 7. If effective pain is still 20 at the deadline, the life state becomes incapacitated and the player can no longer move horizontally, sprint, attack, break blocks, interact, or start using an item.
 8. During development, an operator can run `/superficialtrauma recover` or `/superficialtrauma recover <player>` to restore active state and clear base pain.
+9. Take final damage equal to or greater than current vanilla health. Health stops at one and the collapse reason becomes lethal injury; ordinary external-hit feedback is retained.
 
 ### Manual bleeding check
 
 1. Create a level-2 sharp wound with `5 <= D < 15`. Its `Bleeding 2` tag must remove one vanilla health point every seven seconds.
 2. Create a level-3 sharp wound with `D >= 15`. Its `Bleeding 3` tag must remove one point every five seconds.
 3. Create a level-2 explosion wound with `8 <= D < 16`. Its `Bleeding 1` tag must remove one point every ten seconds.
-4. Confirm that a bleeding pulse does not create a new wound, add pain, restart stress, or replace the HUD's latest external-damage record.
+4. Confirm that a bleeding pulse does not shake the camera, play the normal hurt animation, create a new wound, add pain, restart stress, or replace the HUD's latest external-damage record. Two or three soft red blood spots should briefly fade over the screen instead.
 5. For a level-3 blunt wound, sprint or jump. `Bleeding 1` appears while movement is active, remains for two seconds after stopping, and then hides. Its ten-second pulse timer resets when the movement bleeding stops.
 6. Log out before a pulse and reconnect later. The remaining interval must resume instead of catching up offline damage.
 

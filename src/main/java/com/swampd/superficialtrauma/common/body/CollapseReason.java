@@ -4,6 +4,7 @@ import java.util.Locale;
 
 public enum CollapseReason {
     NONE,
+    LETHAL_DAMAGE,
     HEMORRHAGIC_SHOCK,
     TRAUMATIC_SHOCK,
     SEPSIS,

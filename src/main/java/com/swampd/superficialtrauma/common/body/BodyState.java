@@ -116,6 +116,16 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return lifeState == BodyLifeState.ACTIVE;
     }
 
+    public boolean incapacitate(CollapseReason reason) {
+        if (lifeState != BodyLifeState.ACTIVE) {
+            return false;
+        }
+
+        enterIncapacitated(reason);
+        markChanged();
+        return true;
+    }
+
     public float pain() {
         return clamp(basePain + woundPainContribution(), 0.0F, 30.0F);
     }
@@ -499,9 +509,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 return ShockProgression.cancelled();
             }
             if (gameTime >= shockWarningEndGameTime) {
-                shockWarningEndGameTime = -1L;
-                lifeState = BodyLifeState.INCAPACITATED;
-                collapseReason = CollapseReason.TRAUMATIC_SHOCK;
+                enterIncapacitated(CollapseReason.TRAUMATIC_SHOCK);
                 nextPainRecoveryGameTime = basePain > 0.0F
                         ? gameTime + PAIN_RECOVERY_INTERVAL_TICKS
                         : -1L;
@@ -520,13 +528,23 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return ShockProgression.unchanged();
     }
 
+    private void enterIncapacitated(CollapseReason reason) {
+        lifeState = BodyLifeState.INCAPACITATED;
+        collapseReason = reason == null || reason == CollapseReason.NONE
+                ? CollapseReason.LETHAL_DAMAGE
+                : reason;
+        bloodOxygen = 20.0F;
+        shockWarningEndGameTime = -1L;
+    }
+
     public boolean forceRecoverForDebug() {
         boolean changed = lifeState != BodyLifeState.ACTIVE
                 || collapseReason != CollapseReason.NONE
                 || shockWarningEndGameTime >= 0L
                 || basePain > 0.0F
                 || stressEndGameTime >= 0L
-                || nextPainRecoveryGameTime >= 0L;
+                || nextPainRecoveryGameTime >= 0L
+                || bloodOxygen < 30.0F;
         if (!changed) {
             return false;
         }
@@ -535,6 +553,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         collapseReason = CollapseReason.NONE;
         shockWarningEndGameTime = -1L;
         basePain = 0.0F;
+        bloodOxygen = 30.0F;
         stressEndGameTime = -1L;
         nextPainRecoveryGameTime = -1L;
         markChanged();

@@ -5,6 +5,7 @@ import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
+import net.minecraftforge.client.event.RenderGuiEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -25,6 +26,7 @@ public final class ClientForgeEvents {
         }
 
         Minecraft minecraft = Minecraft.getInstance();
+        ClientBloodLossOverlay.tick();
         while (ClientModEvents.OPEN_HEALTH_HUD.consumeClick()) {
             if (minecraft.player != null && minecraft.screen == null) {
                 ModNetworking.requestOwnBodyState();
@@ -34,7 +36,22 @@ public final class ClientForgeEvents {
     }
 
     @SubscribeEvent
+    public static void onRenderGui(RenderGuiEvent.Post event) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null || minecraft.options.hideGui) {
+            return;
+        }
+        ClientBloodLossOverlay.render(
+                event.getGuiGraphics(),
+                event.getWindow().getGuiScaledWidth(),
+                event.getWindow().getGuiScaledHeight(),
+                event.getPartialTick()
+        );
+    }
+
+    @SubscribeEvent
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         ClientBodyState.clear();
+        ClientBloodLossOverlay.clear();
     }
 }
