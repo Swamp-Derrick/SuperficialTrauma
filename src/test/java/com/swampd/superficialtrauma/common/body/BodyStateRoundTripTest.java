@@ -3,6 +3,7 @@ package com.swampd.superficialtrauma.common.body;
 import com.swampd.superficialtrauma.common.damage.DamageClassification;
 import com.swampd.superficialtrauma.common.damage.DamageDowning;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
+import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAccumulator;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
 import com.swampd.superficialtrauma.common.wound.WoundType;
@@ -24,6 +25,7 @@ public final class BodyStateRoundTripTest {
         verifyHalfOpenWoundRanges();
         verifyGunshotRangesAndContext();
         verifyGunshotCreationAndRoundTrip();
+        verifyShotgunVolleyAggregation();
         verifyPendingDamageAccumulation();
         verifyIndependentDamageWindows();
         verifyWoundDefinitions();
@@ -188,6 +190,116 @@ public final class BodyStateRoundTripTest {
                 WoundInstance.gunshotSeverityFor(type, damage, fragmentationEligible, closeRangeShot),
                 type + " severity must follow the reviewed half-open range"
         );
+    }
+
+    private static void verifyShotgunVolleyAggregation() {
+        ShotgunVolleyAccumulator accumulator = new ShotgunVolleyAccumulator();
+        UUID victimId = UUID.randomUUID();
+        UUID shooterId = UUID.randomUUID();
+        ShotgunVolleyAccumulator.VolleyKey mixedHitKey = new ShotgunVolleyAccumulator.VolleyKey(
+                victimId,
+                shooterId,
+                "cgm:shell",
+                "cgm:shotgun",
+                98L
+        );
+        accumulator.addHit(mixedHitKey, 3.6F, 0, 5.0D, 100L, "cgm.bullet.executed");
+        accumulator.addHit(mixedHitKey, 4.5F, 0, 5.0D, 100L, "cgm.bullet.killed");
+
+        assertEquals(0, accumulator.drainReady(victimId, 101L).size(), "a volley must wait for two quiet ticks");
+        var completedMixedHits = accumulator.drainReady(victimId, 102L);
+        assertEquals(1, completedMixedHits.size(), "pellets from the same shot must resolve as one volley");
+        var mixedVolley = completedMixedHits.get(0);
+        assertFloatEquals(8.1F, mixedVolley.totalFinalDamage(), "mixed body and head pellets must sum final damage");
+        assertEquals(2, mixedVolley.pelletHits(), "the volley must retain its pellet-hit count");
+
+        BodyState mixedState = new BodyState();
+        WoundUpdateResult mixedResult = mixedState.applyGunshotDamage(
+                WoundType.GUNSHOT_SHOTGUN,
+                mixedVolley.totalFinalDamage(),
+                mixedVolley.maximumArmorValue(),
+                mixedVolley.minimumAttackerDistance(),
+                false,
+                102L
+        );
+        assertEquals(WoundType.GUNSHOT_SHOTGUN, requireWound(mixedResult).type(), "a mixed volley must create only shotgun trauma");
+        assertEquals(1, mixedState.wounds().size(), "a mixed volley must not also create a blunt wound");
+        assertEquals(2, mixedState.wounds().get(0).severity(), "D total 8.1 beyond three blocks must create severity two");
+
+        ShotgunVolleyAccumulator.VolleyKey bodyHitKey = new ShotgunVolleyAccumulator.VolleyKey(
+                victimId,
+                shooterId,
+                "cgm:shell",
+                "cgm:shotgun",
+                148L
+        );
+        accumulator.addHit(bodyHitKey, 3.6F, 0, 6.0D, 150L, "cgm.bullet.executed");
+        accumulator.addHit(bodyHitKey, 3.6F, 0, 6.0D, 150L, "cgm.bullet.executed");
+        accumulator.addHit(bodyHitKey, 3.6F, 0, 6.0D, 150L, "cgm.bullet.executed");
+        var bodyHitVolley = accumulator.drainReady(victimId, 152L).get(0);
+        assertFloatEquals(10.8F, bodyHitVolley.totalFinalDamage(), "three ordinary pellets must combine before classification");
+        BodyState bodyHitState = new BodyState();
+        WoundUpdateResult bodyHitResult = bodyHitState.applyGunshotDamage(
+                WoundType.GUNSHOT_SHOTGUN,
+                bodyHitVolley.totalFinalDamage(),
+                bodyHitVolley.maximumArmorValue(),
+                bodyHitVolley.minimumAttackerDistance(),
+                false,
+                152L
+        );
+        assertEquals(WoundType.GUNSHOT_SHOTGUN, requireWound(bodyHitResult).type(), "several sub-four pellets must combine into shotgun trauma");
+        assertEquals(1, bodyHitState.wounds().size(), "ordinary pellets in one volley must not create a blunt wound per pellet");
+
+        ShotgunVolleyAccumulator.VolleyKey singlePelletKey = new ShotgunVolleyAccumulator.VolleyKey(
+                victimId,
+                shooterId,
+                "cgm:shell",
+                "cgm:shotgun",
+                198L
+        );
+        accumulator.addHit(singlePelletKey, 3.6F, 0, 8.0D, 200L, "cgm.bullet.executed");
+        var singlePelletVolley = accumulator.drainReady(victimId, 202L).get(0);
+        BodyState singlePelletState = new BodyState();
+        WoundUpdateResult singlePelletResult = singlePelletState.applyGunshotDamage(
+                WoundType.GUNSHOT_SHOTGUN,
+                singlePelletVolley.totalFinalDamage(),
+                singlePelletVolley.maximumArmorValue(),
+                singlePelletVolley.minimumAttackerDistance(),
+                false,
+                202L
+        );
+        assertEquals(WoundType.BLUNT, requireWound(singlePelletResult).type(), "one sub-four pellet must still become blunt trauma");
+
+        ShotgunVolleyAccumulator.VolleyKey firstShot = new ShotgunVolleyAccumulator.VolleyKey(
+                victimId,
+                shooterId,
+                "cgm:shell",
+                "cgm:shotgun",
+                300L
+        );
+        ShotgunVolleyAccumulator.VolleyKey secondShot = new ShotgunVolleyAccumulator.VolleyKey(
+                victimId,
+                shooterId,
+                "cgm:shell",
+                "cgm:shotgun",
+                301L
+        );
+        accumulator.addHit(firstShot, 3.6F, 0, 6.0D, 302L, "cgm.bullet.executed");
+        accumulator.addHit(secondShot, 3.6F, 0, 6.0D, 302L, "cgm.bullet.executed");
+        assertEquals(2, accumulator.drainReady(victimId, 304L).size(), "different projectile spawn ticks must remain separate shots");
+
+        UUID otherVictimId = UUID.randomUUID();
+        ShotgunVolleyAccumulator.VolleyKey otherVictim = new ShotgunVolleyAccumulator.VolleyKey(
+                otherVictimId,
+                shooterId,
+                "cgm:shell",
+                "cgm:shotgun",
+                400L
+        );
+        accumulator.addHit(otherVictim, 4.5F, 0, 5.0D, 401L, "cgm.bullet.killed");
+        assertEquals(0, accumulator.clearVictim(victimId), "clearing one victim must not remove another victim's volley");
+        assertEquals(1, accumulator.pendingVolleyCount(), "the other victim's volley must remain pending");
+        assertEquals(1, accumulator.clearVictim(otherVictimId), "clearing the matching victim must remove its volley");
     }
 
     private static void verifyPendingDamageAccumulation() {

@@ -2,6 +2,7 @@ package com.swampd.superficialtrauma.common.body;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.damage.BloodLossDamage;
+import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAggregator;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.chat.Component;
@@ -11,6 +12,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
@@ -30,6 +32,7 @@ public final class BodyStateEvents {
 
     @SubscribeEvent
     public static void onPlayerClone(PlayerEvent.Clone event) {
+        ShotgunVolleyAggregator.clearPlayer(event.getOriginal().getUUID());
         if (event.isWasDeath()) {
             return;
         }
@@ -49,6 +52,7 @@ public final class BodyStateEvents {
 
     @SubscribeEvent
     public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        ShotgunVolleyAggregator.clearPlayer(event.getEntity().getUUID());
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
             BodyStateCapability.get(serverPlayer).ifPresent(bodyState ->
                     bodyState.pauseBodyProgression(serverPlayer.serverLevel().getGameTime())
@@ -59,12 +63,14 @@ public final class BodyStateEvents {
 
     @SubscribeEvent
     public static void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
+        ShotgunVolleyAggregator.clearPlayer(event.getEntity().getUUID());
         resumeProgressionIfServerPlayer(event.getEntity());
         syncIfServerPlayer(event.getEntity());
     }
 
     @SubscribeEvent
     public static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+        ShotgunVolleyAggregator.clearPlayer(event.getEntity().getUUID());
         resumeProgressionIfServerPlayer(event.getEntity());
         syncIfServerPlayer(event.getEntity());
     }
@@ -94,6 +100,11 @@ public final class BodyStateEvents {
 
         long gameTime = serverPlayer.serverLevel().getGameTime();
         BodyStateCapability.get(serverPlayer).ifPresent(bodyState -> {
+            boolean shotgunVolleyResolved = ShotgunVolleyAggregator.resolveReady(
+                    serverPlayer,
+                    bodyState,
+                    gameTime
+            );
             boolean traumaticMovement = serverPlayer.isSprinting()
                     || serverPlayer.getDeltaMovement().y > 0.08D;
             BodyProgressionResult result = bodyState.advanceBodyProgression(gameTime, traumaticMovement);
@@ -106,7 +117,7 @@ public final class BodyStateEvents {
             notifyShockState(serverPlayer, bodyState, result, gameTime);
             notifyDownedState(serverPlayer, result);
             if (bodyState.lifeState() == BodyLifeState.BRAIN_DEAD) {
-                if (result.changed() || poseCaptured) {
+                if (result.changed() || poseCaptured || shotgunVolleyResolved) {
                     ModNetworking.syncBodyState(serverPlayer);
                 }
                 if (poseCaptured) {
@@ -116,13 +127,18 @@ public final class BodyStateEvents {
                 return;
             }
             enforceIncapacitation(serverPlayer, bodyState);
-            if (result.changed() || poseCaptured) {
+            if (result.changed() || poseCaptured || shotgunVolleyResolved) {
                 ModNetworking.syncBodyState(serverPlayer);
             }
             if (poseCaptured) {
                 ModNetworking.syncDownedPose(serverPlayer);
             }
         });
+    }
+
+    @SubscribeEvent
+    public static void onServerStopped(ServerStoppedEvent event) {
+        ShotgunVolleyAggregator.clearAll();
     }
 
     private static void notifyDownedState(ServerPlayer player, BodyProgressionResult result) {

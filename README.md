@@ -40,6 +40,7 @@ Phase 0's first vertical slice is implemented:
 - versioned `BodyState` player capability with NBT persistence;
 - post-armor, post-effect, post-absorption final damage capture;
 - independent 20-second accumulation windows for each implemented wound type;
+- a two-tick shotgun-volley pre-accumulator that groups CGM's separate pellet entities by victim, shooter, ammunition, weapon, and projectile spawn tick before choosing blunt or shotgun trauma;
 - blunt, sharp, burn, explosion, low-velocity gunshot, high-velocity gunshot, and shotgun wounds using reviewed half-open severity ranges;
 - server-authoritative natural healing that updates `H` once per complete second and removes wounds at `H = 0`;
 - version-9 body state with persistent pain, stress, shock warnings, collapse reasons, downed deadlines, downed-pose snapshots, per-wound bleeding clocks, gunshot severity context, and safe migration from earlier saves;
@@ -147,9 +148,10 @@ Blood-loss pulses deduct vanilla health directly on the server instead of invoki
 2. Hold `cgm:basic_bullet`, `cgm:advanced_bullet`, `cgm:shell`, or `nzgexpansion:medium_bullet` and run `/superficialtrauma classifyammo`.
 3. In a two-player test, shoot the second player and open the victim's HUD with `H`.
 4. Confirm that the HUD classification and ammunition ID match the fired round. `/superficialtrauma status` and `latest.log` also include the classification, ammunition ID, and weapon ID.
-5. Confirm that the hit creates the matching low-velocity, high-velocity, or shotgun wound card. A single classified hit below `D = 4` must create or update blunt trauma instead.
+5. Confirm that the hit creates the matching low-velocity, high-velocity, or shotgun wound card. A low/high-velocity hit below `D = 4`, or an entire shotgun volley whose combined final damage remains below four, must create or update blunt trauma instead.
 6. For low/high velocity, repeat the upper-threshold hit with `V <= 10` and `V > 10`; only the latter may reach severity 3. For shotgun `A >= 8`, shoot from just over three blocks for severity 2 and from three blocks or less for severity 3.
 7. Save and rejoin. The gunshot wound, debridement result, armor-qualified flag, and close-range flag must retain the same severity and tags.
+8. Fire the CGM shotgun once so that several pellets hit. About two ticks later the log must contain one `Resolved shotgun volley` entry, and the HUD must receive only one trauma classification for that discharge: total pellet `D < 4` becomes blunt, while total pellet `D >= 4` becomes shotgun trauma. Mixed ordinary/headshot pellets must never create both types from the same discharge.
 
 ### Implemented non-gun trauma ranges
 

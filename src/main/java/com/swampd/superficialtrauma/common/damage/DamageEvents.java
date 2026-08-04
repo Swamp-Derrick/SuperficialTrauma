@@ -62,15 +62,27 @@ public final class DamageEvents {
                 return;
             }
 
-            WoundUpdateResult gunshotResult = applyGunshotDamage(
-                    bodyState,
-                    player,
-                    event.getSource(),
-                    classification,
-                    finalDamage,
-                    gameTime
-            );
-            if (gunshotResult != null) {
+            boolean shotgunPelletQueued = classification.kind() == DamageKind.CGM_SHOTGUN;
+            WoundUpdateResult gunshotResult = null;
+            if (shotgunPelletQueued) {
+                ShotgunVolleyAggregator.queue(
+                        player,
+                        event.getSource(),
+                        classification,
+                        finalDamage,
+                        gameTime
+                );
+            } else {
+                gunshotResult = applyGunshotDamage(
+                        bodyState,
+                        player,
+                        event.getSource(),
+                        classification,
+                        finalDamage,
+                        gameTime
+                );
+            }
+            if (!shotgunPelletQueued && gunshotResult != null) {
                 SuperficialTrauma.LOGGER.info(
                         "Final gunshot D={} type={} classified={} reason={} result={} A={} V={} L={}",
                         finalDamage,
@@ -82,7 +94,7 @@ public final class DamageEvents {
                         player.getArmorValue(),
                         attackerDistance(player, event.getSource())
                 );
-            } else if (classification.woundType() != null) {
+            } else if (!shotgunPelletQueued && classification.woundType() != null) {
                 WoundUpdateResult result = bodyState.applyDamage(classification.woundType(), finalDamage, gameTime);
                 SuperficialTrauma.LOGGER.info(
                         "Final damage D={} type={} classified={} reason={} result={} A={}",
@@ -93,7 +105,7 @@ public final class DamageEvents {
                         result.status(),
                         result.accumulatedDamage()
                 );
-            } else {
+            } else if (!shotgunPelletQueued) {
                 SuperficialTrauma.LOGGER.info(
                         "Final damage D={} type={} classified={} reason={} projectile={} ammo={} weapon={}",
                         finalDamage,

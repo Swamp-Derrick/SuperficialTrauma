@@ -16,6 +16,7 @@ import com.swampd.superficialtrauma.common.body.DownedPosture;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
 import com.swampd.superficialtrauma.common.damage.CgmAmmoTags;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
+import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAggregator;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundType;
 import com.swampd.superficialtrauma.network.ModNetworking;
@@ -157,6 +158,7 @@ public final class DebugCommands {
 
     private static int resetPlayer(CommandContext<CommandSourceStack> context, ServerPlayer player) {
         AtomicInteger result = new AtomicInteger(0);
+        ShotgunVolleyAggregator.clearPlayer(player.getUUID());
         BodyStateCapability.get(player).ifPresent(bodyState -> {
             bodyState.resetAllForDebug();
             resetVanillaState(player);
