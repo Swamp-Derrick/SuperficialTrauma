@@ -143,8 +143,24 @@ public final class HealthScreen extends Screen {
                 oneDecimal(state.infection()), TEXT_COLOR);
         lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.drug",
                 oneDecimal(state.bloodDrugConcentration()), TEXT_COLOR);
-        lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.oxygen",
-                oneDecimal(state.bloodOxygen()) + "/30", TEXT_COLOR);
+        if (state.canAct()) {
+            lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.oxygen",
+                    oneDecimal(state.bloodOxygen()) + "/30", TEXT_COLOR);
+        } else {
+            long dangerTicks = state.downedDangerRemainingTicks(gameTime);
+            lineY = drawValue(
+                    graphics,
+                    x,
+                    lineY,
+                    availableWidth,
+                    "screen.superficialtrauma.health.danger_countdown",
+                    Component.translatable(
+                            "screen.superficialtrauma.health.danger_countdown_value",
+                            oneDecimal(dangerTicks / 20.0F)
+                    ).getString(),
+                    DANGER_COLOR
+            );
+        }
 
         lineY += 5;
         graphics.drawString(font, Component.translatable("screen.superficialtrauma.health.stage0_debug"), x, lineY, MUTED_COLOR, false);

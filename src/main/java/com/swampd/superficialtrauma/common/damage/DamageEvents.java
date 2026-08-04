@@ -3,6 +3,7 @@ package com.swampd.superficialtrauma.common.damage;
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
+import com.swampd.superficialtrauma.common.body.DownedDamageResult;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.network.chat.Component;
@@ -34,6 +35,22 @@ public final class DamageEvents {
         BodyStateCapability.get(player).ifPresent(bodyState -> {
             bodyState.recordFinalDamage(finalDamage, damageType, classification, gameTime);
 
+            if (!bodyState.canAct()) {
+                DownedDamageResult downedResult = bodyState.applyDownedDamage(finalDamage, gameTime);
+                event.setAmount(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
+                SuperficialTrauma.LOGGER.info(
+                        "Downed final damage D={} type={} traumaSkipped=true shortened={}t remaining={}t state={}=>{}",
+                        finalDamage,
+                        damageType,
+                        downedResult.shortenedTicks(),
+                        downedResult.remainingTicks(),
+                        downedResult.previousState().serializedName(),
+                        downedResult.resultingState().serializedName()
+                );
+                ModNetworking.syncBodyState(player);
+                return;
+            }
+
             if (classification.woundType() != null) {
                 WoundUpdateResult result = bodyState.applyDamage(
                         classification.woundType(),
@@ -62,12 +79,11 @@ public final class DamageEvents {
                 );
             }
 
-            boolean alreadyIncapacitated = !bodyState.canAct();
             boolean lethalHit = DamageDowning.wouldBeFatal(player.getHealth(), finalDamage);
-            if (alreadyIncapacitated || lethalHit) {
+            if (lethalHit) {
                 event.setAmount(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
             }
-            if (lethalHit && bodyState.incapacitate(CollapseReason.LETHAL_DAMAGE)) {
+            if (lethalHit && bodyState.incapacitate(CollapseReason.LETHAL_DAMAGE, gameTime)) {
                 player.displayClientMessage(
                         Component.translatable("message.superficialtrauma.lethal_damage_incapacitated"),
                         true

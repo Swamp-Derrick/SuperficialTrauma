@@ -84,11 +84,41 @@ public final class BodyStateEvents {
                 BloodLossDamage.apply(serverPlayer, result.bleedingDamage());
             }
             notifyShockState(serverPlayer, bodyState, result, gameTime);
+            notifyDownedState(serverPlayer, result);
+            if (bodyState.lifeState() == BodyLifeState.BRAIN_DEAD) {
+                if (result.changed()) {
+                    ModNetworking.syncBodyState(serverPlayer);
+                }
+                triggerTrueDeath(serverPlayer);
+                return;
+            }
             enforceIncapacitation(serverPlayer, bodyState);
             if (result.changed()) {
                 ModNetworking.syncBodyState(serverPlayer);
             }
         });
+    }
+
+    private static void notifyDownedState(ServerPlayer player, BodyProgressionResult result) {
+        if (result.becameBrainDead()) {
+            player.displayClientMessage(
+                    Component.translatable("message.superficialtrauma.brain_death"),
+                    true
+            );
+        } else if (result.becameCardiacArrest()) {
+            player.displayClientMessage(
+                    Component.translatable("message.superficialtrauma.cardiac_arrest"),
+                    true
+            );
+        }
+    }
+
+    private static void triggerTrueDeath(ServerPlayer player) {
+        if (!player.isAlive()) {
+            return;
+        }
+        player.setHealth(0.0F);
+        player.die(player.damageSources().genericKill());
     }
 
     private static void notifyShockState(

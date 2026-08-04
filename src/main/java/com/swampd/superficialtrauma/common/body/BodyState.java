@@ -22,7 +22,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 6;
+    public static final int CURRENT_DATA_VERSION = 7;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
@@ -31,6 +31,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     public static final long MOVEMENT_BLEEDING_LINGER_TICKS = 2L * 20L;
     public static final float TRAUMATIC_SHOCK_PAIN_THRESHOLD = 20.0F;
     public static final long SHOCK_WARNING_DURATION_TICKS = 10L * 20L;
+    public static final float INITIAL_INCAPACITATED_BLOOD_OXYGEN = 20.0F;
+    public static final float MAX_BLOOD_OXYGEN = 30.0F;
+    public static final long BLOOD_OXYGEN_POINT_DURATION_TICKS = 9L * 20L;
+    public static final long CARDIAC_ARREST_DURATION_TICKS = 180L * 20L;
+    public static final long DOWNED_DAMAGE_TICKS_PER_POINT = 10L * 20L;
 
     private static final String TAG_DATA_VERSION = "DataVersion";
     private static final String TAG_REVISION = "Revision";
@@ -42,6 +47,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_BLOOD_DRUG_CONCENTRATION = "BloodDrugConcentration";
     private static final String TAG_ADRENALINE_LEVEL = "AdrenalineLevel";
     private static final String TAG_BLOOD_OXYGEN = "BloodOxygen";
+    private static final String TAG_BLOOD_OXYGEN_DEADLINE = "BloodOxygenDeadlineGameTime";
     private static final String TAG_BRAIN_DEATH_DEADLINE = "BrainDeathDeadlineGameTime";
     private static final String TAG_CARDIAC_ARREST_EVENT_ID = "CardiacArrestEventId";
     private static final String TAG_ACCUMULATED_CPR_SECONDS = "AccumulatedCprSeconds";
@@ -71,6 +77,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private float bloodDrugConcentration;
     private int adrenalineLevel;
     private float bloodOxygen;
+    private long bloodOxygenDeadlineGameTime;
     private long brainDeathDeadlineGameTime;
     private UUID cardiacArrestEventId;
     private int accumulatedCprSeconds;
@@ -116,12 +123,12 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return lifeState == BodyLifeState.ACTIVE;
     }
 
-    public boolean incapacitate(CollapseReason reason) {
+    public boolean incapacitate(CollapseReason reason, long gameTime) {
         if (lifeState != BodyLifeState.ACTIVE) {
             return false;
         }
 
-        enterIncapacitated(reason);
+        enterIncapacitated(reason, gameTime);
         markChanged();
         return true;
     }
@@ -200,6 +207,64 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public long brainDeathDeadlineGameTime() {
         return brainDeathDeadlineGameTime;
+    }
+
+    public long bloodOxygenDeadlineGameTime() {
+        return bloodOxygenDeadlineGameTime;
+    }
+
+    public long downedDangerRemainingTicks(long gameTime) {
+        long deadline = switch (lifeState) {
+            case INCAPACITATED, AWAKENING -> bloodOxygenDeadlineGameTime;
+            case CARDIAC_ARREST, VENTRICULAR_FIBRILLATION -> brainDeathDeadlineGameTime;
+            default -> -1L;
+        };
+        return deadline < 0L ? 0L : Math.max(0L, deadline - gameTime);
+    }
+
+    public DownedDamageResult applyDownedDamage(float finalDamage, long gameTime) {
+        BodyLifeState previousState = lifeState;
+        if (finalDamage <= 0.0F
+                || gameTime < 0L
+                || lifeState == BodyLifeState.ACTIVE
+                || lifeState == BodyLifeState.BRAIN_DEAD) {
+            return DownedDamageResult.ignored(previousState);
+        }
+
+        if (lifeState == BodyLifeState.AWAKENING) {
+            lifeState = BodyLifeState.INCAPACITATED;
+        }
+
+        long shortenedTicks = Math.max(
+                1L,
+                Math.round((double) finalDamage * DOWNED_DAMAGE_TICKS_PER_POINT)
+        );
+        if (lifeState == BodyLifeState.INCAPACITATED) {
+            ensureBloodOxygenDeadline(gameTime);
+            bloodOxygenDeadlineGameTime = Math.max(
+                    gameTime,
+                    saturatingSubtract(bloodOxygenDeadlineGameTime, shortenedTicks)
+            );
+        } else if (lifeState == BodyLifeState.CARDIAC_ARREST
+                || lifeState == BodyLifeState.VENTRICULAR_FIBRILLATION) {
+            ensureBrainDeathDeadline(gameTime);
+            brainDeathDeadlineGameTime = Math.max(
+                    gameTime,
+                    saturatingSubtract(brainDeathDeadlineGameTime, shortenedTicks)
+            );
+        } else {
+            return DownedDamageResult.ignored(previousState);
+        }
+
+        advanceDownedProgression(gameTime);
+        markChanged();
+        return new DownedDamageResult(
+                true,
+                shortenedTicks,
+                downedDangerRemainingTicks(gameTime),
+                previousState,
+                lifeState
+        );
     }
 
     public Optional<UUID> cardiacArrestEventId() {
@@ -429,6 +494,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         }
 
         ShockProgression shockProgression = advanceTraumaticShock(gameTime);
+        DownedProgression downedProgression = advanceDownedProgression(gameTime);
         float recoveredBasePain = isShockWarningActive(gameTime)
                 ? 0.0F
                 : recoverBasePain(gameTime);
@@ -441,7 +507,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 bleedingDamage,
                 bleedingTimerChanged,
                 movementBleedingStateChanged,
-                shockProgression
+                shockProgression,
+                downedProgression
         );
     }
 
@@ -454,7 +521,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             float bleedingDamage,
             boolean bleedingTimerChanged,
             boolean movementBleedingStateChanged,
-            ShockProgression shockProgression
+            ShockProgression shockProgression,
+            DownedProgression downedProgression
     ) {
         if (progressedWounds == 0
                 && healedWounds == 0
@@ -464,7 +532,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 && bleedingDamage <= 0.0F
                 && !bleedingTimerChanged
                 && !movementBleedingStateChanged
-                && !shockProgression.changed()) {
+                && !shockProgression.changed()
+                && !downedProgression.changed()) {
             return BodyProgressionResult.unchanged();
         }
 
@@ -479,7 +548,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 bleedingDamage,
                 shockProgression.warningStarted(),
                 shockProgression.warningCancelled(),
-                shockProgression.becameIncapacitated()
+                shockProgression.becameIncapacitated(),
+                downedProgression.bloodOxygenChanged(),
+                downedProgression.becameCardiacArrest(),
+                downedProgression.becameBrainDead()
         );
     }
 
@@ -509,7 +581,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 return ShockProgression.cancelled();
             }
             if (gameTime >= shockWarningEndGameTime) {
-                enterIncapacitated(CollapseReason.TRAUMATIC_SHOCK);
+                enterIncapacitated(CollapseReason.TRAUMATIC_SHOCK, gameTime);
                 nextPainRecoveryGameTime = basePain > 0.0F
                         ? gameTime + PAIN_RECOVERY_INTERVAL_TICKS
                         : -1L;
@@ -528,13 +600,77 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return ShockProgression.unchanged();
     }
 
-    private void enterIncapacitated(CollapseReason reason) {
+    private void enterIncapacitated(CollapseReason reason, long gameTime) {
         lifeState = BodyLifeState.INCAPACITATED;
         collapseReason = reason == null || reason == CollapseReason.NONE
                 ? CollapseReason.LETHAL_DAMAGE
                 : reason;
-        bloodOxygen = 20.0F;
+        bloodOxygen = INITIAL_INCAPACITATED_BLOOD_OXYGEN;
+        bloodOxygenDeadlineGameTime = gameTime
+                + Math.round(INITIAL_INCAPACITATED_BLOOD_OXYGEN * BLOOD_OXYGEN_POINT_DURATION_TICKS);
+        brainDeathDeadlineGameTime = -1L;
+        cardiacArrestEventId = null;
+        accumulatedCprSeconds = 0;
         shockWarningEndGameTime = -1L;
+    }
+
+    private DownedProgression advanceDownedProgression(long gameTime) {
+        boolean bloodOxygenChanged = false;
+        boolean becameCardiacArrest = false;
+        boolean becameBrainDead = false;
+
+        if (lifeState == BodyLifeState.INCAPACITATED || lifeState == BodyLifeState.AWAKENING) {
+            ensureBloodOxygenDeadline(gameTime);
+            float previousBloodOxygen = bloodOxygen;
+            long remainingTicks = Math.max(0L, bloodOxygenDeadlineGameTime - gameTime);
+            bloodOxygen = clamp(
+                    (float) Math.ceil(remainingTicks / (double) BLOOD_OXYGEN_POINT_DURATION_TICKS),
+                    0.0F,
+                    MAX_BLOOD_OXYGEN
+            );
+            bloodOxygenChanged = Float.compare(previousBloodOxygen, bloodOxygen) != 0;
+
+            if (remainingTicks == 0L) {
+                long cardiacArrestStart = bloodOxygenDeadlineGameTime;
+                lifeState = BodyLifeState.CARDIAC_ARREST;
+                bloodOxygen = 0.0F;
+                bloodOxygenDeadlineGameTime = -1L;
+                brainDeathDeadlineGameTime = cardiacArrestStart + CARDIAC_ARREST_DURATION_TICKS;
+                cardiacArrestEventId = UUID.randomUUID();
+                accumulatedCprSeconds = 0;
+                becameCardiacArrest = true;
+            }
+        }
+
+        if (lifeState == BodyLifeState.CARDIAC_ARREST
+                || lifeState == BodyLifeState.VENTRICULAR_FIBRILLATION) {
+            ensureBrainDeathDeadline(gameTime);
+            if (gameTime >= brainDeathDeadlineGameTime) {
+                lifeState = BodyLifeState.BRAIN_DEAD;
+                accumulatedCprSeconds = 0;
+                becameBrainDead = true;
+            }
+        }
+
+        return new DownedProgression(bloodOxygenChanged, becameCardiacArrest, becameBrainDead);
+    }
+
+    private void ensureBloodOxygenDeadline(long gameTime) {
+        if (bloodOxygenDeadlineGameTime >= 0L) {
+            return;
+        }
+        bloodOxygenDeadlineGameTime = gameTime
+                + Math.round((double) clamp(bloodOxygen, 0.0F, MAX_BLOOD_OXYGEN)
+                * BLOOD_OXYGEN_POINT_DURATION_TICKS);
+    }
+
+    private void ensureBrainDeathDeadline(long gameTime) {
+        if (brainDeathDeadlineGameTime < 0L) {
+            brainDeathDeadlineGameTime = gameTime + CARDIAC_ARREST_DURATION_TICKS;
+        }
+        if (cardiacArrestEventId == null) {
+            cardiacArrestEventId = UUID.randomUUID();
+        }
     }
 
     public boolean forceRecoverForDebug() {
@@ -544,7 +680,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 || basePain > 0.0F
                 || stressEndGameTime >= 0L
                 || nextPainRecoveryGameTime >= 0L
-                || bloodOxygen < 30.0F;
+                || bloodOxygen < MAX_BLOOD_OXYGEN
+                || bloodOxygenDeadlineGameTime >= 0L
+                || brainDeathDeadlineGameTime >= 0L
+                || cardiacArrestEventId != null
+                || accumulatedCprSeconds > 0;
         if (!changed) {
             return false;
         }
@@ -553,7 +693,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         collapseReason = CollapseReason.NONE;
         shockWarningEndGameTime = -1L;
         basePain = 0.0F;
-        bloodOxygen = 30.0F;
+        bloodOxygen = MAX_BLOOD_OXYGEN;
+        bloodOxygenDeadlineGameTime = -1L;
+        brainDeathDeadlineGameTime = -1L;
+        cardiacArrestEventId = null;
+        accumulatedCprSeconds = 0;
         stressEndGameTime = -1L;
         nextPainRecoveryGameTime = -1L;
         markChanged();
@@ -605,6 +749,13 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return deadline < 0L ? -1L : deadline + Math.max(0L, deltaTicks);
     }
 
+    private static long saturatingSubtract(long value, long decrement) {
+        if (decrement <= 0L) {
+            return value;
+        }
+        return value < Long.MIN_VALUE + decrement ? Long.MIN_VALUE : value - decrement;
+    }
+
     public void copyFrom(BodyState other) {
         deserializeNBT(other.serializeNBT());
     }
@@ -621,7 +772,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         infection = 0.0F;
         bloodDrugConcentration = 0.0F;
         adrenalineLevel = 0;
-        bloodOxygen = 30.0F;
+        bloodOxygen = MAX_BLOOD_OXYGEN;
+        bloodOxygenDeadlineGameTime = -1L;
         brainDeathDeadlineGameTime = -1L;
         cardiacArrestEventId = null;
         accumulatedCprSeconds = 0;
@@ -656,6 +808,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         tag.putFloat(TAG_BLOOD_DRUG_CONCENTRATION, bloodDrugConcentration);
         tag.putInt(TAG_ADRENALINE_LEVEL, adrenalineLevel);
         tag.putFloat(TAG_BLOOD_OXYGEN, bloodOxygen);
+        tag.putLong(TAG_BLOOD_OXYGEN_DEADLINE, bloodOxygenDeadlineGameTime);
         tag.putLong(TAG_BRAIN_DEATH_DEADLINE, brainDeathDeadlineGameTime);
         if (cardiacArrestEventId != null) {
             tag.putUUID(TAG_CARDIAC_ARREST_EVENT_ID, cardiacArrestEventId);
@@ -716,8 +869,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         bloodDrugConcentration = Math.max(0.0F, tag.getFloat(TAG_BLOOD_DRUG_CONCENTRATION));
         adrenalineLevel = Math.max(0, tag.getInt(TAG_ADRENALINE_LEVEL));
         bloodOxygen = tag.contains(TAG_BLOOD_OXYGEN, Tag.TAG_ANY_NUMERIC)
-                ? clamp(tag.getFloat(TAG_BLOOD_OXYGEN), 0.0F, 30.0F)
-                : 30.0F;
+                ? clamp(tag.getFloat(TAG_BLOOD_OXYGEN), 0.0F, MAX_BLOOD_OXYGEN)
+                : MAX_BLOOD_OXYGEN;
+        bloodOxygenDeadlineGameTime = tag.contains(TAG_BLOOD_OXYGEN_DEADLINE, Tag.TAG_ANY_NUMERIC)
+                ? tag.getLong(TAG_BLOOD_OXYGEN_DEADLINE)
+                : -1L;
         brainDeathDeadlineGameTime = tag.contains(TAG_BRAIN_DEATH_DEADLINE, Tag.TAG_ANY_NUMERIC)
                 ? tag.getLong(TAG_BRAIN_DEATH_DEADLINE)
                 : -1L;
@@ -805,6 +961,16 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
         private boolean changed() {
             return warningStarted || warningCancelled || becameIncapacitated;
+        }
+    }
+
+    private record DownedProgression(
+            boolean bloodOxygenChanged,
+            boolean becameCardiacArrest,
+            boolean becameBrainDead
+    ) {
+        private boolean changed() {
+            return bloodOxygenChanged || becameCardiacArrest || becameBrainDead;
         }
     }
 }

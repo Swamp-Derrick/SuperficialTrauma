@@ -10,7 +10,10 @@ public record BodyProgressionResult(
         float bleedingDamage,
         boolean shockWarningStarted,
         boolean shockWarningCancelled,
-        boolean becameIncapacitated
+        boolean becameIncapacitated,
+        boolean bloodOxygenChanged,
+        boolean becameCardiacArrest,
+        boolean becameBrainDead
 ) {
     private static final BodyProgressionResult UNCHANGED = new BodyProgressionResult(
             false,
@@ -20,6 +23,9 @@ public record BodyProgressionResult(
             0,
             0.0F,
             0.0F,
+            false,
+            false,
+            false,
             false,
             false,
             false

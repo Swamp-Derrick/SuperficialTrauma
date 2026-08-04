@@ -82,6 +82,8 @@ public final class DebugCommands {
                             + " woundPain=" + bodyState.woundPainContribution()
                             + " stress=" + bodyState.stressRemainingTicks(gameTime) + "t"
                             + " shockWarning=" + bodyState.shockWarningRemainingTicks(gameTime) + "t"
+                            + " danger=" + bodyState.downedDangerRemainingTicks(gameTime) + "t"
+                            + " oxygen=" + bodyState.bloodOxygen()
                             + " movementBleeding=" + bodyState.movementBleedingActive()
                             + " lastD=" + bodyState.lastFinalDamage()
                             + " type=" + bodyState.lastDamageType()
@@ -187,6 +189,11 @@ public final class DebugCommands {
         BodyProgressionResult shockWarning = shockState.advanceBodyProgression(400L);
         BodyProgressionResult incapacitated = shockState.advanceBodyProgression(600L);
 
+        BodyState downedState = new BodyState();
+        boolean enteredDowned = downedState.incapacitate(CollapseReason.LETHAL_DAMAGE, 1_000L);
+        var downedHit = downedState.applyDownedDamage(2.5F, 1_000L);
+        BodyProgressionResult cardiacArrest = downedState.advanceBodyProgression(4_100L);
+
         boolean passed = pending.status() == WoundUpdateResult.Status.PENDING
                 && created.status() == WoundUpdateResult.Status.CREATED
                 && created.wound() != null
@@ -214,7 +221,13 @@ public final class DebugCommands {
                 && shockWarning.shockWarningStarted()
                 && incapacitated.becameIncapacitated()
                 && shockState.lifeState() == BodyLifeState.INCAPACITATED
-                && shockState.collapseReason() == CollapseReason.TRAUMATIC_SHOCK;
+                && shockState.collapseReason() == CollapseReason.TRAUMATIC_SHOCK
+                && enteredDowned
+                && downedHit.applied()
+                && downedHit.shortenedTicks() == 500L
+                && downedHit.remainingTicks() == 3_100L
+                && cardiacArrest.becameCardiacArrest()
+                && downedState.lifeState() == BodyLifeState.CARDIAC_ARREST;
 
         if (passed) {
             context.getSource().sendSuccess(

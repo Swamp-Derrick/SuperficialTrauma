@@ -2,6 +2,7 @@ package com.swampd.superficialtrauma.common.damage;
 
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
+import com.swampd.superficialtrauma.common.body.DownedDamageResult;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -18,6 +19,25 @@ public final class BloodLossDamage {
             return;
         }
 
+        long gameTime = player.serverLevel().getGameTime();
+        boolean convertedToDangerTime = BodyStateCapability.get(player)
+                .map(bodyState -> {
+                    if (bodyState.canAct()) {
+                        return false;
+                    }
+                    DownedDamageResult result = bodyState.applyDownedDamage(amount, gameTime);
+                    if (result.applied()) {
+                        ModNetworking.syncBodyState(player);
+                    }
+                    return result.applied();
+                })
+                .orElse(false);
+
+        if (convertedToDangerTime) {
+            ModNetworking.sendBloodLossFeedback(player, amount);
+            return;
+        }
+
         float currentHealth = player.getHealth();
         boolean wouldBeFatal = DamageDowning.wouldBeFatal(currentHealth, amount);
         float appliedDamage = wouldBeFatal
@@ -28,7 +48,7 @@ public final class BloodLossDamage {
         }
 
         boolean becameIncapacitated = wouldBeFatal && BodyStateCapability.get(player)
-                .map(bodyState -> bodyState.incapacitate(CollapseReason.HEMORRHAGIC_SHOCK))
+                .map(bodyState -> bodyState.incapacitate(CollapseReason.HEMORRHAGIC_SHOCK, gameTime))
                 .orElse(false);
 
         ModNetworking.sendBloodLossFeedback(player, amount);

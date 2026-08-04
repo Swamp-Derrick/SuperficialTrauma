@@ -42,11 +42,14 @@ Phase 0's first vertical slice is implemented:
 - independent 20-second accumulation windows for each implemented wound type;
 - blunt, sharp, burn, and explosion wounds using reviewed half-open severity ranges;
 - server-authoritative natural healing that updates `H` once per complete second and removes wounds at `H = 0`;
-- version-6 body state with persistent pain, stress, shock warnings, collapse reasons, per-wound bleeding clocks, and safe migration from earlier saves;
+- version-7 body state with persistent pain, stress, shock warnings, collapse reasons, downed deadlines, per-wound bleeding clocks, and safe migration from earlier saves;
 - server-authoritative bleeding pulses for bleeding levels 1-4, including the two-second movement-bleeding linger on level-3 blunt wounds;
 - silent blood-loss health deduction that bypasses the vanilla hurt animation and instead sends a short two-or-three-spot blood overlay to the affected client;
 - traumatic-shock progression: stress suppresses collapse, pain 20 starts a ten-second warning, and pain still at 20 incapacitates the player at the deadline;
 - lethal final damage is clamped to preserve up to one vanilla health point and moves an active player into the incapacitated state;
+- incapacitation starts a 180-second blood-oxygen countdown; expiry enters cardiac arrest and starts the separate 180-second brain-death deadline;
+- final damage while downed skips trauma, pain, and stress, then shortens the current danger countdown by `10 × D` seconds;
+- brain-death expiry performs one normal server death handoff so later corpse compatibility can remain downstream of the life-state machine;
 - server-side incapacitation restrictions for movement, attacks, block breaking, interaction, and item use;
 - server-to-client body-state snapshots;
 - a first-pass three-column health screen, opened with `H`;
@@ -60,7 +63,7 @@ Phase 0's CGM recognition slice is also implemented:
 - version-2 `BodyState` diagnostics with safe migration from version 1;
 - `/superficialtrauma classifyammo` for checking the held ammunition item.
 
-Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the hidden-duration pain-20 shock warning, traumatic-shock incapacitation, and lethal-hit downing are active. Blood-oxygen countdown, downed-damage deadline reduction, cardiac arrest, awakening through treatment, internal bleeding derivation, treatments, the two-player target HUD, and polished HUD art are not active yet.
+Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the hidden-duration pain-20 shock warning, traumatic-shock incapacitation, lethal-hit downing, blood-oxygen countdown, downed-damage deadline reduction, cardiac arrest, and brain-death expiry are active. Awakening through treatment, CPR, ventricular fibrillation, internal bleeding derivation, treatments, the two-player target HUD, corpse handoff verification, downed presentation, and polished HUD art are not active yet. The agreed downed camera and third-person pose direction is recorded in [DESIGN_NOTES.md](DESIGN_NOTES.md).
 
 Natural healing and pain timers advance only while the injured player is online. Logging out pauses the progression clock, preventing logout time from being used as free treatment or stress recovery. Whole intervals are calculated from server game time, so delayed processing does not lose elapsed progress.
 
@@ -86,6 +89,17 @@ Blood-loss pulses deduct vanilla health directly on the server instead of invoki
 7. If effective pain is still 20 at the deadline, the life state becomes incapacitated and the player can no longer move horizontally, sprint, attack, break blocks, interact, or start using an item.
 8. During development, an operator can run `/superficialtrauma recover` or `/superficialtrauma recover <player>` to restore active state and clear base pain.
 9. Take final damage equal to or greater than current vanilla health. Health stops at one and the collapse reason becomes lethal injury; ordinary external-hit feedback is retained.
+
+### Manual downed countdown check
+
+1. Become incapacitated and open the health HUD. It must show a 180-second danger countdown instead of exposing exact blood oxygen.
+2. Wait nine seconds. The server-side oxygen reserve must lose one point while the displayed countdown continues toward cardiac arrest.
+3. While downed, take a controlled `D = 2` final-damage hit. The danger countdown must immediately lose 20 seconds, while the wound count, wound accumulation, base pain, and stress remain unchanged.
+4. Repeat with blunt, sharp, burn, explosion, and CGM-classified damage. Classification may remain in latest-hit diagnostics, but none may create or update a wound while downed.
+5. Let the first countdown expire. The life state must become cardiac arrest and a new 180-second brain-death countdown must begin with a persistent cardiac-arrest event ID.
+6. Take another `D = 2` hit during cardiac arrest. This time the brain-death countdown must lose 20 seconds.
+7. Run `/superficialtrauma status` during both states and confirm that `danger` matches the HUD in server ticks. NBT deadline migration and round trips are covered by `bodyStateSelfTest`; the reviewed disconnect-immediately-dies rule is not connected yet.
+8. At brain-death expiry, exactly one normal player death must occur. Corpse-mod ownership and item handoff still require a later compatibility test.
 
 ### Manual bleeding check
 

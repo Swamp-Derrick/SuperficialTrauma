@@ -28,6 +28,7 @@ public final class BodyStateRoundTripTest {
         verifyTraumaticShockWarningAndCollapse();
         verifyShockWarningCancellationAndNbt();
         verifyLethalDamageIncapacitation();
+        verifyDownedDamageCountdowns();
         verifyPainTagFloorAndClamp();
         verifyPainOfflinePauseAndNbt();
         verifyTransientSharpPain();
@@ -45,6 +46,7 @@ public final class BodyStateRoundTripTest {
         verifyVersionThreePainMigrationDefaults();
         verifyVersionFourBleedingMigrationDefaults();
         verifyVersionFiveShockMigrationDefaults();
+        verifyVersionSixDownedMigrationDefaults();
         verifyWoundLimitAndActiveWindowUpdate();
         System.out.println("Superficial Trauma BodyState self-test passed.");
     }
@@ -196,17 +198,46 @@ public final class BodyStateRoundTripTest {
         assertFloatEquals(0.0F, DamageDowning.clampToPreserveLife(0.5F, 5.0F), "the downing floor must never heal low health");
 
         BodyState state = new BodyState();
-        assertEquals(true, state.incapacitate(CollapseReason.LETHAL_DAMAGE), "a lethal hit must incapacitate an active player");
-        assertEquals(false, state.incapacitate(CollapseReason.TRAUMATIC_SHOCK), "an existing collapse reason must not be overwritten");
+        assertEquals(true, state.incapacitate(CollapseReason.LETHAL_DAMAGE, 1_000L), "a lethal hit must incapacitate an active player");
+        assertEquals(false, state.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 1_001L), "an existing collapse reason must not be overwritten");
         assertEquals(BodyLifeState.INCAPACITATED, state.lifeState(), "lethal damage must enter the incapacitated state");
         assertEquals(CollapseReason.LETHAL_DAMAGE, state.collapseReason(), "lethal damage must be recorded as collapse reason");
         assertFloatEquals(20.0F, state.bloodOxygen(), "lethal damage must initialize the downed blood-oxygen reserve");
+        assertEquals(4_600L, state.bloodOxygenDeadlineGameTime(), "twenty oxygen points must provide exactly 180 seconds");
 
         BodyState restored = new BodyState();
         restored.deserializeNBT(state.serializeNBT());
         assertEquals(BodyLifeState.INCAPACITATED, restored.lifeState(), "NBT must preserve lethal incapacitation");
         assertEquals(CollapseReason.LETHAL_DAMAGE, restored.collapseReason(), "NBT must preserve lethal collapse reason");
         assertFloatEquals(20.0F, restored.bloodOxygen(), "NBT must preserve downed blood oxygen");
+        assertEquals(4_600L, restored.bloodOxygenDeadlineGameTime(), "NBT must preserve the oxygen deadline");
+    }
+
+    private static void verifyDownedDamageCountdowns() {
+        BodyState state = new BodyState();
+        state.incapacitate(CollapseReason.LETHAL_DAMAGE, 1_000L);
+
+        DownedDamageResult firstHit = state.applyDownedDamage(2.5F, 1_000L);
+        assertEquals(true, firstHit.applied(), "damage to an incapacitated player must be converted to danger time");
+        assertEquals(500L, firstHit.shortenedTicks(), "2.5 damage must shorten the current timer by twenty-five seconds");
+        assertEquals(3_100L, firstHit.remainingTicks(), "the shortened oxygen timer must retain 155 seconds");
+        assertEquals(BodyLifeState.INCAPACITATED, firstHit.resultingState(), "a non-exhausting hit must not skip cardiac arrest");
+        assertEquals(0, state.wounds().size(), "converted downed damage must not create a trauma instance");
+
+        BodyProgressionResult arrest = state.advanceBodyProgression(4_100L);
+        assertEquals(true, arrest.becameCardiacArrest(), "oxygen expiry must enter cardiac arrest");
+        assertEquals(BodyLifeState.CARDIAC_ARREST, state.lifeState(), "oxygen expiry must update the life state");
+        assertEquals(7_700L, state.brainDeathDeadlineGameTime(), "cardiac arrest must start a fresh 180-second brain-death deadline");
+        assertEquals(true, state.cardiacArrestEventId().isPresent(), "cardiac arrest must establish a patient-bound event ID");
+
+        DownedDamageResult arrestHit = state.applyDownedDamage(2.0F, 4_100L);
+        assertEquals(400L, arrestHit.shortenedTicks(), "two damage in cardiac arrest must remove twenty seconds");
+        assertEquals(3_200L, arrestHit.remainingTicks(), "the brain-death deadline must retain 160 seconds");
+        assertEquals(BodyLifeState.CARDIAC_ARREST, arrestHit.resultingState(), "a non-exhausting arrest hit must retain cardiac arrest");
+
+        BodyProgressionResult brainDeath = state.advanceBodyProgression(7_300L);
+        assertEquals(true, brainDeath.becameBrainDead(), "the shortened brain-death deadline must be authoritative");
+        assertEquals(BodyLifeState.BRAIN_DEAD, state.lifeState(), "deadline expiry must enter brain death");
     }
 
     private static void verifyShockWarningCancellationAndNbt() {
@@ -574,6 +605,22 @@ public final class BodyStateRoundTripTest {
         assertEquals(BodyLifeState.ACTIVE, restored.lifeState(), "version 5 data must migrate to active state by default");
         assertEquals(CollapseReason.NONE, restored.collapseReason(), "version 5 data must not invent a collapse reason");
         assertEquals(-1L, restored.shockWarningEndGameTime(), "version 5 data must not invent a shock warning");
+    }
+
+    private static void verifyVersionSixDownedMigrationDefaults() {
+        CompoundTag versionSix = new CompoundTag();
+        versionSix.putInt("DataVersion", 6);
+        versionSix.putString("LifeState", "incapacitated");
+        versionSix.putString("CollapseReason", "lethal_damage");
+        versionSix.putFloat("BloodOxygen", 20.0F);
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(versionSix);
+        assertEquals(-1L, restored.bloodOxygenDeadlineGameTime(), "version 6 data must not invent an offline deadline");
+
+        restored.advanceBodyProgression(500L);
+        assertEquals(4_100L, restored.bloodOxygenDeadlineGameTime(), "the first online tick must give a migrated downed player a full oxygen timer");
+        assertEquals(BodyLifeState.INCAPACITATED, restored.lifeState(), "migration must not immediately cause cardiac arrest");
     }
 
     private static void verifyWoundLimitAndActiveWindowUpdate() {
