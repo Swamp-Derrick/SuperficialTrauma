@@ -22,6 +22,8 @@ public final class BodyStateRoundTripTest {
 
     public static void main(String[] args) {
         verifyHalfOpenWoundRanges();
+        verifyGunshotRangesAndContext();
+        verifyGunshotCreationAndRoundTrip();
         verifyPendingDamageAccumulation();
         verifyIndependentDamageWindows();
         verifyWoundDefinitions();
@@ -86,6 +88,106 @@ public final class BodyStateRoundTripTest {
         assertEquals(2, WoundInstance.explosionSeverityFor(8.0F), "8 must enter explosion severity 2");
         assertEquals(2, WoundInstance.explosionSeverityFor(15.9999F), "explosion value below 16 must remain severity 2");
         assertEquals(3, WoundInstance.explosionSeverityFor(16.0F), "16 must enter explosion severity 3");
+    }
+
+    private static void verifyGunshotRangesAndContext() {
+        assertGunshotSeverity(WoundType.GUNSHOT_LOW_VELOCITY, 3.9999F, false, false, 0);
+        assertGunshotSeverity(WoundType.GUNSHOT_LOW_VELOCITY, 4.0F, false, false, 1);
+        assertGunshotSeverity(WoundType.GUNSHOT_LOW_VELOCITY, 5.9999F, false, false, 1);
+        assertGunshotSeverity(WoundType.GUNSHOT_LOW_VELOCITY, 6.0F, false, false, 2);
+        assertGunshotSeverity(WoundType.GUNSHOT_LOW_VELOCITY, 15.0F, false, false, 2);
+        assertGunshotSeverity(WoundType.GUNSHOT_LOW_VELOCITY, 15.0F, true, false, 3);
+
+        assertGunshotSeverity(WoundType.GUNSHOT_HIGH_VELOCITY, 4.0F, false, false, 1);
+        assertGunshotSeverity(WoundType.GUNSHOT_HIGH_VELOCITY, 9.9999F, false, false, 1);
+        assertGunshotSeverity(WoundType.GUNSHOT_HIGH_VELOCITY, 10.0F, false, false, 2);
+        assertGunshotSeverity(WoundType.GUNSHOT_HIGH_VELOCITY, 12.0F, false, false, 2);
+        assertGunshotSeverity(WoundType.GUNSHOT_HIGH_VELOCITY, 12.0F, true, false, 3);
+
+        assertGunshotSeverity(WoundType.GUNSHOT_SHOTGUN, 4.0F, false, false, 1);
+        assertGunshotSeverity(WoundType.GUNSHOT_SHOTGUN, 7.9999F, false, true, 1);
+        assertGunshotSeverity(WoundType.GUNSHOT_SHOTGUN, 8.0F, false, false, 2);
+        assertGunshotSeverity(WoundType.GUNSHOT_SHOTGUN, 8.0F, false, true, 3);
+    }
+
+    private static void verifyGunshotCreationAndRoundTrip() {
+        BodyState state = new BodyState();
+        WoundUpdateResult converted = state.applyGunshotDamage(
+                WoundType.GUNSHOT_LOW_VELOCITY,
+                3.0F,
+                20,
+                10.0D,
+                true,
+                0L
+        );
+        assertEquals(WoundType.BLUNT, requireWound(converted).type(), "D below four must convert to blunt trauma");
+
+        WoundUpdateResult lowVelocity = state.applyGunshotDamage(
+                WoundType.GUNSHOT_LOW_VELOCITY,
+                4.0F,
+                0,
+                10.0D,
+                true,
+                1L
+        );
+        WoundInstance lowWound = requireWound(lowVelocity);
+        assertEquals(1, lowWound.severity(), "four low-velocity damage must create severity one");
+        assertEquals(true, lowWound.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "creation roll must add debridement");
+        assertFloatEquals(0.4F, lowWound.baseHealingPerSecond(), "low-velocity severity one must heal at 0.4 H/s");
+
+        state.applyGunshotDamage(
+                WoundType.GUNSHOT_LOW_VELOCITY,
+                11.0F,
+                11,
+                10.0D,
+                false,
+                2L
+        );
+        assertEquals(3, lowWound.severity(), "A fifteen with V above ten must upgrade to severity three");
+        assertEquals(true, lowWound.fragmentationEligible(), "armor-qualified context must persist on the wound");
+        assertEquals(true, lowWound.woundTags().contains(WoundTag.DISORIENTATION_2), "severity three must add disorientation two");
+        assertEquals(true, lowWound.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "severity upgrades must retain a successful debridement roll");
+
+        WoundUpdateResult closeShotgun = state.applyGunshotDamage(
+                WoundType.GUNSHOT_SHOTGUN,
+                8.0F,
+                0,
+                3.0D,
+                false,
+                3L
+        );
+        WoundInstance shotgunWound = requireWound(closeShotgun);
+        assertEquals(3, shotgunWound.severity(), "L equal to three must count as a close-range shotgun wound");
+        assertEquals(true, shotgunWound.closeRangeShot(), "close-range context must be recorded");
+        assertEquals(true, shotgunWound.woundTags().contains(WoundTag.DISORIENTATION_3), "close shotgun severity three must add disorientation three");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(state.serializeNBT());
+        WoundInstance restoredLow = restored.wounds().stream()
+                .filter(wound -> wound.type() == WoundType.GUNSHOT_LOW_VELOCITY)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("NBT must preserve low-velocity wounds"));
+        WoundInstance restoredShotgun = restored.wounds().stream()
+                .filter(wound -> wound.type() == WoundType.GUNSHOT_SHOTGUN)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("NBT must preserve shotgun wounds"));
+        assertEquals(true, restoredLow.fragmentationEligible(), "NBT must preserve armor-qualified context");
+        assertEquals(true, restoredLow.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "NBT must preserve the debridement roll");
+        assertEquals(true, restoredShotgun.closeRangeShot(), "NBT must preserve close-range context");
+    }
+
+    private static void assertGunshotSeverity(
+            WoundType type,
+            float damage,
+            boolean fragmentationEligible,
+            boolean closeRangeShot,
+            int expected
+    ) {
+        assertEquals(
+                expected,
+                WoundInstance.gunshotSeverityFor(type, damage, fragmentationEligible, closeRangeShot),
+                type + " severity must follow the reviewed half-open range"
+        );
     }
 
     private static void verifyPendingDamageAccumulation() {

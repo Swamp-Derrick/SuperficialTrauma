@@ -14,11 +14,12 @@ public final class ClientDownedOverlay {
 
     public static void render(GuiGraphics graphics, int width, int height) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null
-                || ClientDownedPoses.get(minecraft.player.getId()).isEmpty()) {
+        if (!isVisible()) {
             return;
         }
 
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0F, 0.0F, 1000.0F);
         float progress = ClientDownedPoses.transitionProgress(minecraft.player.getId());
         float fadeProgress = Mth.clamp(
                 (progress - FADE_DELAY_PROGRESS) / (1.0F - FADE_DELAY_PROGRESS),
@@ -63,6 +64,13 @@ public final class ClientDownedOverlay {
                 height - 28,
                 secondaryColor
         );
+        graphics.pose().popPose();
+    }
+
+    public static boolean isVisible() {
+        Minecraft minecraft = Minecraft.getInstance();
+        return minecraft.player != null
+                && ClientDownedPoses.get(minecraft.player.getId()).isPresent();
     }
 
     private static float smoothStep(float value) {

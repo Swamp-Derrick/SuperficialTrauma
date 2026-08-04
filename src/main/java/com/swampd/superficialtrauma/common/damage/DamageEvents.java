@@ -7,9 +7,12 @@ import com.swampd.superficialtrauma.common.body.DownedDamageResult;
 import com.swampd.superficialtrauma.common.body.DownedHitbox;
 import com.swampd.superficialtrauma.common.body.DownedPoseCapture;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
+import com.swampd.superficialtrauma.common.wound.WoundType;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraftforge.event.entity.living.LivingDamageEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -59,12 +62,28 @@ public final class DamageEvents {
                 return;
             }
 
-            if (classification.woundType() != null) {
-                WoundUpdateResult result = bodyState.applyDamage(
-                        classification.woundType(),
+            WoundUpdateResult gunshotResult = applyGunshotDamage(
+                    bodyState,
+                    player,
+                    event.getSource(),
+                    classification,
+                    finalDamage,
+                    gameTime
+            );
+            if (gunshotResult != null) {
+                SuperficialTrauma.LOGGER.info(
+                        "Final gunshot D={} type={} classified={} reason={} result={} A={} V={} L={}",
                         finalDamage,
-                        gameTime
+                        damageType,
+                        classification.kind().serializedName(),
+                        classification.reason(),
+                        gunshotResult.status(),
+                        gunshotResult.accumulatedDamage(),
+                        player.getArmorValue(),
+                        attackerDistance(player, event.getSource())
                 );
+            } else if (classification.woundType() != null) {
+                WoundUpdateResult result = bodyState.applyDamage(classification.woundType(), finalDamage, gameTime);
                 SuperficialTrauma.LOGGER.info(
                         "Final damage D={} type={} classified={} reason={} result={} A={}",
                         finalDamage,
@@ -107,5 +126,48 @@ public final class DamageEvents {
                 ModNetworking.syncDownedPose(player);
             }
         });
+    }
+
+    private static WoundUpdateResult applyGunshotDamage(
+            com.swampd.superficialtrauma.common.body.BodyState bodyState,
+            ServerPlayer player,
+            DamageSource source,
+            DamageClassification classification,
+            float finalDamage,
+            long gameTime
+    ) {
+        WoundType woundType = switch (classification.kind()) {
+            case CGM_LOW_VELOCITY -> WoundType.GUNSHOT_LOW_VELOCITY;
+            case CGM_HIGH_VELOCITY -> WoundType.GUNSHOT_HIGH_VELOCITY;
+            case CGM_SHOTGUN -> WoundType.GUNSHOT_SHOTGUN;
+            default -> null;
+        };
+        if (woundType == null) {
+            return null;
+        }
+
+        float debridementChance = switch (woundType) {
+            case GUNSHOT_LOW_VELOCITY -> 0.50F;
+            case GUNSHOT_HIGH_VELOCITY -> 0.30F;
+            case GUNSHOT_SHOTGUN -> 0.60F;
+            default -> 0.0F;
+        };
+        boolean needsDebridement = finalDamage >= 4.0F
+                && player.getRandom().nextFloat() < debridementChance;
+        return bodyState.applyGunshotDamage(
+                woundType,
+                finalDamage,
+                player.getArmorValue(),
+                attackerDistance(player, source),
+                needsDebridement,
+                gameTime
+        );
+    }
+
+    private static double attackerDistance(ServerPlayer player, DamageSource source) {
+        Entity attacker = source.getEntity();
+        return attacker == null || attacker == player
+                ? Double.POSITIVE_INFINITY
+                : attacker.distanceTo(player);
     }
 }

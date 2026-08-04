@@ -40,9 +40,9 @@ Phase 0's first vertical slice is implemented:
 - versioned `BodyState` player capability with NBT persistence;
 - post-armor, post-effect, post-absorption final damage capture;
 - independent 20-second accumulation windows for each implemented wound type;
-- blunt, sharp, burn, and explosion wounds using reviewed half-open severity ranges;
+- blunt, sharp, burn, explosion, low-velocity gunshot, high-velocity gunshot, and shotgun wounds using reviewed half-open severity ranges;
 - server-authoritative natural healing that updates `H` once per complete second and removes wounds at `H = 0`;
-- version-8 body state with persistent pain, stress, shock warnings, collapse reasons, downed deadlines, downed-pose snapshots, per-wound bleeding clocks, and safe migration from earlier saves;
+- version-9 body state with persistent pain, stress, shock warnings, collapse reasons, downed deadlines, downed-pose snapshots, per-wound bleeding clocks, gunshot severity context, and safe migration from earlier saves;
 - server-authoritative bleeding pulses for bleeding levels 1-4, including the two-second movement-bleeding linger on level-3 blunt wounds;
 - silent blood-loss health deduction that bypasses the vanilla hurt animation and instead sends a short two-or-three-spot blood overlay to the affected client;
 - traumatic-shock progression: stress suppresses collapse, pain 20 starts a ten-second warning, and pain still at 20 incapacitates the player at the deadline;
@@ -59,6 +59,7 @@ Phase 0's first vertical slice is implemented:
 - brain-death expiry performs one normal server death handoff so later corpse compatibility can remain downstream of the life-state machine;
 - server-side incapacitation restrictions for movement, attacks, block breaking, interaction, and item use;
 - server-to-client body-state snapshots;
+- network protocol 4, requiring the current JAR on the server and every test client because gunshot wound types are synchronized in body-state snapshots;
 - a first-pass three-column health screen, opened with `H`;
 - `/superficialtrauma status` and `/superficialtrauma selftest` diagnostics;
 - `/superficialtrauma reset [player]` completely clears the mod body state and restores vanilla survival health, hunger, air, effects, absorption, fire, freezing, embedded arrows/stingers, hurt cooldowns, and movement for repeatable cross-version testing; `/recover` remains an alias.
@@ -71,7 +72,7 @@ Phase 0's CGM recognition slice is also implemented:
 - version-2 `BodyState` diagnostics with safe migration from version 1;
 - `/superficialtrauma classifyammo` for checking the held ammunition item.
 
-Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. CGM shots are identified and logged, but they intentionally do not create gunshot wounds until the gun-wound rules are implemented. Natural healing is active for the reviewed non-gun wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the hidden-duration pain-20 shock warning, traumatic-shock incapacitation, lethal-hit downing, blood-oxygen countdown, downed-damage deadline reduction, cardiac arrest, brain-death expiry, synchronized downed-pose data, the rigid third-person downed transform, the first directional camera pass, the low directional hitbox, and the opaque victim overlay are active. Awakening through treatment, CPR, ventricular fibrillation, internal bleeding derivation, treatments, the two-player target HUD, corpse handoff verification, camera collision polish, accessibility settings, and polished HUD art are not active yet. The agreed downed camera and third-person pose direction is recorded in [DESIGN_NOTES.md](DESIGN_NOTES.md).
+Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. Classified CGM low-velocity, high-velocity, and shotgun hits now create separate gunshot wounds. Individual hits below `D = 4` convert to blunt trauma; qualifying gunshot hits accumulate for twenty seconds, retain the reviewed `V > 10` fragmentation or `L <= 3` close-shot context, and roll the reviewed debridement chance once when the wound is created. Natural healing is active for the reviewed wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the hidden-duration pain-20 shock warning, traumatic-shock incapacitation, lethal-hit downing, blood-oxygen countdown, downed-damage deadline reduction, cardiac arrest, brain-death expiry, synchronized downed-pose data, the rigid third-person downed transform, the first directional camera pass, the low directional hitbox, and the opaque victim overlay are active. Awakening through treatment, CPR, ventricular fibrillation, internal bleeding derivation, treatments, the two-player target HUD, corpse handoff verification, camera collision polish, accessibility settings, and polished HUD art are not active yet. The agreed downed camera and third-person pose direction is recorded in [DESIGN_NOTES.md](DESIGN_NOTES.md).
 
 Natural healing and pain timers advance only while the injured player is online. Logging out pauses the progression clock, preventing logout time from being used as free treatment or stress recovery. Whole intervals are calculated from server game time, so delayed processing does not lose elapsed progress.
 
@@ -146,6 +147,9 @@ Blood-loss pulses deduct vanilla health directly on the server instead of invoki
 2. Hold `cgm:basic_bullet`, `cgm:advanced_bullet`, `cgm:shell`, or `nzgexpansion:medium_bullet` and run `/superficialtrauma classifyammo`.
 3. In a two-player test, shoot the second player and open the victim's HUD with `H`.
 4. Confirm that the HUD classification and ammunition ID match the fired round. `/superficialtrauma status` and `latest.log` also include the classification, ammunition ID, and weapon ID.
+5. Confirm that the hit creates the matching low-velocity, high-velocity, or shotgun wound card. A single classified hit below `D = 4` must create or update blunt trauma instead.
+6. For low/high velocity, repeat the upper-threshold hit with `V <= 10` and `V > 10`; only the latter may reach severity 3. For shotgun `A >= 8`, shoot from just over three blocks for severity 2 and from three blocks or less for severity 3.
+7. Save and rejoin. The gunshot wound, debridement result, armor-qualified flag, and close-range flag must retain the same severity and tags.
 
 ### Implemented non-gun trauma ranges
 
@@ -157,6 +161,16 @@ Blood-loss pulses deduct vanilla health directly on the server instead of invoki
 | Explosion | `[0, 4)` | `[4, 8)` | `[8, 16)` | `[16, +∞)` |
 
 Vanilla swords and axes are classified as sharp weapons. Modded sharp weapons can be appended through the `superficialtrauma:weapons/sharp` item tag.
+
+### Implemented gunshot trauma ranges
+
+Every classified gunshot with single-hit `D` in `[0, 4)` converts to blunt trauma instead of entering a gunshot accumulation window.
+
+| Type | Level 1 | Level 2 | Level 3 |
+|---|---:|---:|---:|
+| Low velocity | `A in [4, 6)` | `A in [6, +inf)`, capped here when `V <= 10` | `A in [15, +inf)` and at least one hit had `V > 10` |
+| High velocity | `A in [4, 10)` | `A in [10, +inf)`, capped here when `V <= 10` | `A in [12, +inf)` and at least one hit had `V > 10` |
+| Shotgun | `A in [4, 8)` | `A in [8, +inf)` and all contributing hits had `L > 3` | `A in [8, +inf)` and at least one hit had `L <= 3` |
 
 ## License
 

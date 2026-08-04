@@ -22,6 +22,8 @@ public final class WoundInstance {
     private static final String TAG_TRANSIENT_PAIN_END_GAME_TIME = "TransientPainEndGameTime";
     private static final String TAG_NEXT_BLEEDING_GAME_TIME = "NextBleedingGameTime";
     private static final String TAG_BLEEDING_TIMER_LEVEL = "BleedingTimerLevel";
+    private static final String TAG_FRAGMENTATION_ELIGIBLE = "FragmentationEligible";
+    private static final String TAG_CLOSE_RANGE_SHOT = "CloseRangeShot";
     private static final long SHARP_LEVEL_ONE_PAIN_TICKS = 10L * 20L;
 
     private final UUID id;
@@ -35,6 +37,8 @@ public final class WoundInstance {
     private long transientPainEndGameTime;
     private long nextBleedingGameTime;
     private int bleedingTimerLevel;
+    private boolean fragmentationEligible;
+    private boolean closeRangeShot;
 
     private WoundInstance(
             UUID id,
@@ -47,7 +51,9 @@ public final class WoundInstance {
             EnumSet<WoundTag> woundTags,
             long transientPainEndGameTime,
             long nextBleedingGameTime,
-            int bleedingTimerLevel
+            int bleedingTimerLevel,
+            boolean fragmentationEligible,
+            boolean closeRangeShot
     ) {
         this.id = id;
         this.type = type;
@@ -60,6 +66,8 @@ public final class WoundInstance {
         this.transientPainEndGameTime = transientPainEndGameTime;
         this.nextBleedingGameTime = nextBleedingGameTime;
         this.bleedingTimerLevel = Math.max(0, Math.min(4, bleedingTimerLevel));
+        this.fragmentationEligible = fragmentationEligible;
+        this.closeRangeShot = closeRangeShot;
     }
 
     public static WoundInstance createBlunt(float accumulatedDamage, long createdGameTime, long windowEndGameTime) {
@@ -93,7 +101,47 @@ public final class WoundInstance {
                 initialBleedingLevel > 0
                         ? createdGameTime + bleedingIntervalTicksFor(initialBleedingLevel)
                         : -1L,
-                initialBleedingLevel
+                initialBleedingLevel,
+                false,
+                false
+        );
+    }
+
+    public static WoundInstance createGunshot(
+            WoundType type,
+            float accumulatedDamage,
+            boolean fragmentationEligible,
+            boolean closeRangeShot,
+            boolean needsDebridement,
+            long createdGameTime,
+            long windowEndGameTime
+    ) {
+        if (!type.isGunshot()) {
+            throw new IllegalArgumentException("Not a gunshot wound type: " + type);
+        }
+        int severity = severityFor(type, accumulatedDamage, fragmentationEligible, closeRangeShot);
+        if (severity == 0) {
+            throw new IllegalArgumentException("Gunshot wounds require at least four final-damage points");
+        }
+        EnumSet<WoundTag> initialTags = tagsFor(type, severity);
+        if (needsDebridement) {
+            initialTags.add(WoundTag.NEEDS_DEBRIDEMENT_1);
+        }
+        int initialBleedingLevel = bleedingLevel(initialTags, false);
+        return new WoundInstance(
+                UUID.randomUUID(),
+                type,
+                severity,
+                accumulatedDamage,
+                100.0F,
+                createdGameTime,
+                windowEndGameTime,
+                initialTags,
+                -1L,
+                createdGameTime + bleedingIntervalTicksFor(initialBleedingLevel),
+                initialBleedingLevel,
+                fragmentationEligible,
+                closeRangeShot
         );
     }
 
@@ -141,18 +189,53 @@ public final class WoundInstance {
         return bleedingLevel(woundTags, movementBleedingActive);
     }
 
+    public boolean fragmentationEligible() {
+        return fragmentationEligible;
+    }
+
+    public boolean closeRangeShot() {
+        return closeRangeShot;
+    }
+
     public boolean isAccumulationWindowOpen(long gameTime) {
         return gameTime < windowEndGameTime;
     }
 
     public void addAccumulatedDamage(float amount, long gameTime) {
+        updateAccumulatedDamage(amount, false, false, gameTime);
+    }
+
+    public void addGunshotAccumulatedDamage(
+            float amount,
+            boolean hitFragmentationEligible,
+            boolean hitAtCloseRange,
+            long gameTime
+    ) {
+        if (!type.isGunshot()) {
+            throw new IllegalStateException("Cannot add gunshot context to " + type);
+        }
+        updateAccumulatedDamage(amount, hitFragmentationEligible, hitAtCloseRange, gameTime);
+    }
+
+    private void updateAccumulatedDamage(
+            float amount,
+            boolean hitFragmentationEligible,
+            boolean hitAtCloseRange,
+            long gameTime
+    ) {
         int previousBleedingLevel = bleedingLevel(false);
         accumulatedDamage = Math.max(0.0F, accumulatedDamage + amount);
-        int newSeverity = severityFor(type, accumulatedDamage);
+        fragmentationEligible |= hitFragmentationEligible;
+        closeRangeShot |= hitAtCloseRange;
+        int newSeverity = severityFor(type, accumulatedDamage, fragmentationEligible, closeRangeShot);
         if (newSeverity > severity) {
+            boolean needsDebridement = woundTags.contains(WoundTag.NEEDS_DEBRIDEMENT_1);
             severity = newSeverity;
             woundTags.clear();
             woundTags.addAll(tagsFor(type, severity));
+            if (needsDebridement) {
+                woundTags.add(WoundTag.NEEDS_DEBRIDEMENT_1);
+            }
             transientPainEndGameTime = transientPainEndFor(type, severity, createdGameTime);
 
             int newBleedingLevel = bleedingLevel(false);
@@ -228,6 +311,13 @@ public final class WoundInstance {
                 case 2 -> 0.2F;
                 default -> 0.0F;
             };
+            case GUNSHOT_LOW_VELOCITY -> severity == 1 ? 0.4F : 0.0F;
+            case GUNSHOT_HIGH_VELOCITY -> switch (severity) {
+                case 1 -> 0.3F;
+                case 2 -> 0.2F;
+                default -> 0.0F;
+            };
+            case GUNSHOT_SHOTGUN -> severity == 1 ? 0.3F : 0.0F;
         };
     }
 
@@ -285,12 +375,64 @@ public final class WoundInstance {
     }
 
     public static int severityFor(WoundType type, float accumulatedDamage) {
+        return severityFor(type, accumulatedDamage, false, false);
+    }
+
+    public static int gunshotSeverityFor(
+            WoundType type,
+            float accumulatedDamage,
+            boolean fragmentationEligible,
+            boolean closeRangeShot
+    ) {
+        if (!type.isGunshot()) {
+            throw new IllegalArgumentException("Not a gunshot wound type: " + type);
+        }
+        return severityFor(type, accumulatedDamage, fragmentationEligible, closeRangeShot);
+    }
+
+    private static int severityFor(
+            WoundType type,
+            float accumulatedDamage,
+            boolean fragmentationEligible,
+            boolean closeRangeShot
+    ) {
         return switch (type) {
             case BLUNT -> thresholdSeverity(accumulatedDamage, 1.5F, 4.0F, 13.0F);
             case SHARP -> thresholdSeverity(accumulatedDamage, 0.5F, 5.0F, 15.0F);
             case BURN -> thresholdSeverity(accumulatedDamage, 0.0F, 5.0F, 16.0F);
             case EXPLOSION -> thresholdSeverity(accumulatedDamage, 4.0F, 8.0F, 16.0F);
+            case GUNSHOT_LOW_VELOCITY -> cappedGunshotSeverity(
+                    accumulatedDamage,
+                    6.0F,
+                    15.0F,
+                    fragmentationEligible
+            );
+            case GUNSHOT_HIGH_VELOCITY -> cappedGunshotSeverity(
+                    accumulatedDamage,
+                    10.0F,
+                    12.0F,
+                    fragmentationEligible
+            );
+            case GUNSHOT_SHOTGUN -> cappedGunshotSeverity(
+                    accumulatedDamage,
+                    8.0F,
+                    8.0F,
+                    closeRangeShot
+            );
         };
+    }
+
+    private static int cappedGunshotSeverity(float damage, float levelTwo, float levelThree, boolean levelThreeEligible) {
+        if (damage < 4.0F) {
+            return 0;
+        }
+        if (damage < levelTwo) {
+            return 1;
+        }
+        if (damage < levelThree || !levelThreeEligible) {
+            return 2;
+        }
+        return 3;
     }
 
     private static int thresholdSeverity(float damage, float levelOne, float levelTwo, float levelThree) {
@@ -334,6 +476,24 @@ public final class WoundInstance {
                         WoundTag.BLEEDING_2,
                         WoundTag.PAIN_2
                 );
+                default -> EnumSet.noneOf(WoundTag.class);
+            };
+            case GUNSHOT_LOW_VELOCITY -> switch (severity) {
+                case 1 -> EnumSet.of(WoundTag.BLEEDING_1, WoundTag.PAIN_1);
+                case 2 -> EnumSet.of(WoundTag.BLEEDING_3, WoundTag.DISORIENTATION_1, WoundTag.PAIN_2);
+                case 3 -> EnumSet.of(WoundTag.BLEEDING_3, WoundTag.DISORIENTATION_2, WoundTag.PAIN_3);
+                default -> EnumSet.noneOf(WoundTag.class);
+            };
+            case GUNSHOT_HIGH_VELOCITY -> switch (severity) {
+                case 1 -> EnumSet.of(WoundTag.BLEEDING_2, WoundTag.PAIN_1);
+                case 2 -> EnumSet.of(WoundTag.BLEEDING_3, WoundTag.PAIN_1);
+                case 3 -> EnumSet.of(WoundTag.BLEEDING_4, WoundTag.DISORIENTATION_2, WoundTag.PAIN_2);
+                default -> EnumSet.noneOf(WoundTag.class);
+            };
+            case GUNSHOT_SHOTGUN -> switch (severity) {
+                case 1 -> EnumSet.of(WoundTag.BLEEDING_2, WoundTag.PAIN_2);
+                case 2 -> EnumSet.of(WoundTag.BLEEDING_2, WoundTag.DISORIENTATION_1, WoundTag.PAIN_2);
+                case 3 -> EnumSet.of(WoundTag.BLEEDING_4, WoundTag.DISORIENTATION_3, WoundTag.PAIN_3);
                 default -> EnumSet.noneOf(WoundTag.class);
             };
         };
@@ -382,6 +542,8 @@ public final class WoundInstance {
         tag.putLong(TAG_TRANSIENT_PAIN_END_GAME_TIME, transientPainEndGameTime);
         tag.putLong(TAG_NEXT_BLEEDING_GAME_TIME, nextBleedingGameTime);
         tag.putInt(TAG_BLEEDING_TIMER_LEVEL, bleedingTimerLevel);
+        tag.putBoolean(TAG_FRAGMENTATION_ELIGIBLE, fragmentationEligible);
+        tag.putBoolean(TAG_CLOSE_RANGE_SHOT, closeRangeShot);
 
         ListTag woundTagList = new ListTag();
         for (WoundTag woundTag : woundTags) {
@@ -426,7 +588,9 @@ public final class WoundInstance {
                         : -1L,
                 tag.contains(TAG_BLEEDING_TIMER_LEVEL, Tag.TAG_ANY_NUMERIC)
                         ? tag.getInt(TAG_BLEEDING_TIMER_LEVEL)
-                        : 0
+                        : 0,
+                tag.getBoolean(TAG_FRAGMENTATION_ELIGIBLE),
+                tag.getBoolean(TAG_CLOSE_RANGE_SHOT)
         );
     }
 }

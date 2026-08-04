@@ -22,7 +22,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 8;
+    public static final int CURRENT_DATA_VERSION = 9;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
@@ -435,6 +435,64 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         );
         wounds.add(wound);
         damageWindows.remove(type);
+        markChanged();
+        return new WoundUpdateResult(WoundUpdateResult.Status.CREATED, wound, wound.accumulatedDamage());
+    }
+
+    public WoundUpdateResult applyGunshotDamage(
+            WoundType type,
+            float finalDamage,
+            int armorValue,
+            double attackerDistance,
+            boolean needsDebridement,
+            long gameTime
+    ) {
+        if (!type.isGunshot()) {
+            throw new IllegalArgumentException("Not a gunshot wound type: " + type);
+        }
+        if (finalDamage <= 0.0F) {
+            return new WoundUpdateResult(WoundUpdateResult.Status.PENDING, null, 0.0F);
+        }
+        if (finalDamage < 4.0F) {
+            return applyDamage(WoundType.BLUNT, finalDamage, gameTime);
+        }
+
+        addTraumaticPain(finalDamage, gameTime);
+        boolean fragmentationEligible = type != WoundType.GUNSHOT_SHOTGUN && armorValue > 10;
+        boolean closeRangeShot = type == WoundType.GUNSHOT_SHOTGUN && attackerDistance <= 3.0D;
+
+        Optional<WoundInstance> activeWound = wounds.stream()
+                .filter(wound -> wound.type() == type)
+                .filter(wound -> wound.isAccumulationWindowOpen(gameTime))
+                .max((first, second) -> Long.compare(first.createdGameTime(), second.createdGameTime()));
+
+        if (activeWound.isPresent()) {
+            WoundInstance wound = activeWound.get();
+            wound.addGunshotAccumulatedDamage(
+                    finalDamage,
+                    fragmentationEligible,
+                    closeRangeShot,
+                    gameTime
+            );
+            markChanged();
+            return new WoundUpdateResult(WoundUpdateResult.Status.UPDATED, wound, wound.accumulatedDamage());
+        }
+
+        if (wounds.size() >= MAX_WOUNDS) {
+            markChanged();
+            return new WoundUpdateResult(WoundUpdateResult.Status.LIMIT_REACHED, null, finalDamage);
+        }
+
+        WoundInstance wound = WoundInstance.createGunshot(
+                type,
+                finalDamage,
+                fragmentationEligible,
+                closeRangeShot,
+                needsDebridement,
+                gameTime,
+                gameTime + DAMAGE_WINDOW_TICKS
+        );
+        wounds.add(wound);
         markChanged();
         return new WoundUpdateResult(WoundUpdateResult.Status.CREATED, wound, wound.accumulatedDamage());
     }

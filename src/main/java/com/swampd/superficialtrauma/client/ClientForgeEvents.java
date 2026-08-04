@@ -5,7 +5,9 @@ import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
+import net.minecraftforge.client.event.RenderGuiOverlayEvent;
 import net.minecraftforge.client.event.RenderGuiEvent;
+import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -49,7 +51,7 @@ public final class ClientForgeEvents {
         }
         int width = event.getWindow().getGuiScaledWidth();
         int height = event.getWindow().getGuiScaledHeight();
-        if (!minecraft.options.hideGui) {
+        if (!minecraft.options.hideGui && !ClientDownedOverlay.isVisible()) {
             ClientBloodLossOverlay.render(
                     event.getGuiGraphics(),
                     width,
@@ -57,7 +59,18 @@ public final class ClientForgeEvents {
                     event.getPartialTick()
             );
         }
-        ClientDownedOverlay.render(event.getGuiGraphics(), width, height);
+    }
+
+    @SubscribeEvent
+    public static void onRenderGuiOverlay(RenderGuiOverlayEvent.Pre event) {
+        if (!ClientDownedOverlay.isVisible()) {
+            return;
+        }
+        if (event.getOverlay().id().equals(VanillaGuiOverlay.HOTBAR.id())
+                || event.getOverlay().id().equals(VanillaGuiOverlay.CHAT_PANEL.id())
+                || event.getOverlay().id().equals(VanillaGuiOverlay.ITEM_NAME.id())) {
+            event.setCanceled(true);
+        }
     }
 
     @SubscribeEvent

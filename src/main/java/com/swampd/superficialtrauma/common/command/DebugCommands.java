@@ -113,6 +113,10 @@ public final class DebugCommands {
                             + " weapon=" + bodyState.lastWeaponId()
             ), false);
             for (WoundInstance wound : bodyState.wounds()) {
+                String gunshotContext = wound.type().isGunshot()
+                        ? " fragmentV=" + wound.fragmentationEligible()
+                                + " closeL=" + wound.closeRangeShot()
+                        : "";
                 context.getSource().sendSuccess(() -> Component.literal(
                         wound.type().serializedName()
                                 + " severity=" + wound.severity()
@@ -121,6 +125,8 @@ public final class DebugCommands {
                                 + " natural=" + wound.baseHealingPerSecond() + "/s"
                                 + " bleeding=" + wound.bleedingLevel(bodyState.movementBleedingActive())
                                 + " nextBleed=" + wound.nextBleedingGameTime()
+                                + " tags=" + wound.woundTags()
+                                + gunshotContext
                 ), false);
             }
             result.set(1);
@@ -206,6 +212,34 @@ public final class DebugCommands {
         WoundUpdateResult sharpCreated = classificationState.applyDamage(WoundType.SHARP, 0.5F, 202L);
         WoundUpdateResult burnCreated = classificationState.applyDamage(WoundType.BURN, 0.1F, 203L);
 
+        BodyState gunshotState = new BodyState();
+        WoundUpdateResult lowGunshotCreated = gunshotState.applyGunshotDamage(
+                WoundType.GUNSHOT_LOW_VELOCITY,
+                4.0F,
+                0,
+                10.0D,
+                true,
+                204L
+        );
+        WoundUpdateResult lowGunshotUpgraded = gunshotState.applyGunshotDamage(
+                WoundType.GUNSHOT_LOW_VELOCITY,
+                11.0F,
+                11,
+                10.0D,
+                false,
+                205L
+        );
+        WoundUpdateResult closeShotgunCreated = gunshotState.applyGunshotDamage(
+                WoundType.GUNSHOT_SHOTGUN,
+                8.0F,
+                0,
+                3.0D,
+                false,
+                206L
+        );
+        BodyState restoredGunshots = new BodyState();
+        restoredGunshots.deserializeNBT(gunshotState.serializeNBT());
+
         BodyState progressionState = new BodyState();
         progressionState.applyDamage(WoundType.BLUNT, 1.5F, 300L);
         progressionState.resumeBodyProgression(300L);
@@ -258,6 +292,20 @@ public final class DebugCommands {
                 && sharpCreated.status() == WoundUpdateResult.Status.CREATED
                 && burnCreated.status() == WoundUpdateResult.Status.CREATED
                 && classificationState.wounds().size() == 3
+                && lowGunshotCreated.status() == WoundUpdateResult.Status.CREATED
+                && lowGunshotUpgraded.status() == WoundUpdateResult.Status.UPDATED
+                && lowGunshotUpgraded.wound() != null
+                && lowGunshotUpgraded.wound().severity() == 3
+                && lowGunshotUpgraded.wound().fragmentationEligible()
+                && lowGunshotUpgraded.wound().woundTags().contains(
+                        com.swampd.superficialtrauma.common.wound.WoundTag.NEEDS_DEBRIDEMENT_1
+                )
+                && closeShotgunCreated.wound() != null
+                && closeShotgunCreated.wound().severity() == 3
+                && closeShotgunCreated.wound().closeRangeShot()
+                && restoredGunshots.wounds().size() == 2
+                && restoredGunshots.wounds().get(0).fragmentationEligible()
+                && restoredGunshots.wounds().get(1).closeRangeShot()
                 && progression.changed()
                 && progression.progressedWounds() == 1
                 && progression.healedWounds() == 0
