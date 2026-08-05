@@ -719,8 +719,8 @@ public final class HealthScreen extends Screen {
 
     private void addPanelModeButtons(Layout layout) {
         int gap = 2;
-        int totalWidth = Math.max(60, layout.rightWidth - 6);
-        int tabWidth = Math.max(18, (totalWidth - gap * 2) / 3);
+        int totalWidth = Math.max(3, layout.rightWidth - 6);
+        int tabWidth = Math.max(1, (totalWidth - gap * 2) / 3);
         int startX = layout.rightX + 3;
         int tabY = layout.innerY + 1;
         int index = 0;

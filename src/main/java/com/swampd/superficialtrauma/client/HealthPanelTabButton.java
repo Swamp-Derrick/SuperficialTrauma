@@ -54,7 +54,7 @@ final class HealthPanelTabButton extends AbstractButton {
         net.minecraft.client.gui.Font font = net.minecraft.client.Minecraft.getInstance().font;
         Component visibleMessage = Component.literal(font.plainSubstrByWidth(
                 getMessage().getString(),
-                Math.max(8, width - 8)
+                Math.max(1, width - 8)
         ));
         graphics.drawCenteredString(
                 font,
