@@ -37,6 +37,7 @@ public final class BodyStateRoundTripTest {
         verifyInfectionAndDebridement();
         verifyTemporaryDressingContamination();
         verifySystemicInfectionSettlement();
+        verifyDebugInfectionSetter();
         verifySurgerySkillRoundTrip();
         verifyTreatmentMovementRules();
         verifyPainAccumulationAndTags();
@@ -1309,6 +1310,31 @@ public final class BodyStateRoundTripTest {
 
         restored.resetAllForDebug();
         assertEquals(false, restored.hasSurgerySkill(), "the full debug reset must clear learned surgery skill");
+    }
+
+    private static void verifyDebugInfectionSetter() {
+        BodyState state = new BodyState();
+        assertFloatEquals(12.5F, state.setInfectionForDebug(12.5F, 400L), "debug setter must return the applied infection");
+        assertFloatEquals(12.5F, state.infection(), "debug setter must update systemic infection");
+        assertEquals(
+                400L + BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS,
+                state.nextInfectionSettlementGameTime(),
+                "debug setter must restart the systemic infection timer"
+        );
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(state.serializeNBT());
+        assertFloatEquals(12.5F, restored.infection(), "debug infection must survive save and reload");
+        assertEquals(
+                state.nextInfectionSettlementGameTime(),
+                restored.nextInfectionSettlementGameTime(),
+                "debug infection timer must survive save and reload"
+        );
+
+        assertFloatEquals(20.0F, state.setInfectionForDebug(25.0F, 800L), "debug infection must clamp at 20");
+        assertEquals(-1L, state.nextInfectionSettlementGameTime(), "infection 20 must not schedule another settlement");
+        assertFloatEquals(0.0F, state.setInfectionForDebug(-5.0F, 900L), "debug infection must clamp at zero");
+        assertEquals(-1L, state.nextInfectionSettlementGameTime(), "infection zero must stop systemic settlement");
     }
 
     private static BodyState assertSystemicGrowth(

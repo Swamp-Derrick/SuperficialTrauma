@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.common.command;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.FloatArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.context.CommandContext;
 import com.swampd.superficialtrauma.SuperficialTrauma;
@@ -17,6 +18,7 @@ import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
 import com.swampd.superficialtrauma.common.damage.CgmAmmoTags;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAggregator;
+import com.swampd.superficialtrauma.common.treatment.InspectionService;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundType;
 import com.swampd.superficialtrauma.network.ModNetworking;
@@ -72,6 +74,17 @@ public final class DebugCommands {
                                         context,
                                         EntityArgument.getPlayer(context, "player")
                                 )))
+                )
+                .then(Commands.literal("setinfection")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("value", FloatArgumentType.floatArg(0.0F, 20.0F))
+                                .executes(DebugCommands::setOwnInfection))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .then(Commands.argument("value", FloatArgumentType.floatArg(0.0F, 20.0F))
+                                        .executes(context -> setInfection(
+                                                context,
+                                                EntityArgument.getPlayer(context, "player")
+                                        ))))
                 )
         );
     }
@@ -177,6 +190,35 @@ public final class DebugCommands {
                     () -> Component.translatable(
                             "command.superficialtrauma.reset.success",
                             playerName
+                    ),
+                    true
+            );
+            result.set(1);
+        });
+        return result.get();
+    }
+
+    private static int setOwnInfection(
+            CommandContext<CommandSourceStack> context
+    ) throws CommandSyntaxException {
+        return setInfection(context, context.getSource().getPlayerOrException());
+    }
+
+    private static int setInfection(CommandContext<CommandSourceStack> context, ServerPlayer player) {
+        float requestedValue = FloatArgumentType.getFloat(context, "value");
+        AtomicInteger result = new AtomicInteger(0);
+        BodyStateCapability.get(player).ifPresent(bodyState -> {
+            float appliedValue = bodyState.setInfectionForDebug(
+                    requestedValue,
+                    player.serverLevel().getGameTime()
+            );
+            ModNetworking.syncBodyState(player);
+            InspectionService.syncPatient(player);
+            context.getSource().sendSuccess(
+                    () -> Component.translatable(
+                            "command.superficialtrauma.set_infection.success",
+                            player.getGameProfile().getName(),
+                            appliedValue
                     ),
                     true
             );

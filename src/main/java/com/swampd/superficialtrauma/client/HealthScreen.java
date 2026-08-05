@@ -770,6 +770,7 @@ public final class HealthScreen extends Screen {
             tooltip = Component.translatable("screen.superficialtrauma.health.treatment_busy_tooltip");
         } else if (preparation != null) {
             if (preparation.matches(patientEntityId, wound.id())
+                    && preparation.kind() == PreparationKind.BANDAGE
                     && (type == TreatmentType.MEDICAL_TAPE
                     || type == TreatmentType.SELF_ADHESIVE_BANDAGE)) {
                 TreatmentProcedure procedure = TreatmentProcedure.bandageCombination(type);
@@ -781,6 +782,18 @@ public final class HealthScreen extends Screen {
                 if (procedure != null) {
                     onPress = () -> submitPreparedTreatment(patientEntityId, wound.id(), procedure);
                 }
+            } else if (preparation.matches(patientEntityId, wound.id())
+                    && preparation.kind() == PreparationKind.DEBRIDEMENT
+                    && type == TreatmentType.SALINE_SOLUTION) {
+                TreatmentProcedure procedure = TreatmentProcedure.DEBRIDEMENT;
+                active = actorHasSurgerySkill()
+                        && procedure.isApplicable(wound, TreatmentAction.APPLY)
+                        && hasRequiredItems(procedure);
+                tooltip = Component.translatable(
+                        "screen.superficialtrauma.health.debridement_finish_tooltip",
+                        procedure.durationTicks() / 20L
+                );
+                onPress = () -> submitPreparedTreatment(patientEntityId, wound.id(), procedure);
             } else {
                 tooltip = Component.translatable("screen.superficialtrauma.health.treatment_preparation_locked");
             }
@@ -854,7 +867,11 @@ public final class HealthScreen extends Screen {
                             && (countItem(TreatmentType.MEDICAL_TAPE) > 0
                             || countItem(TreatmentType.SELF_ADHESIVE_BANDAGE) > 0);
                     tooltip = Component.translatable("screen.superficialtrauma.health.bandage_combo_tooltip");
-                    onPress = () -> beginBandagePreparation(patientEntityId, wound.id());
+                    onPress = () -> beginPreparation(
+                            patientEntityId,
+                            wound.id(),
+                            PreparationKind.BANDAGE
+                    );
                 }
                 case MEDICAL_TAPE -> tooltip = Component.translatable(
                         "screen.superficialtrauma.health.medical_tape_requires_bandage"
@@ -891,15 +908,14 @@ public final class HealthScreen extends Screen {
                         );
                     } else {
                         tooltip = Component.translatable(
-                                "screen.superficialtrauma.health.debridement_tooltip",
+                                "screen.superficialtrauma.health.debridement_begin_tooltip",
                                 procedure.durationTicks() / 20L
                         );
                     }
-                    onPress = () -> ModNetworking.requestTreatment(
+                    onPress = () -> beginPreparation(
                             patientEntityId,
                             wound.id(),
-                            procedure,
-                            TreatmentAction.APPLY
+                            PreparationKind.DEBRIDEMENT
                     );
                 }
                 default -> tooltip = Component.empty();
@@ -941,12 +957,16 @@ public final class HealthScreen extends Screen {
         return false;
     }
 
-    private void beginBandagePreparation(int patientEntityId, UUID woundId) {
+    private void beginPreparation(
+            int patientEntityId,
+            UUID woundId,
+            PreparationKind kind
+    ) {
         Vec3 patientPosition = displayedPatientPosition();
         if (patientPosition == null) {
             return;
         }
-        preparation = new TreatmentPreparation(patientEntityId, woundId, patientPosition);
+        preparation = new TreatmentPreparation(patientEntityId, woundId, patientPosition, kind);
         rebuildTreatmentButtons();
     }
 
@@ -965,11 +985,18 @@ public final class HealthScreen extends Screen {
             return false;
         }
         WoundInstance wound = state.wound(preparation.woundId).orElse(null);
-        return wound != null
-                && !wound.covering().isApplied()
-                && countItem(TreatmentType.BANDAGE) > 0
-                && (countItem(TreatmentType.MEDICAL_TAPE) > 0
-                || countItem(TreatmentType.SELF_ADHESIVE_BANDAGE) > 0);
+        if (wound == null) {
+            return false;
+        }
+        return switch (preparation.kind()) {
+            case BANDAGE -> !wound.covering().isApplied()
+                    && countItem(TreatmentType.BANDAGE) > 0
+                    && (countItem(TreatmentType.MEDICAL_TAPE) > 0
+                    || countItem(TreatmentType.SELF_ADHESIVE_BANDAGE) > 0);
+            case DEBRIDEMENT -> actorHasSurgerySkill()
+                    && TreatmentProcedure.DEBRIDEMENT.isApplicable(wound, TreatmentAction.APPLY)
+                    && hasRequiredItems(TreatmentProcedure.DEBRIDEMENT);
+        };
     }
 
     private boolean patientMovedSincePreparation() {
@@ -1103,9 +1130,10 @@ public final class HealthScreen extends Screen {
                 layout.innerY + layout.innerHeight,
                 0xB8101217
         );
-        Component prompt = Component.translatable(
-                "screen.superficialtrauma.health.treatment_preparation_prompt"
-        );
+        String promptKey = preparation.kind() == PreparationKind.DEBRIDEMENT
+                ? "screen.superficialtrauma.health.debridement_preparation_prompt"
+                : "screen.superficialtrauma.health.treatment_preparation_prompt";
+        Component prompt = Component.translatable(promptKey);
         int combinedStart = layout.innerX;
         int combinedEnd = layout.middleX + layout.middleWidth;
         graphics.drawCenteredString(
@@ -1280,7 +1308,8 @@ public final class HealthScreen extends Screen {
     private record TreatmentPreparation(
             int patientEntityId,
             UUID woundId,
-            Vec3 patientStartPosition
+            Vec3 patientStartPosition,
+            PreparationKind kind
     ) {
         private boolean matches(int entityId, UUID candidateWoundId) {
             return patientEntityId == entityId && woundId.equals(candidateWoundId);
@@ -1288,6 +1317,11 @@ public final class HealthScreen extends Screen {
     }
 
     private record WoundRow(WoundInstance wound, int height) {
+    }
+
+    private enum PreparationKind {
+        BANDAGE,
+        DEBRIDEMENT
     }
 
     private enum PanelMode {

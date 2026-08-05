@@ -211,6 +211,15 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return nextInfectionSettlementGameTime;
     }
 
+    public float setInfectionForDebug(float value, long gameTime) {
+        infection = Float.isFinite(value) ? clamp(value, 0.0F, 20.0F) : 0.0F;
+        nextInfectionSettlementGameTime = infection > 0.5F && infection < 20.0F
+                ? Math.max(0L, gameTime) + INFECTION_SETTLEMENT_INTERVAL_TICKS
+                : -1L;
+        markChanged();
+        return infection;
+    }
+
     public float vanillaHealingMultiplier() {
         return infection > 10.0F ? 0.5F : 1.0F;
     }

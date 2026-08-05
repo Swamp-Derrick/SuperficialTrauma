@@ -67,7 +67,7 @@ Phase 0's first vertical slice is implemented:
 - a complete first infection/debridement loop: protected severity-one wounds, per-wound infection contribution, hidden infection tags under coverings, nutrition-dependent systemic progression, healing reduction, nausea, sepsis downing, and twelve-second surgery-skilled debridement;
 - saline solution (stack 16), surgical kit (stack 1), and surgery skill book (stack 1), including permanent surgery knowledge across death and save/rejoin;
 - `/superficialtrauma status` and `/superficialtrauma selftest` diagnostics;
-- `/superficialtrauma reset [player]` completely clears the mod body state and restores vanilla survival health, hunger, air, effects, absorption, fire, freezing, embedded arrows/stingers, hurt cooldowns, and movement for repeatable cross-version testing; `/recover` remains an alias.
+- `/superficialtrauma reset [player]` completely clears the mod body state and restores vanilla survival health, hunger, air, effects, absorption, fire, freezing, embedded arrows/stingers, hurt cooldowns, and movement for repeatable cross-version testing; `/recover` remains an alias. Operators can use `/superficialtrauma setinfection <value>` for themselves or `/superficialtrauma setinfection <player> <value>` to set infection in the inclusive range 0 through 20.
 
 Phase 0's CGM recognition slice is also implemented:
 
@@ -143,7 +143,7 @@ Blood-loss pulses deduct vanilla health directly on the server instead of invoki
 2. Right-click the surgery skill book. It must be consumed once, unlock surgery permanently, and refuse to consume another copy. Save/rejoin and die/respawn to confirm the knowledge remains.
 3. Create a severity-two explosion wound. At three online minutes, its `Needs debridement 1` tag contributes `0.5` infection; at five online minutes the untreated external wound contributes another `1.0`, revealing the wound's `Infected` tag at `1.5` cumulative contribution.
 4. Apply any covering and confirm the infection tag is hidden without stopping infection. Remove the covering and confirm the tag returns. Wound packing must also be removed before surgery can begin.
-5. With both materials in the caregiver's inventory, press the surgical-kit button. The action lasts 12 seconds and follows all ordinary treatment interruption rules. Success consumes one saline solution and one surgical kit, clears `Needs debridement` and `Infected`, and adds `Debrided`.
+5. With both materials in the caregiver's inventory, press the surgical-kit button to enter preparation, then press the newly enabled saline button to start the action. Closing the HUD, changing tabs, or moving the patient before the second click cancels the preparation without consuming anything. The action lasts 12 seconds and follows all ordinary treatment interruption rules. Success consumes one saline solution and one surgical kit, clears `Needs debridement` and `Infected`, and adds `Debrided`.
 6. Confirm debridement stops that wound's future infection contribution but does not erase infection already accumulated in the whole body.
 7. With food level at least 15, systemic infection above `0.5` falls by `1` each online minute. Below 15 food it instead rises by `0.5`, `1.0`, or `1.5` according to the displayed infection band.
 8. Above infection 10, all vanilla healing is halved; above 17, nausea is continuously refreshed; reaching 20 incapacitates the player with collapse reason `sepsis`.
