@@ -2,11 +2,13 @@ package com.swampd.superficialtrauma.common.command;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.FloatArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.context.CommandContext;
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
+import com.swampd.superficialtrauma.common.body.BodyStateEvents;
 import com.swampd.superficialtrauma.common.body.BodyProgressionResult;
 import com.swampd.superficialtrauma.common.body.BodyLifeState;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
@@ -86,6 +88,17 @@ public final class DebugCommands {
                                                 EntityArgument.getPlayer(context, "player")
                                         ))))
                 )
+                .then(Commands.literal("settourniquettime")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("seconds", IntegerArgumentType.integer(0, 86_400))
+                                .executes(DebugCommands::setOwnTourniquetTime))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .then(Commands.argument("seconds", IntegerArgumentType.integer(0, 86_400))
+                                        .executes(context -> setTourniquetTime(
+                                                context,
+                                                EntityArgument.getPlayer(context, "player")
+                                        ))))
+                )
         );
     }
 
@@ -114,6 +127,7 @@ public final class DebugCommands {
                             + " pain=" + bodyState.pain()
                             + " infection=" + bodyState.infection()
                             + " nextInfection=" + bodyState.nextInfectionSettlementGameTime()
+                            + " firstAidSkill=" + bodyState.hasFirstAidSkill()
                             + " surgerySkill=" + bodyState.hasSurgerySkill()
                             + " basePain=" + bodyState.basePain()
                             + " woundPain=" + bodyState.woundPainContribution()
@@ -142,6 +156,9 @@ public final class DebugCommands {
                                 + " natural=" + wound.baseHealingPerSecond() + "/s"
                                 + " bleeding=" + wound.bleedingLevel(bodyState.movementBleedingActive())
                                 + " covering=" + wound.covering().serializedName()
+                                + " tourniquet=" + wound.tourniquetApplied()
+                                + " tourniquetTicks=" + wound.tourniquetAccumulatedTicks()
+                                + " tourniquetNecrosis=" + wound.tourniquetNecrosisLevel()
                                 + " nextBleed=" + wound.nextBleedingGameTime()
                                 + " infectionContribution=" + wound.infectionContribution()
                                 + " infectionOnset=" + wound.infectionOnsetGameTime()
@@ -227,7 +244,45 @@ public final class DebugCommands {
         return result.get();
     }
 
+    private static int setOwnTourniquetTime(
+            CommandContext<CommandSourceStack> context
+    ) throws CommandSyntaxException {
+        return setTourniquetTime(context, context.getSource().getPlayerOrException());
+    }
+
+    private static int setTourniquetTime(CommandContext<CommandSourceStack> context, ServerPlayer player) {
+        int requestedSeconds = IntegerArgumentType.getInteger(context, "seconds");
+        AtomicInteger result = new AtomicInteger(0);
+        BodyStateCapability.get(player).ifPresent(bodyState -> {
+            int changedWounds = bodyState.setAppliedTourniquetSecondsForDebug(
+                    requestedSeconds,
+                    player.serverLevel().getGameTime()
+            );
+            if (changedWounds <= 0) {
+                context.getSource().sendFailure(Component.translatable(
+                        "command.superficialtrauma.set_tourniquet_time.no_active",
+                        player.getGameProfile().getName()
+                ));
+                return;
+            }
+            ModNetworking.syncBodyState(player);
+            InspectionService.syncPatient(player);
+            context.getSource().sendSuccess(
+                    () -> Component.translatable(
+                            "command.superficialtrauma.set_tourniquet_time.success",
+                            player.getGameProfile().getName(),
+                            changedWounds,
+                            requestedSeconds
+                    ),
+                    true
+            );
+            result.set(changedWounds);
+        });
+        return result.get();
+    }
+
     private static void resetVanillaState(ServerPlayer player) {
+        BodyStateEvents.clearNecrosisHealthModifier(player);
         player.stopUsingItem();
         player.removeAllEffects();
         player.clearFire();

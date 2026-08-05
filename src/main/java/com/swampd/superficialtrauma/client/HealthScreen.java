@@ -518,13 +518,18 @@ public final class HealthScreen extends Screen {
         if (wound.woundPackingApplied()) {
             labels.add(Component.translatable("wound_packing.superficialtrauma.applied").getString());
         }
+        if (wound.tourniquetApplied()) {
+            labels.add(Component.translatable("tourniquet.superficialtrauma.applied").getString());
+        }
 
         int effectiveBleedingLevel = wound.bleedingLevel(movementBleedingActive);
         if (effectiveBleedingLevel > 0) {
             labels.add(Component.translatable(
                     "wound_tag.superficialtrauma.bleeding_" + effectiveBleedingLevel
             ).getString());
-        } else if (hasBleedingTag && (wound.covering().isApplied() || wound.woundPackingApplied())) {
+        } else if (hasBleedingTag && (wound.covering().isApplied()
+                || wound.woundPackingApplied()
+                || wound.tourniquetApplied())) {
             labels.add(Component.translatable("screen.superficialtrauma.health.bleeding_controlled").getString());
         }
 
@@ -597,7 +602,9 @@ public final class HealthScreen extends Screen {
         int buttonRows = treatmentButtonRows(availableWidth);
         for (WoundRow row : visibleRows) {
             WoundInstance wound = row.wound();
-            if (wound.covering().isApplied() || wound.woundPackingApplied()) {
+            if (wound.covering().isApplied()
+                    || wound.woundPackingApplied()
+                    || wound.tourniquetApplied()) {
                 int statusY = rowY + TREATMENT_BUTTON_TOP + buttonRows * TREATMENT_BUTTON_STEP;
                 List<String> statusParts = new ArrayList<>();
                 if (wound.covering().isApplied()) {
@@ -610,6 +617,12 @@ public final class HealthScreen extends Screen {
                 if (wound.woundPackingApplied()) {
                     statusParts.add(Component.translatable(
                             "screen.superficialtrauma.health.wound_packing_status"
+                    ).getString());
+                }
+                if (wound.tourniquetApplied()) {
+                    statusParts.add(Component.translatable(
+                            "screen.superficialtrauma.health.tourniquet_status",
+                            formatDuration(wound.tourniquetAccumulatedTicks())
                     ).getString());
                 }
                 Component status = Component.literal(String.join(" · ", statusParts));
@@ -824,6 +837,43 @@ public final class HealthScreen extends Screen {
                         TreatmentAction.APPLY
                 );
             }
+        } else if (type == TreatmentType.TOURNIQUET) {
+            TreatmentProcedure procedure = TreatmentProcedure.TOURNIQUET;
+            if (wound.tourniquetApplied()) {
+                active = true;
+                removal = true;
+                message = Component.translatable(TreatmentAction.REMOVE.translationKey(procedure));
+                tooltip = Component.translatable(
+                        "screen.superficialtrauma.health.tourniquet_remove_tooltip",
+                        procedure.durationTicks() / 20L,
+                        formatDuration(wound.tourniquetAccumulatedTicks())
+                );
+                onPress = () -> ModNetworking.requestTreatment(
+                        patientEntityId,
+                        wound.id(),
+                        procedure,
+                        TreatmentAction.REMOVE
+                );
+            } else {
+                boolean skillAvailable = actorHasFirstAidSkill();
+                active = skillAvailable
+                        && procedure.isApplicable(wound, TreatmentAction.APPLY)
+                        && hasRequiredItems(procedure);
+                tooltip = skillAvailable
+                        ? Component.translatable(
+                                "screen.superficialtrauma.health.tourniquet_tooltip",
+                                procedure.durationTicks() / 20L
+                        )
+                        : Component.translatable(
+                                "screen.superficialtrauma.health.first_aid_skill_required"
+                        );
+                onPress = () -> ModNetworking.requestTreatment(
+                        patientEntityId,
+                        wound.id(),
+                        procedure,
+                        TreatmentAction.APPLY
+                );
+            }
         } else if (appliedProcedure != null) {
             if (type == appliedProcedure.removalAnchor()) {
                 active = true;
@@ -904,6 +954,7 @@ public final class HealthScreen extends Screen {
                             TreatmentAction.APPLY
                     );
                 }
+                case TOURNIQUET -> tooltip = Component.empty();
                 case SALINE_SOLUTION -> tooltip = Component.translatable(
                         "screen.superficialtrauma.health.saline_requires_surgical_kit"
                 );
@@ -961,6 +1012,15 @@ public final class HealthScreen extends Screen {
 
     private boolean actorHasSurgerySkill() {
         return ClientBodyState.hasReceivedSnapshot() && ClientBodyState.snapshot().hasSurgerySkill();
+    }
+
+    private boolean actorHasFirstAidSkill() {
+        return ClientBodyState.hasReceivedSnapshot() && ClientBodyState.snapshot().hasFirstAidSkill();
+    }
+
+    private static String formatDuration(long ticks) {
+        long totalSeconds = Math.max(0L, ticks / 20L);
+        return String.format(Locale.ROOT, "%d:%02d", totalSeconds / 60L, totalSeconds % 60L);
     }
 
     private static boolean hasSupportedTreatment(WoundInstance wound) {

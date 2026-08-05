@@ -43,7 +43,7 @@ Phase 0's first vertical slice is implemented:
 - a two-tick shotgun-volley pre-accumulator that groups CGM's separate pellet entities by victim, shooter, ammunition, weapon, and projectile spawn tick before choosing blunt or shotgun trauma;
 - blunt, sharp, burn, explosion, low-velocity gunshot, high-velocity gunshot, and shotgun wounds using reviewed half-open severity ranges;
 - server-authoritative natural healing that updates `H` once per complete second and removes wounds at `H = 0`;
-- version-13 body state with persistent pain, infection, surgery knowledge, stress, shock warnings, collapse reasons, downed deadlines, downed-pose snapshots, per-wound bleeding/infection clocks, gunshot severity context, and safe migration from earlier saves;
+- version-14 body state with persistent pain, infection, first-aid and surgery knowledge, stress, shock warnings, collapse reasons, downed deadlines, downed-pose snapshots, per-wound bleeding/infection/tourniquet clocks, gunshot severity context, and safe migration from earlier saves;
 - server-authoritative bleeding pulses for bleeding levels 1-4, including the two-second movement-bleeding linger on level-3 blunt wounds;
 - silent blood-loss health deduction that bypasses the vanilla hurt animation and instead sends a short two-or-three-spot blood overlay to the affected client;
 - traumatic-shock progression: stress suppresses collapse, pain 20 starts a ten-second warning, and pain still at 20 incapacitates the player at the deadline;
@@ -60,15 +60,17 @@ Phase 0's first vertical slice is implemented:
 - brain-death expiry performs one normal server death handoff so later corpse compatibility can remain downstream of the life-state machine;
 - server-side incapacitation restrictions for movement, attacks, block breaking, interaction, and item use;
 - server-to-client body-state snapshots;
-- network protocol 11, requiring the current JAR on the server and every test client;
+- network protocol 12, requiring the current JAR on the server and every test client;
 - an adaptive three-column health screen, opened with `H`, with treatment, medication, and emergency tabs;
 - server-authoritative, mutually exclusive treatment sessions with movement, sprint, damage, attack, item-use, reload, distance, disconnect, and inventory validation;
 - removable temporary dressings, three bandage combinations, and independent removable wound packing;
 - a complete first infection/debridement loop: protected severity-one wounds, per-wound infection contribution, hidden infection tags under coverings, nutrition-dependent systemic progression, healing reduction, nausea, sepsis downing, and twelve-second surgery-skilled debridement;
 - a disposable ice-pack treatment for severity-two blunt wounds: five seconds, one ice pack, immediate `-90 H`, and removal of that wound's `Pain 1` tag;
-- saline solution (stack 16), surgical kit (stack 1), and surgery skill book (stack 1), including permanent surgery knowledge across death and save/rejoin;
+- independent tourniquets for bleeding severity-two and severity-three wounds: an eight-second first-aid-skilled application, bleeding `-3`, persisted anti-reset accumulation, Necrosis 1 at five minutes, and Necrosis 2 at ten minutes;
+- Necrosis 1 reduces vanilla maximum health by two; Necrosis 2 reduces it by four and refreshes Slowness I. Removing a tourniquet starts its three/four-minute necrosis recovery and, after a sixty-second grace period, recovers accumulated wear one tick per online tick;
+- saline solution (stack 16), surgical kit (stack 1), surgery skill book (stack 1), and First Aid Basics skill book (stack 1), including permanent learned knowledge across death and save/rejoin;
 - `/superficialtrauma status` and `/superficialtrauma selftest` diagnostics;
-- `/superficialtrauma reset [player]` completely clears the mod body state and restores vanilla survival health, hunger, air, effects, absorption, fire, freezing, embedded arrows/stingers, hurt cooldowns, and movement for repeatable cross-version testing; `/recover` remains an alias. Operators can use `/superficialtrauma setinfection <value>` for themselves or `/superficialtrauma setinfection <player> <value>` to set infection in the inclusive range 0 through 20.
+- `/superficialtrauma reset [player]` completely clears the mod body state and restores vanilla survival health, hunger, air, effects, absorption, fire, freezing, embedded arrows/stingers, hurt cooldowns, and movement for repeatable cross-version testing; `/recover` remains an alias. Operators can use `/superficialtrauma setinfection <value>` and `/superficialtrauma settourniquettime <seconds>` on themselves, or insert a player name before the value for another player.
 
 Phase 0's CGM recognition slice is also implemented:
 
@@ -153,9 +155,19 @@ Blood-loss pulses deduct vanilla health directly on the server instead of invoki
 ### Manual nausea and ice-pack check
 
 1. Run `/superficialtrauma setinfection 17.5`. The nausea icon and vanilla nausea distortion must both appear; the effect is refreshed with enough remaining duration for the vanilla renderer to ramp up.
-2. Create a severity-two blunt wound with accumulated final damage in `[4, 13)`, then obtain an ice pack from the Superficial Trauma creative tab. Its current development texture intentionally reuses the vanilla snowball icon.
+2. Create a severity-two blunt wound with accumulated final damage in `[4, 13)`, then obtain an ice pack from the Superficial Trauma creative tab. Confirm it uses the supplied blue ice-bag texture.
 3. Only that severity-two blunt wound should enable the ice-pack button. Completing the five-second action consumes one ice pack, changes `H` from `100` to `10`, and removes `Pain 1` from the wound.
 4. Confirm the same wound cannot consume a second ice pack. Save and rejoin; the reduced `H` and removed pain tag must remain.
+
+### Manual tourniquet and necrosis check
+
+1. Obtain a First Aid Basics skill book and a tourniquet from the creative tab. The first-aid book temporarily shares the surgery-book texture until dedicated art is supplied. Right-click it once, then confirm a second copy is not consumed and that the skill survives save/rejoin and death/respawn.
+2. Create a bleeding severity-two or severity-three wound. The tourniquet button must stay grey before learning first aid, then become available when the caregiver has one tourniquet. Severity-one and non-bleeding wounds must reject it.
+3. Complete the eight-second action. It consumes one tourniquet, displays a red removal button, coexists with coverings and wound packing, and independently reduces bleeding by three levels.
+4. Run `/superficialtrauma settourniquettime 300`. The wound must show `Necrosis 1`, and vanilla maximum health must decrease by two points. Use `600` to upgrade it to `Necrosis 2`, reduce maximum health by four points, and apply Slowness I. `/superficialtrauma status` reports the exact accumulated ticks and necrosis level.
+5. Remove the tourniquet with its red button. Bleeding reduction ends immediately and the material is not returned. Necrosis 1 clears after three uninterrupted online minutes without a tourniquet; Necrosis 2 clears after four. Reapplying before enough accumulated time has recovered may restore necrosis immediately.
+6. For anti-reset verification, apply a tourniquet, set it to `300`, remove it, wait less than sixty seconds, and reapply it: Necrosis 1 must return immediately. After removal, accumulated wear must remain unchanged for sixty seconds, then decrease one second per online second. Logout time pauses both accumulation and recovery.
+7. Save and rejoin both while the tourniquet is applied and while it is removed. Its applied state, accumulated duration, removal time, and necrosis level must remain intact.
 
 ### Manual bleeding check
 

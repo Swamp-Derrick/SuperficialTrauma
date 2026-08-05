@@ -1,6 +1,6 @@
 {
   "parent": "minecraft:item/generated",
   "textures": {
-    "layer0": "superficialtrauma:item/ice_pack"
+    "layer0": "superficialtrauma:item/surgery_skill_book"
   }
 }

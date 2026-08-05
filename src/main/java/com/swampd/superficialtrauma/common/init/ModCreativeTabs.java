@@ -26,8 +26,10 @@ public final class ModCreativeTabs {
                         output.accept(ModItems.SELF_ADHESIVE_BANDAGE.get());
                         output.accept(ModItems.MEDICAL_GAUZE.get());
                         output.accept(ModItems.ICE_PACK.get());
+                        output.accept(ModItems.TOURNIQUET.get());
                         output.accept(ModItems.SALINE_SOLUTION.get());
                         output.accept(ModItems.SURGICAL_KIT.get());
+                        output.accept(ModItems.FIRST_AID_SKILL_BOOK.get());
                         output.accept(ModItems.SURGERY_SKILL_BOOK.get());
                     })
                     .build()

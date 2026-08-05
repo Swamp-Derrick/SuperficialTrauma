@@ -23,7 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 13;
+    public static final int CURRENT_DATA_VERSION = 14;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
@@ -47,6 +47,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String LEGACY_TAG_PAIN = "Pain";
     private static final String TAG_INFECTION = "Infection";
     private static final String TAG_NEXT_INFECTION_SETTLEMENT_GAME_TIME = "NextInfectionSettlementGameTime";
+    private static final String TAG_FIRST_AID_SKILL = "FirstAidSkill";
     private static final String TAG_SURGERY_SKILL = "SurgerySkill";
     private static final String TAG_BLOOD_DRUG_CONCENTRATION = "BloodDrugConcentration";
     private static final String TAG_ADRENALINE_LEVEL = "AdrenalineLevel";
@@ -83,6 +84,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private float basePain;
     private float infection;
     private long nextInfectionSettlementGameTime;
+    private boolean firstAidSkill;
     private boolean surgerySkill;
     private float bloodDrugConcentration;
     private int adrenalineLevel;
@@ -230,6 +232,19 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public boolean hasSurgerySkill() {
         return surgerySkill;
+    }
+
+    public boolean hasFirstAidSkill() {
+        return firstAidSkill;
+    }
+
+    public boolean unlockFirstAidSkill() {
+        if (firstAidSkill) {
+            return false;
+        }
+        firstAidSkill = true;
+        markChanged();
+        return true;
     }
 
     public boolean unlockSurgerySkill() {
@@ -424,6 +439,57 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         }
         markChanged();
         return true;
+    }
+
+    public boolean applyTourniquet(UUID woundId, long gameTime) {
+        Optional<WoundInstance> wound = wound(woundId);
+        if (wound.isEmpty() || !wound.get().applyTourniquet(gameTime)) {
+            return false;
+        }
+        markChanged();
+        return true;
+    }
+
+    public boolean removeTourniquet(UUID woundId, long gameTime) {
+        Optional<WoundInstance> wound = wound(woundId);
+        if (wound.isEmpty() || !wound.get().removeTourniquet(gameTime)) {
+            return false;
+        }
+        markChanged();
+        return true;
+    }
+
+    public int setAppliedTourniquetSecondsForDebug(long accumulatedSeconds, long gameTime) {
+        long accumulatedTicks = accumulatedSeconds > Long.MAX_VALUE / 20L
+                ? Long.MAX_VALUE
+                : Math.max(0L, accumulatedSeconds) * 20L;
+        int changedWounds = 0;
+        for (WoundInstance wound : wounds) {
+            if (wound.setTourniquetAccumulatedTicksForDebug(accumulatedTicks, gameTime)) {
+                changedWounds++;
+            }
+        }
+        if (changedWounds > 0) {
+            markChanged();
+        }
+        return changedWounds;
+    }
+
+    public double necrosisMaximumHealthReduction() {
+        double reduction = 0.0D;
+        for (WoundInstance wound : wounds) {
+            if (wound.woundTags().contains(WoundTag.NECROSIS_2)
+                    || wound.woundTags().contains(WoundTag.NECROSIS_3)) {
+                reduction += 4.0D;
+            } else if (wound.woundTags().contains(WoundTag.NECROSIS_1)) {
+                reduction += 2.0D;
+            }
+        }
+        return reduction;
+    }
+
+    public boolean hasNecrosisSlowness() {
+        return wounds.stream().anyMatch(wound -> wound.woundTags().contains(WoundTag.NECROSIS_2));
     }
 
     public Map<WoundType, DamageWindow> damageWindows() {
@@ -674,6 +740,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
         int progressedWounds = 0;
         int healedWounds = 0;
+        boolean tourniquetStateChanged = false;
         if (wounds.isEmpty()) {
             lastWoundProgressionGameTime = gameTime;
         } else {
@@ -684,6 +751,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 Iterator<WoundInstance> iterator = wounds.iterator();
                 while (iterator.hasNext()) {
                     WoundInstance wound = iterator.next();
+                    tourniquetStateChanged |= wound.advanceTourniquet(lastWoundProgressionGameTime);
                     if (wound.advanceNaturalHealing((float) elapsedWholeSeconds)) {
                         progressedWounds++;
                     }
@@ -739,6 +807,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 infectionTimerChanged,
                 bleedingTimerChanged,
                 movementBleedingStateChanged,
+                tourniquetStateChanged,
                 shockProgression,
                 downedProgression
         );
@@ -756,6 +825,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             boolean infectionTimerChanged,
             boolean bleedingTimerChanged,
             boolean movementBleedingStateChanged,
+            boolean tourniquetStateChanged,
             ShockProgression shockProgression,
             DownedProgression downedProgression
     ) {
@@ -770,6 +840,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 && !infectionTimerChanged
                 && !bleedingTimerChanged
                 && !movementBleedingStateChanged
+                && !tourniquetStateChanged
                 && !shockProgression.changed()
                 && !downedProgression.changed()) {
             return BodyProgressionResult.unchanged();
@@ -1009,8 +1080,19 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     public void copyPersistentKnowledgeFrom(BodyState other) {
-        if (other != null && other.surgerySkill && !surgerySkill) {
+        if (other == null) {
+            return;
+        }
+        boolean changed = false;
+        if (other.firstAidSkill && !firstAidSkill) {
+            firstAidSkill = true;
+            changed = true;
+        }
+        if (other.surgerySkill && !surgerySkill) {
             surgerySkill = true;
+            changed = true;
+        }
+        if (changed) {
             markChanged();
         }
     }
@@ -1074,6 +1156,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         basePain = 0.0F;
         infection = 0.0F;
         nextInfectionSettlementGameTime = -1L;
+        firstAidSkill = false;
         surgerySkill = false;
         bloodDrugConcentration = 0.0F;
         adrenalineLevel = 0;
@@ -1119,6 +1202,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         tag.putFloat(TAG_BASE_PAIN, basePain);
         tag.putFloat(TAG_INFECTION, infection);
         tag.putLong(TAG_NEXT_INFECTION_SETTLEMENT_GAME_TIME, nextInfectionSettlementGameTime);
+        tag.putBoolean(TAG_FIRST_AID_SKILL, firstAidSkill);
         tag.putBoolean(TAG_SURGERY_SKILL, surgerySkill);
         tag.putFloat(TAG_BLOOD_DRUG_CONCENTRATION, bloodDrugConcentration);
         tag.putInt(TAG_ADRENALINE_LEVEL, adrenalineLevel);
@@ -1190,6 +1274,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         nextInfectionSettlementGameTime = tag.contains(TAG_NEXT_INFECTION_SETTLEMENT_GAME_TIME, Tag.TAG_ANY_NUMERIC)
                 ? tag.getLong(TAG_NEXT_INFECTION_SETTLEMENT_GAME_TIME)
                 : -1L;
+        firstAidSkill = tag.getBoolean(TAG_FIRST_AID_SKILL);
         surgerySkill = tag.getBoolean(TAG_SURGERY_SKILL);
         bloodDrugConcentration = Math.max(0.0F, tag.getFloat(TAG_BLOOD_DRUG_CONCENTRATION));
         adrenalineLevel = Math.max(0, tag.getInt(TAG_ADRENALINE_LEVEL));

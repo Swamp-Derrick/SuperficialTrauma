@@ -27,12 +27,22 @@ public final class WoundInstance {
     private static final String TAG_TEMPORARY_DRESSING = "TemporaryDressing";
     private static final String TAG_COVERING = "Covering";
     private static final String TAG_WOUND_PACKING = "WoundPacking";
+    private static final String TAG_TOURNIQUET = "Tourniquet";
+    private static final String TAG_TOURNIQUET_ACCUMULATED_TICKS = "TourniquetAccumulatedTicks";
+    private static final String TAG_TOURNIQUET_LAST_UPDATE_GAME_TIME = "TourniquetLastUpdateGameTime";
+    private static final String TAG_TOURNIQUET_REMOVED_GAME_TIME = "TourniquetRemovedGameTime";
+    private static final String TAG_TOURNIQUET_NECROSIS_LEVEL = "TourniquetNecrosisLevel";
     private static final String TAG_INFECTION_ONSET_GAME_TIME = "InfectionOnsetGameTime";
     private static final String TAG_NEXT_INFECTION_SPREAD_GAME_TIME = "NextInfectionSpreadGameTime";
     private static final String TAG_INFECTION_CONTRIBUTION = "InfectionContribution";
     private static final long SHARP_LEVEL_ONE_PAIN_TICKS = 10L * 20L;
     public static final long INFECTION_ONSET_DELAY_TICKS = 5L * 60L * 20L;
     public static final long INFECTION_SPREAD_INTERVAL_TICKS = 3L * 60L * 20L;
+    public static final long TOURNIQUET_NECROSIS_ONE_TICKS = 5L * 60L * 20L;
+    public static final long TOURNIQUET_NECROSIS_TWO_TICKS = 10L * 60L * 20L;
+    public static final long TOURNIQUET_RECOVERY_DELAY_TICKS = 60L * 20L;
+    public static final long NECROSIS_ONE_RECOVERY_TICKS = 3L * 60L * 20L;
+    public static final long NECROSIS_TWO_RECOVERY_TICKS = 4L * 60L * 20L;
 
     private final UUID id;
     private final WoundType type;
@@ -49,6 +59,11 @@ public final class WoundInstance {
     private boolean closeRangeShot;
     private WoundCovering covering;
     private boolean woundPackingApplied;
+    private boolean tourniquetApplied;
+    private long tourniquetAccumulatedTicks;
+    private long tourniquetLastUpdateGameTime;
+    private long tourniquetRemovedGameTime;
+    private int tourniquetNecrosisLevel;
     private long infectionOnsetGameTime;
     private long nextInfectionSpreadGameTime;
     private float infectionContribution;
@@ -69,6 +84,11 @@ public final class WoundInstance {
             boolean closeRangeShot,
             WoundCovering covering,
             boolean woundPackingApplied,
+            boolean tourniquetApplied,
+            long tourniquetAccumulatedTicks,
+            long tourniquetLastUpdateGameTime,
+            long tourniquetRemovedGameTime,
+            int tourniquetNecrosisLevel,
             long infectionOnsetGameTime,
             long nextInfectionSpreadGameTime,
             float infectionContribution
@@ -88,6 +108,12 @@ public final class WoundInstance {
         this.closeRangeShot = closeRangeShot;
         this.covering = covering == null ? WoundCovering.NONE : covering;
         this.woundPackingApplied = woundPackingApplied;
+        this.tourniquetApplied = tourniquetApplied;
+        this.tourniquetAccumulatedTicks = Math.max(0L, tourniquetAccumulatedTicks);
+        this.tourniquetLastUpdateGameTime = tourniquetLastUpdateGameTime;
+        this.tourniquetRemovedGameTime = tourniquetRemovedGameTime;
+        this.tourniquetNecrosisLevel = Math.max(0, Math.min(2, tourniquetNecrosisLevel));
+        syncTourniquetNecrosisTags();
         this.infectionOnsetGameTime = infectionOnsetGameTime;
         this.nextInfectionSpreadGameTime = nextInfectionSpreadGameTime;
         this.infectionContribution = Math.max(0.0F, infectionContribution);
@@ -129,6 +155,11 @@ public final class WoundInstance {
                 false,
                 WoundCovering.NONE,
                 false,
+                false,
+                0L,
+                -1L,
+                -1L,
+                0,
                 infectionOnsetFor(type, severity, createdGameTime),
                 debridementInfectionFor(severity, initialTags, createdGameTime),
                 0.0F
@@ -172,6 +203,11 @@ public final class WoundInstance {
                 closeRangeShot,
                 WoundCovering.NONE,
                 false,
+                false,
+                0L,
+                -1L,
+                -1L,
+                0,
                 infectionOnsetFor(type, severity, createdGameTime),
                 debridementInfectionFor(severity, initialTags, createdGameTime),
                 0.0F
@@ -219,7 +255,9 @@ public final class WoundInstance {
     }
 
     public int bleedingLevel(boolean movementBleedingActive) {
-        int treatmentReduction = covering.bleedingReduction() + (woundPackingApplied ? 2 : 0);
+        int treatmentReduction = covering.bleedingReduction()
+                + (woundPackingApplied ? 2 : 0)
+                + (tourniquetApplied ? 3 : 0);
         return Math.max(0, untreatedBleedingLevel(movementBleedingActive) - treatmentReduction);
     }
 
@@ -253,6 +291,22 @@ public final class WoundInstance {
 
     public boolean woundPackingApplied() {
         return woundPackingApplied;
+    }
+
+    public boolean tourniquetApplied() {
+        return tourniquetApplied;
+    }
+
+    public long tourniquetAccumulatedTicks() {
+        return tourniquetAccumulatedTicks;
+    }
+
+    public long tourniquetRemovedGameTime() {
+        return tourniquetRemovedGameTime;
+    }
+
+    public int tourniquetNecrosisLevel() {
+        return tourniquetNecrosisLevel;
     }
 
     public boolean isInfected() {
@@ -395,6 +449,123 @@ public final class WoundInstance {
         return true;
     }
 
+    public boolean canApplyTourniquet() {
+        return !tourniquetApplied
+                && !isHealed()
+                && severity >= 2
+                && untreatedBleedingLevel(true) > 0;
+    }
+
+    public boolean applyTourniquet(long gameTime) {
+        if (!canApplyTourniquet()) {
+            return false;
+        }
+        advanceTourniquet(gameTime);
+        tourniquetApplied = true;
+        tourniquetRemovedGameTime = -1L;
+        tourniquetLastUpdateGameTime = Math.max(0L, gameTime);
+        updateTourniquetNecrosisFromAccumulation();
+        rescheduleBleeding(gameTime);
+        return true;
+    }
+
+    public boolean removeTourniquet(long gameTime) {
+        if (!tourniquetApplied || isHealed()) {
+            return false;
+        }
+        advanceTourniquet(gameTime);
+        tourniquetApplied = false;
+        tourniquetRemovedGameTime = Math.max(0L, gameTime);
+        tourniquetLastUpdateGameTime = Math.max(0L, gameTime);
+        rescheduleBleeding(gameTime);
+        return true;
+    }
+
+    public boolean advanceTourniquet(long gameTime) {
+        if (gameTime < 0L) {
+            return false;
+        }
+        if (tourniquetLastUpdateGameTime < 0L || gameTime < tourniquetLastUpdateGameTime) {
+            tourniquetLastUpdateGameTime = gameTime;
+            return false;
+        }
+
+        boolean changed = false;
+        if (tourniquetApplied) {
+            long elapsedTicks = gameTime - tourniquetLastUpdateGameTime;
+            if (elapsedTicks > 0L) {
+                tourniquetAccumulatedTicks = saturatingAdd(tourniquetAccumulatedTicks, elapsedTicks);
+                changed = true;
+            }
+            int previousLevel = tourniquetNecrosisLevel;
+            updateTourniquetNecrosisFromAccumulation();
+            changed |= previousLevel != tourniquetNecrosisLevel;
+        } else if (tourniquetRemovedGameTime >= 0L) {
+            long recoveryStart = saturatingAdd(
+                    tourniquetRemovedGameTime,
+                    TOURNIQUET_RECOVERY_DELAY_TICKS
+            );
+            long recoveryFrom = Math.max(tourniquetLastUpdateGameTime, recoveryStart);
+            if (gameTime > recoveryFrom && tourniquetAccumulatedTicks > 0L) {
+                tourniquetAccumulatedTicks = Math.max(
+                        0L,
+                        tourniquetAccumulatedTicks - (gameTime - recoveryFrom)
+                );
+                changed = true;
+            }
+
+            long necrosisRecoveryTicks = switch (tourniquetNecrosisLevel) {
+                case 1 -> NECROSIS_ONE_RECOVERY_TICKS;
+                case 2 -> NECROSIS_TWO_RECOVERY_TICKS;
+                default -> -1L;
+            };
+            if (necrosisRecoveryTicks > 0L
+                    && gameTime >= saturatingAdd(tourniquetRemovedGameTime, necrosisRecoveryTicks)) {
+                tourniquetNecrosisLevel = 0;
+                syncTourniquetNecrosisTags();
+                changed = true;
+            }
+        }
+        tourniquetLastUpdateGameTime = gameTime;
+        return changed;
+    }
+
+    public boolean setTourniquetAccumulatedTicksForDebug(long accumulatedTicks, long gameTime) {
+        if (!tourniquetApplied) {
+            return false;
+        }
+        tourniquetAccumulatedTicks = Math.max(0L, accumulatedTicks);
+        tourniquetLastUpdateGameTime = Math.max(0L, gameTime);
+        tourniquetNecrosisLevel = tourniquetAccumulatedTicks >= TOURNIQUET_NECROSIS_TWO_TICKS
+                ? 2
+                : tourniquetAccumulatedTicks >= TOURNIQUET_NECROSIS_ONE_TICKS ? 1 : 0;
+        syncTourniquetNecrosisTags();
+        return true;
+    }
+
+    private void updateTourniquetNecrosisFromAccumulation() {
+        int accumulatedLevel = tourniquetAccumulatedTicks >= TOURNIQUET_NECROSIS_TWO_TICKS
+                ? 2
+                : tourniquetAccumulatedTicks >= TOURNIQUET_NECROSIS_ONE_TICKS ? 1 : 0;
+        if (accumulatedLevel > tourniquetNecrosisLevel) {
+            tourniquetNecrosisLevel = accumulatedLevel;
+            syncTourniquetNecrosisTags();
+        }
+    }
+
+    private void syncTourniquetNecrosisTags() {
+        woundTags.remove(WoundTag.NECROSIS_1);
+        woundTags.remove(WoundTag.NECROSIS_2);
+        if (woundTags.contains(WoundTag.NECROSIS_3)) {
+            return;
+        }
+        if (tourniquetNecrosisLevel == 1) {
+            woundTags.add(WoundTag.NECROSIS_1);
+        } else if (tourniquetNecrosisLevel == 2) {
+            woundTags.add(WoundTag.NECROSIS_2);
+        }
+    }
+
     private void rescheduleBleeding(long gameTime) {
         int effectiveBleedingLevel = bleedingLevel(false);
         bleedingTimerLevel = effectiveBleedingLevel;
@@ -455,6 +626,7 @@ public final class WoundInstance {
                 woundTags.add(WoundTag.DEBRIDED);
                 woundTags.remove(WoundTag.NEEDS_DEBRIDEMENT_1);
             }
+            syncTourniquetNecrosisTags();
             if (!debrided) {
                 if (infectionOnsetGameTime < 0L && isNaturallyInfectable(type, severity)) {
                     infectionOnsetGameTime = createdGameTime + INFECTION_ONSET_DELAY_TICKS;
@@ -521,6 +693,12 @@ public final class WoundInstance {
         }
         if (nextInfectionSpreadGameTime >= 0L && deltaTicks > 0L) {
             nextInfectionSpreadGameTime += deltaTicks;
+        }
+        if (tourniquetLastUpdateGameTime >= 0L && deltaTicks > 0L) {
+            tourniquetLastUpdateGameTime += deltaTicks;
+        }
+        if (tourniquetRemovedGameTime >= 0L && deltaTicks > 0L) {
+            tourniquetRemovedGameTime += deltaTicks;
         }
     }
 
@@ -802,6 +980,11 @@ public final class WoundInstance {
         tag.putString(TAG_COVERING, covering.serializedName());
         tag.putBoolean(TAG_TEMPORARY_DRESSING, covering == WoundCovering.TEMPORARY_DRESSING);
         tag.putBoolean(TAG_WOUND_PACKING, woundPackingApplied);
+        tag.putBoolean(TAG_TOURNIQUET, tourniquetApplied);
+        tag.putLong(TAG_TOURNIQUET_ACCUMULATED_TICKS, tourniquetAccumulatedTicks);
+        tag.putLong(TAG_TOURNIQUET_LAST_UPDATE_GAME_TIME, tourniquetLastUpdateGameTime);
+        tag.putLong(TAG_TOURNIQUET_REMOVED_GAME_TIME, tourniquetRemovedGameTime);
+        tag.putInt(TAG_TOURNIQUET_NECROSIS_LEVEL, tourniquetNecrosisLevel);
         tag.putLong(TAG_INFECTION_ONSET_GAME_TIME, infectionOnsetGameTime);
         tag.putLong(TAG_NEXT_INFECTION_SPREAD_GAME_TIME, nextInfectionSpreadGameTime);
         tag.putFloat(TAG_INFECTION_CONTRIBUTION, infectionContribution);
@@ -869,9 +1052,30 @@ public final class WoundInstance {
                 tag.getBoolean(TAG_CLOSE_RANGE_SHOT),
                 covering,
                 tag.getBoolean(TAG_WOUND_PACKING),
+                tag.getBoolean(TAG_TOURNIQUET),
+                tag.contains(TAG_TOURNIQUET_ACCUMULATED_TICKS, Tag.TAG_ANY_NUMERIC)
+                        ? Math.max(0L, tag.getLong(TAG_TOURNIQUET_ACCUMULATED_TICKS))
+                        : 0L,
+                tag.contains(TAG_TOURNIQUET_LAST_UPDATE_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                        ? tag.getLong(TAG_TOURNIQUET_LAST_UPDATE_GAME_TIME)
+                        : -1L,
+                tag.contains(TAG_TOURNIQUET_REMOVED_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                        ? tag.getLong(TAG_TOURNIQUET_REMOVED_GAME_TIME)
+                        : -1L,
+                tag.contains(TAG_TOURNIQUET_NECROSIS_LEVEL, Tag.TAG_ANY_NUMERIC)
+                        ? tag.getInt(TAG_TOURNIQUET_NECROSIS_LEVEL)
+                        : woundTags.contains(WoundTag.NECROSIS_2) ? 2
+                        : woundTags.contains(WoundTag.NECROSIS_1) ? 1 : 0,
                 infectionOnsetGameTime,
                 nextInfectionSpreadGameTime,
                 infectionContribution
         );
+    }
+
+    private static long saturatingAdd(long value, long increment) {
+        if (increment <= 0L) {
+            return value;
+        }
+        return value > Long.MAX_VALUE - increment ? Long.MAX_VALUE : value + increment;
     }
 }

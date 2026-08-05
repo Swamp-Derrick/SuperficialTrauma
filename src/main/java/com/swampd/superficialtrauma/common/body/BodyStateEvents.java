@@ -10,6 +10,9 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
@@ -20,9 +23,15 @@ import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import java.util.UUID;
+
 @Mod.EventBusSubscriber(modid = SuperficialTrauma.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public final class BodyStateEvents {
     private static final int INFECTION_NAUSEA_REFRESH_DURATION_TICKS = 5 * 20;
+    private static final UUID NECROSIS_MAX_HEALTH_MODIFIER_ID = UUID.fromString(
+            "fbd950e2-518e-4a48-a23e-ef19b1973d6c"
+    );
+    private static final String NECROSIS_MAX_HEALTH_MODIFIER_NAME = "Superficial Trauma necrosis";
 
     private BodyStateEvents() {
     }
@@ -123,6 +132,7 @@ public final class BodyStateEvents {
                     serverPlayer.getFoodData().getFoodLevel()
             );
             updateInfectionEffects(serverPlayer, bodyState, gameTime);
+            updateNecrosisEffects(serverPlayer, bodyState, gameTime);
             boolean poseCaptured = !bodyState.canAct()
                     && bodyState.captureDownedPose(DownedPoseCapture.capture(serverPlayer, null, gameTime));
             DownedHitbox.update(serverPlayer, bodyState);
@@ -229,6 +239,52 @@ public final class BodyStateEvents {
                     false,
                     true
             ));
+        }
+    }
+
+    private static void updateNecrosisEffects(ServerPlayer player, BodyState bodyState, long gameTime) {
+        AttributeInstance maximumHealth = player.getAttribute(Attributes.MAX_HEALTH);
+        if (maximumHealth != null) {
+            double requiredReduction = bodyState.necrosisMaximumHealthReduction();
+            AttributeModifier existing = maximumHealth.getModifier(NECROSIS_MAX_HEALTH_MODIFIER_ID);
+            double requiredAmount = -requiredReduction;
+            if (existing != null && Math.abs(existing.getAmount() - requiredAmount) > 0.0001D) {
+                maximumHealth.removeModifier(NECROSIS_MAX_HEALTH_MODIFIER_ID);
+                existing = null;
+            }
+            if (requiredReduction <= 0.0D) {
+                if (existing != null) {
+                    maximumHealth.removeModifier(NECROSIS_MAX_HEALTH_MODIFIER_ID);
+                }
+            } else if (existing == null) {
+                maximumHealth.addTransientModifier(new AttributeModifier(
+                        NECROSIS_MAX_HEALTH_MODIFIER_ID,
+                        NECROSIS_MAX_HEALTH_MODIFIER_NAME,
+                        requiredAmount,
+                        AttributeModifier.Operation.ADDITION
+                ));
+            }
+            if (player.getHealth() > player.getMaxHealth()) {
+                player.setHealth(player.getMaxHealth());
+            }
+        }
+
+        if (bodyState.hasNecrosisSlowness() && gameTime % 20L == 0L) {
+            player.addEffect(new MobEffectInstance(
+                    MobEffects.MOVEMENT_SLOWDOWN,
+                    3 * 20,
+                    0,
+                    false,
+                    false,
+                    true
+            ));
+        }
+    }
+
+    public static void clearNecrosisHealthModifier(ServerPlayer player) {
+        AttributeInstance maximumHealth = player.getAttribute(Attributes.MAX_HEALTH);
+        if (maximumHealth != null && maximumHealth.getModifier(NECROSIS_MAX_HEALTH_MODIFIER_ID) != null) {
+            maximumHealth.removeModifier(NECROSIS_MAX_HEALTH_MODIFIER_ID);
         }
     }
 

@@ -67,7 +67,7 @@ public final class TreatmentService {
             );
             return false;
         }
-        if (!hasRequiredSkill(actor, procedure)) {
+        if (!hasRequiredSkill(actor, procedure, action)) {
             actor.displayClientMessage(
                     Component.translatable("message.superficialtrauma.treatment.skill_missing"),
                     true
@@ -139,7 +139,7 @@ public final class TreatmentService {
             cancelActor(actor.getUUID(), TreatmentCancelReason.WOUND_CHANGED);
             return;
         }
-        if (!hasRequiredSkill(actor, session.procedure())) {
+        if (!hasRequiredSkill(actor, session.procedure(), session.action())) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.SKILL_MISSING);
             return;
         }
@@ -175,7 +175,7 @@ public final class TreatmentService {
         if (state.isEmpty()
                 || wound.isEmpty()
                 || !session.procedure().isApplicable(wound.get(), session.action())
-                || !hasRequiredSkill(actor, session.procedure())
+                || !hasRequiredSkill(actor, session.procedure(), session.action())
                 || (session.action().consumesItem() && !hasRequiredItems(actor, session.procedure()))) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.WOUND_CHANGED);
             return;
@@ -189,6 +189,10 @@ public final class TreatmentService {
         } else if (session.procedure().isIcePack()) {
             changed = session.action() == TreatmentAction.APPLY
                     && state.get().applyIcePack(session.woundId());
+        } else if (session.procedure().isTourniquet()) {
+            changed = session.action() == TreatmentAction.APPLY
+                    ? state.get().applyTourniquet(session.woundId(), gameTime)
+                    : state.get().removeTourniquet(session.woundId(), gameTime);
         } else if (session.procedure().isWoundPacking()) {
             changed = session.action() == TreatmentAction.APPLY
                     ? state.get().applyWoundPacking(session.woundId(), gameTime)
@@ -256,9 +260,20 @@ public final class TreatmentService {
         return true;
     }
 
-    private static boolean hasRequiredSkill(ServerPlayer actor, TreatmentProcedure procedure) {
-        return !procedure.requiresSurgerySkill()
-                || BodyStateCapability.get(actor).map(BodyState::hasSurgerySkill).orElse(false);
+    private static boolean hasRequiredSkill(
+            ServerPlayer actor,
+            TreatmentProcedure procedure,
+            TreatmentAction action
+    ) {
+        if (action == TreatmentAction.REMOVE) {
+            return true;
+        }
+        Optional<BodyState> bodyState = BodyStateCapability.get(actor).resolve();
+        if (bodyState.isEmpty()) {
+            return false;
+        }
+        return (!procedure.requiresSurgerySkill() || bodyState.get().hasSurgerySkill())
+                && (!procedure.requiresFirstAidSkill() || bodyState.get().hasFirstAidSkill());
     }
 
     private static int countItem(ServerPlayer actor, TreatmentType treatmentType) {

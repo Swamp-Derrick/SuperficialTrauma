@@ -40,6 +40,12 @@ public enum TreatmentProcedure {
             TreatmentType.ICE_PACK,
             new TreatmentIngredient(TreatmentType.ICE_PACK, 1)
     ),
+    TOURNIQUET(
+            null,
+            TreatmentType.TOURNIQUET,
+            8L * 20L,
+            new TreatmentIngredient(TreatmentType.TOURNIQUET, 1)
+    ),
     DEBRIDEMENT(
             null,
             TreatmentType.SURGICAL_KIT,
@@ -102,6 +108,9 @@ public enum TreatmentProcedure {
         if (isIcePack()) {
             return wound.canApplyIcePack();
         }
+        if (isTourniquet()) {
+            return wound.tourniquetApplied() || wound.canApplyTourniquet();
+        }
         if (isWoundPacking()) {
             return wound.untreatedBleedingLevel(true) > 0;
         }
@@ -120,6 +129,11 @@ public enum TreatmentProcedure {
         }
         if (isIcePack()) {
             return action == TreatmentAction.APPLY && wound.canApplyIcePack();
+        }
+        if (isTourniquet()) {
+            return action == TreatmentAction.APPLY
+                    ? wound.canApplyTourniquet()
+                    : wound.tourniquetApplied();
         }
         if (isWoundPacking()) {
             return action == TreatmentAction.APPLY
@@ -143,8 +157,16 @@ public enum TreatmentProcedure {
         return this == ICE_PACK;
     }
 
+    public boolean isTourniquet() {
+        return this == TOURNIQUET;
+    }
+
     public boolean requiresSurgerySkill() {
         return isDebridement();
+    }
+
+    public boolean requiresFirstAidSkill() {
+        return isTourniquet();
     }
 
     public String serializedName() {
@@ -170,6 +192,7 @@ public enum TreatmentProcedure {
             case SELF_ADHESIVE_BANDAGE -> SELF_ADHESIVE_BANDAGE;
             case MEDICAL_GAUZE -> WOUND_PACKING;
             case ICE_PACK -> ICE_PACK;
+            case TOURNIQUET -> TOURNIQUET;
             case SURGICAL_KIT -> DEBRIDEMENT;
             default -> null;
         };

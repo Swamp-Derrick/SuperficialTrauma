@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.common.init;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
+import com.swampd.superficialtrauma.common.item.FirstAidSkillBookItem;
 import com.swampd.superficialtrauma.common.item.SurgerySkillBookItem;
 import net.minecraft.world.item.Item;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -34,6 +35,10 @@ public final class ModItems {
             "ice_pack",
             () -> new Item(new Item.Properties())
     );
+    public static final RegistryObject<Item> TOURNIQUET = ITEMS.register(
+            "tourniquet",
+            () -> new Item(new Item.Properties())
+    );
     public static final RegistryObject<Item> SALINE_SOLUTION = ITEMS.register(
             "saline_solution",
             () -> new Item(new Item.Properties().stacksTo(16))
@@ -45,6 +50,10 @@ public final class ModItems {
     public static final RegistryObject<Item> SURGERY_SKILL_BOOK = ITEMS.register(
             "surgery_skill_book",
             () -> new SurgerySkillBookItem(new Item.Properties().stacksTo(1))
+    );
+    public static final RegistryObject<Item> FIRST_AID_SKILL_BOOK = ITEMS.register(
+            "first_aid_skill_book",
+            () -> new FirstAidSkillBookItem(new Item.Properties().stacksTo(1))
     );
 
     private ModItems() {

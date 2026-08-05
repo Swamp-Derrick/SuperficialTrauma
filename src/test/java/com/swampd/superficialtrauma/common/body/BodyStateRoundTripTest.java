@@ -35,11 +35,12 @@ public final class BodyStateRoundTripTest {
         verifyCoveringVariants();
         verifyWoundPacking();
         verifyIcePackTreatment();
+        verifyTourniquetAndNecrosis();
         verifyInfectionAndDebridement();
         verifyTemporaryDressingContamination();
         verifySystemicInfectionSettlement();
         verifyDebugInfectionSetter();
-        verifySurgerySkillRoundTrip();
+        verifySkillKnowledgeRoundTrip();
         verifyTreatmentMovementRules();
         verifyPainAccumulationAndTags();
         verifyStressAndPainRecovery();
@@ -589,6 +590,83 @@ public final class BodyStateRoundTripTest {
         assertFloatEquals(5.0F, nearlyHealed.healingProgress(), "test setup must leave five H");
         assertEquals(true, nearlyHealedState.applyIcePack(nearlyHealed.id()), "an ice pack may finish a nearly healed eligible wound");
         assertEquals(true, nearlyHealedState.wounds().isEmpty(), "an ice pack that reaches zero H must remove the wound immediately");
+    }
+
+    private static void verifyTourniquetAndNecrosis() {
+        BodyState minorState = new BodyState();
+        WoundInstance minor = requireWound(minorState.applyDamage(WoundType.SHARP, 0.5F, 0L));
+        assertEquals(false, minor.canApplyTourniquet(), "severity-one wounds must reject a tourniquet");
+
+        BodyState state = new BodyState();
+        WoundInstance wound = requireWound(state.applyDamage(WoundType.SHARP, 5.0F, 0L));
+        assertEquals(2, wound.untreatedBleedingLevel(true), "test wound must begin at bleeding 2");
+        assertEquals(true, state.applyTourniquet(wound.id(), 0L), "a bleeding severity-two wound must accept a tourniquet");
+        assertEquals(true, wound.tourniquetApplied(), "tourniquet state must be visible on the wound");
+        assertEquals(0, wound.bleedingLevel(true), "an applied tourniquet must reduce bleeding by three levels");
+
+        assertEquals(true, wound.advanceTourniquet(WoundInstance.TOURNIQUET_NECROSIS_ONE_TICKS), "tourniquet time must advance");
+        assertEquals(1, wound.tourniquetNecrosisLevel(), "five accumulated minutes must create Necrosis 1");
+        assertEquals(true, wound.woundTags().contains(WoundTag.NECROSIS_1), "Necrosis 1 must be stored as a wound tag");
+        assertFloatEquals(2.0F, (float) state.necrosisMaximumHealthReduction(), "Necrosis 1 must reduce maximum health by two");
+
+        assertEquals(true, wound.advanceTourniquet(WoundInstance.TOURNIQUET_NECROSIS_TWO_TICKS), "tourniquet time must reach ten minutes");
+        assertEquals(2, wound.tourniquetNecrosisLevel(), "ten accumulated minutes must upgrade to Necrosis 2");
+        assertEquals(false, wound.woundTags().contains(WoundTag.NECROSIS_1), "Necrosis 2 must replace Necrosis 1");
+        assertEquals(true, wound.woundTags().contains(WoundTag.NECROSIS_2), "Necrosis 2 must be stored as a wound tag");
+        assertFloatEquals(4.0F, (float) state.necrosisMaximumHealthReduction(), "Necrosis 2 must reduce maximum health by four");
+        assertEquals(true, state.hasNecrosisSlowness(), "Necrosis 2 must request Slowness I");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(state.serializeNBT());
+        WoundInstance restoredWound = restored.wound(wound.id())
+                .orElseThrow(() -> new AssertionError("tourniquet wound must survive save and reload"));
+        assertEquals(true, restoredWound.tourniquetApplied(), "applied tourniquet must survive save and reload");
+        assertEquals(WoundInstance.TOURNIQUET_NECROSIS_TWO_TICKS, restoredWound.tourniquetAccumulatedTicks(), "accumulated tourniquet time must survive save and reload");
+        assertEquals(2, restoredWound.tourniquetNecrosisLevel(), "tourniquet necrosis level must survive save and reload");
+
+        long removedAt = WoundInstance.TOURNIQUET_NECROSIS_TWO_TICKS;
+        assertEquals(true, restored.removeTourniquet(restoredWound.id(), removedAt), "an applied tourniquet must be removable");
+        assertEquals(2, restoredWound.bleedingLevel(true), "removing a tourniquet must restore untreated bleeding");
+        restoredWound.advanceTourniquet(removedAt + WoundInstance.TOURNIQUET_RECOVERY_DELAY_TICKS);
+        assertEquals(WoundInstance.TOURNIQUET_NECROSIS_TWO_TICKS, restoredWound.tourniquetAccumulatedTicks(), "the first sixty seconds off must not reduce accumulated time");
+        restoredWound.advanceTourniquet(removedAt + WoundInstance.TOURNIQUET_RECOVERY_DELAY_TICKS + 20L);
+        assertEquals(WoundInstance.TOURNIQUET_NECROSIS_TWO_TICKS - 20L, restoredWound.tourniquetAccumulatedTicks(), "accumulated time must recover one-for-one after the delay");
+        restoredWound.advanceTourniquet(removedAt + WoundInstance.NECROSIS_TWO_RECOVERY_TICKS);
+        assertEquals(0, restoredWound.tourniquetNecrosisLevel(), "Necrosis 2 must clear after four uninterrupted minutes without a tourniquet");
+        assertEquals(false, restored.hasNecrosisSlowness(), "clearing Necrosis 2 must remove its slowness request");
+
+        assertEquals(true, restored.applyTourniquet(restoredWound.id(), removedAt + WoundInstance.NECROSIS_TWO_RECOVERY_TICKS), "retained accumulated time must permit reapplication");
+        assertEquals(1, restoredWound.tourniquetNecrosisLevel(), "reapplying after partial recovery must immediately restore the retained Necrosis 1 level");
+        long reappliedAt = removedAt + WoundInstance.NECROSIS_TWO_RECOVERY_TICKS;
+        assertEquals(1, restored.setAppliedTourniquetSecondsForDebug(300L, reappliedAt), "debug setter must update every active tourniquet");
+        assertEquals(1, restoredWound.tourniquetNecrosisLevel(), "debugging five minutes must select Necrosis 1");
+        assertEquals(true, restored.removeTourniquet(restoredWound.id(), reappliedAt), "the Necrosis 1 test tourniquet must be removable");
+        restoredWound.advanceTourniquet(reappliedAt + WoundInstance.NECROSIS_ONE_RECOVERY_TICKS - 1L);
+        assertEquals(1, restoredWound.tourniquetNecrosisLevel(), "Necrosis 1 must remain until three full minutes off");
+        restoredWound.advanceTourniquet(reappliedAt + WoundInstance.NECROSIS_ONE_RECOVERY_TICKS);
+        assertEquals(0, restoredWound.tourniquetNecrosisLevel(), "Necrosis 1 must clear after three uninterrupted minutes off");
+        assertEquals(true, restored.applyTourniquet(restoredWound.id(), reappliedAt + WoundInstance.NECROSIS_ONE_RECOVERY_TICKS), "tourniquet must remain reusable for debug assertions");
+        assertEquals(1, restored.setAppliedTourniquetSecondsForDebug(299L, reappliedAt + WoundInstance.NECROSIS_ONE_RECOVERY_TICKS), "debug setter must accept a below-threshold value");
+        assertEquals(0, restoredWound.tourniquetNecrosisLevel(), "debug setter must recompute necrosis from the requested test time");
+
+        BodyState necrosisThreeState = new BodyState();
+        WoundInstance necrosisThree = requireWound(necrosisThreeState.applyDamage(WoundType.EXPLOSION, 16.0F, 0L));
+        assertFloatEquals(4.0F, (float) necrosisThreeState.necrosisMaximumHealthReduction(), "Necrosis 3 must reduce maximum health by four");
+        assertEquals(true, necrosisThreeState.applyTourniquet(necrosisThree.id(), 0L), "a bleeding Necrosis 3 wound must still accept bleeding control");
+        assertEquals(1, necrosisThreeState.setAppliedTourniquetSecondsForDebug(600L, 0L), "debug setter must update the Necrosis 3 wound's tourniquet clock");
+        assertEquals(false, necrosisThree.woundTags().contains(WoundTag.NECROSIS_2), "Necrosis 3 must visually supersede lower tourniquet necrosis tags");
+        assertFloatEquals(4.0F, (float) necrosisThreeState.necrosisMaximumHealthReduction(), "lower necrosis must not stack twice on the same Necrosis 3 wound");
+
+        BodyState offlineState = new BodyState();
+        WoundInstance offlineWound = requireWound(offlineState.applyDamage(WoundType.SHARP, 15.0F, 0L));
+        assertEquals(true, offlineState.applyTourniquet(offlineWound.id(), 0L), "offline test wound must accept a tourniquet");
+        offlineState.resumeBodyProgression(0L);
+        offlineState.advanceBodyProgression(100L);
+        assertEquals(100L, offlineWound.tourniquetAccumulatedTicks(), "online tourniquet time must accumulate from server time");
+        offlineState.pauseBodyProgression(100L);
+        offlineState.resumeBodyProgression(1_100L);
+        offlineState.advanceBodyProgression(1_120L);
+        assertEquals(120L, offlineWound.tourniquetAccumulatedTicks(), "one thousand offline ticks must not count toward tourniquet wear");
     }
 
     private static void verifyPainAccumulationAndTags() {
@@ -1331,21 +1409,27 @@ public final class BodyStateRoundTripTest {
         assertEquals(CollapseReason.SEPSIS, septic.collapseReason(), "sepsis must preserve its collapse reason");
     }
 
-    private static void verifySurgerySkillRoundTrip() {
+    private static void verifySkillKnowledgeRoundTrip() {
         BodyState state = new BodyState();
+        assertEquals(false, state.hasFirstAidSkill(), "new body state must not know first aid");
+        assertEquals(true, state.unlockFirstAidSkill(), "the first-aid skill book must unlock first aid once");
+        assertEquals(false, state.unlockFirstAidSkill(), "reusing a first-aid skill book must not unlock twice");
         assertEquals(false, state.hasSurgerySkill(), "new body state must not know surgery");
         assertEquals(true, state.unlockSurgerySkill(), "the surgery skill book must unlock surgery once");
         assertEquals(false, state.unlockSurgerySkill(), "reusing a surgery skill book must not unlock twice");
 
         BodyState restored = new BodyState();
         restored.deserializeNBT(state.serializeNBT());
+        assertEquals(true, restored.hasFirstAidSkill(), "first-aid skill must survive save and reload");
         assertEquals(true, restored.hasSurgerySkill(), "surgery skill must survive save and reload");
 
         BodyState deathClone = new BodyState();
         deathClone.copyPersistentKnowledgeFrom(restored);
+        assertEquals(true, deathClone.hasFirstAidSkill(), "permanent first-aid knowledge must survive a death clone");
         assertEquals(true, deathClone.hasSurgerySkill(), "permanent surgery knowledge must survive a death clone");
 
         restored.resetAllForDebug();
+        assertEquals(false, restored.hasFirstAidSkill(), "the full debug reset must clear learned first-aid skill");
         assertEquals(false, restored.hasSurgerySkill(), "the full debug reset must clear learned surgery skill");
     }
 
