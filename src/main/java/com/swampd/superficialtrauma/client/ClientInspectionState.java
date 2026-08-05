@@ -34,7 +34,10 @@ public final class ClientInspectionState {
         received = true;
 
         if (openScreen) {
-            Minecraft.getInstance().setScreen(new HealthScreen(entityId, targetName));
+            Minecraft minecraft = Minecraft.getInstance();
+            if (!(minecraft.screen instanceof HealthScreen screen && screen.isInspecting(entityId))) {
+                minecraft.setScreen(new HealthScreen(entityId, targetName));
+            }
         }
     }
 

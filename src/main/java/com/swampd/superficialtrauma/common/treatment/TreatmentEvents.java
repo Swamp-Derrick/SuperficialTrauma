@@ -2,8 +2,6 @@ package com.swampd.superficialtrauma.common.treatment;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.InteractionResult;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.item.ItemTossEvent;
 import net.minecraftforge.event.entity.living.LivingDamageEvent;
@@ -81,22 +79,6 @@ public final class TreatmentEvents {
         if ((CGM_FIRE_PRE.equals(eventClass) || CGM_RELOAD_PRE.equals(eventClass))
                 && event.getEntity() instanceof ServerPlayer player) {
             cancelAction(player);
-        }
-    }
-
-    @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public static void onInspectPlayer(PlayerInteractEvent.EntityInteract event) {
-        if (event.getLevel().isClientSide
-                || event.getHand() != InteractionHand.MAIN_HAND
-                || !(event.getEntity() instanceof ServerPlayer inspector)
-                || !(event.getTarget() instanceof ServerPlayer patient)
-                || !inspector.isShiftKeyDown()) {
-            return;
-        }
-
-        if (InspectionService.open(inspector, patient.getId())) {
-            event.setCancellationResult(InteractionResult.SUCCESS);
-            event.setCanceled(true);
         }
     }
 

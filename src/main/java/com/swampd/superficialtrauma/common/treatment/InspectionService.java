@@ -19,6 +19,7 @@ public final class InspectionService {
     }
 
     public static boolean open(ServerPlayer inspector, int targetEntityId) {
+        TreatmentService.cancelInvolving(inspector, TreatmentCancelReason.ACTION);
         if (!(inspector.serverLevel().getEntity(targetEntityId) instanceof ServerPlayer patient)
                 || !canInspect(inspector, patient, MAX_OPEN_DISTANCE_SQUARED, true)) {
             return false;
