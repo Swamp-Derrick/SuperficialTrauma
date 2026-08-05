@@ -5,6 +5,7 @@ import com.swampd.superficialtrauma.common.damage.DamageDowning;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAccumulator;
 import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
+import com.swampd.superficialtrauma.common.wound.WoundCovering;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
 import com.swampd.superficialtrauma.common.wound.WoundType;
@@ -31,6 +32,7 @@ public final class BodyStateRoundTripTest {
         verifyIndependentDamageWindows();
         verifyWoundDefinitions();
         verifyTemporaryDressing();
+        verifyCoveringVariants();
         verifyTreatmentMovementRules();
         verifyPainAccumulationAndTags();
         verifyStressAndPainRecovery();
@@ -376,6 +378,19 @@ public final class BodyStateRoundTripTest {
                 .orElseThrow(() -> new AssertionError("treated wound must survive NBT round trip"));
         assertEquals(true, restoredWound.temporaryDressingApplied(), "NBT must preserve temporary dressing");
         assertEquals(1, restoredWound.bleedingLevel(false), "restored dressing must keep its bleeding reduction");
+
+        CompoundTag legacyTag = state.serializeNBT();
+        legacyTag.getList("Wounds", Tag.TAG_COMPOUND).getCompound(0).remove("Covering");
+        BodyState legacyRestored = new BodyState();
+        legacyRestored.deserializeNBT(legacyTag);
+        WoundInstance legacyWound = legacyRestored.wound(wound.id())
+                .orElseThrow(() -> new AssertionError("legacy treated wound must survive migration"));
+        assertEquals(
+                WoundCovering.TEMPORARY_DRESSING,
+                legacyWound.covering(),
+                "legacy TemporaryDressing data must migrate to the covering slot"
+        );
+
         long revisionBeforeRemoval = restored.revision();
         assertEquals(true, restored.removeTemporaryDressing(wound.id(), 40L), "temporary dressing must be removable");
         assertEquals(true, restored.revision() > revisionBeforeRemoval, "removal must advance BodyState revision");
@@ -426,6 +441,64 @@ public final class BodyStateRoundTripTest {
                 TreatmentMovementRules.interrupts(false, false, origin, origin, origin, origin),
                 "two stationary players must keep treatment active"
         );
+    }
+
+    private static void verifyCoveringVariants() {
+        BodyState selfAdhesiveState = new BodyState();
+        WoundInstance selfAdhesive = requireWound(selfAdhesiveState.applyDamage(WoundType.SHARP, 5.0F, 0L));
+        assertEquals(
+                true,
+                selfAdhesiveState.applyCovering(selfAdhesive.id(), WoundCovering.SELF_ADHESIVE_BANDAGE, 20L),
+                "self-adhesive bandage must apply as a single covering"
+        );
+        assertEquals(1, selfAdhesive.bleedingLevel(false), "self-adhesive bandage must reduce bleeding by one");
+        assertEquals(
+                false,
+                selfAdhesiveState.applyCovering(selfAdhesive.id(), WoundCovering.BANDAGE_WITH_MEDICAL_TAPE, 21L),
+                "a wound must reject a second simultaneous covering"
+        );
+
+        BodyState tapedState = new BodyState();
+        WoundInstance taped = requireWound(tapedState.applyDamage(WoundType.SHARP, 5.0F, 0L));
+        assertEquals(
+                true,
+                tapedState.applyCovering(taped.id(), WoundCovering.BANDAGE_WITH_MEDICAL_TAPE, 20L),
+                "bandage and medical tape must apply as one covering"
+        );
+        assertEquals(0, taped.bleedingLevel(false), "bandage and medical tape must reduce bleeding by two");
+        BodyState tapedRestored = new BodyState();
+        tapedRestored.deserializeNBT(tapedState.serializeNBT());
+        WoundInstance restoredTaped = tapedRestored.wound(taped.id())
+                .orElseThrow(() -> new AssertionError("combined covering must survive NBT round trip"));
+        assertEquals(
+                WoundCovering.BANDAGE_WITH_MEDICAL_TAPE,
+                restoredTaped.covering(),
+                "combined covering identity must persist"
+        );
+        assertEquals(
+                false,
+                tapedRestored.removeCovering(taped.id(), WoundCovering.SELF_ADHESIVE_BANDAGE, 40L),
+                "removal must reject the wrong covering identity"
+        );
+        assertEquals(
+                true,
+                tapedRestored.removeCovering(taped.id(), WoundCovering.BANDAGE_WITH_MEDICAL_TAPE, 40L),
+                "combined covering must be removable from its bandage anchor"
+        );
+        assertEquals(2, restoredTaped.bleedingLevel(false), "removal must restore the original bleeding level");
+
+        BodyState reinforcedState = new BodyState();
+        WoundInstance reinforced = requireWound(reinforcedState.applyDamage(WoundType.SHARP, 5.0F, 0L));
+        assertEquals(
+                true,
+                reinforcedState.applyCovering(
+                        reinforced.id(),
+                        WoundCovering.BANDAGE_WITH_SELF_ADHESIVE_BANDAGE,
+                        20L
+                ),
+                "bandage and self-adhesive bandage must apply as one reinforced covering"
+        );
+        assertEquals(0, reinforced.bleedingLevel(false), "reinforced bandage must reduce bleeding by three with zero floor");
     }
 
     private static void verifyPainAccumulationAndTags() {

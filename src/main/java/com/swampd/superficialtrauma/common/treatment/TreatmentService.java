@@ -27,7 +27,7 @@ public final class TreatmentService {
             ServerPlayer actor,
             int patientEntityId,
             UUID woundId,
-            TreatmentType treatmentType,
+            TreatmentProcedure procedure,
             TreatmentAction action
     ) {
         Entity entity = actor.serverLevel().getEntity(patientEntityId);
@@ -60,14 +60,14 @@ public final class TreatmentService {
 
         Optional<BodyState> bodyState = BodyStateCapability.get(patient).resolve();
         Optional<WoundInstance> wound = bodyState.flatMap(state -> state.wound(woundId));
-        if (wound.isEmpty() || !treatmentType.isApplicable(wound.get(), action)) {
+        if (wound.isEmpty() || !procedure.isApplicable(wound.get(), action)) {
             actor.displayClientMessage(
                     Component.translatable("message.superficialtrauma.treatment.wound_changed"),
                     true
             );
             return false;
         }
-        if (action.consumesItem() && !hasRequiredItem(actor, treatmentType)) {
+        if (action.consumesItem() && !hasRequiredItems(actor, procedure)) {
             actor.displayClientMessage(
                     Component.translatable("message.superficialtrauma.treatment.item_missing"),
                     true
@@ -80,10 +80,10 @@ public final class TreatmentService {
                 actor.getUUID(),
                 patient.getUUID(),
                 woundId,
-                treatmentType,
+                procedure,
                 action,
                 gameTime,
-                gameTime + treatmentType.durationTicks(),
+                gameTime + procedure.durationTicks(),
                 actor.position(),
                 patient.position()
         );
@@ -128,11 +128,11 @@ public final class TreatmentService {
         Optional<WoundInstance> wound = BodyStateCapability.get(patient)
                 .resolve()
                 .flatMap(state -> state.wound(session.woundId()));
-        if (wound.isEmpty() || !session.treatmentType().isApplicable(wound.get(), session.action())) {
+        if (wound.isEmpty() || !session.procedure().isApplicable(wound.get(), session.action())) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.WOUND_CHANGED);
             return;
         }
-        if (session.action().consumesItem() && !hasRequiredItem(actor, session.treatmentType())) {
+        if (session.action().consumesItem() && !hasRequiredItems(actor, session.procedure())) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.ITEM_MISSING);
             return;
         }
@@ -163,22 +163,22 @@ public final class TreatmentService {
         Optional<WoundInstance> wound = state.flatMap(bodyState -> bodyState.wound(session.woundId()));
         if (state.isEmpty()
                 || wound.isEmpty()
-                || !session.treatmentType().isApplicable(wound.get(), session.action())
-                || (session.action().consumesItem() && !hasRequiredItem(actor, session.treatmentType()))) {
+                || !session.procedure().isApplicable(wound.get(), session.action())
+                || (session.action().consumesItem() && !hasRequiredItems(actor, session.procedure()))) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.WOUND_CHANGED);
             return;
         }
 
         long gameTime = actor.serverLevel().getGameTime();
         boolean changed = session.action() == TreatmentAction.APPLY
-                ? state.get().applyTemporaryDressing(session.woundId(), gameTime)
-                : state.get().removeTemporaryDressing(session.woundId(), gameTime);
+                ? state.get().applyCovering(session.woundId(), session.procedure().covering(), gameTime)
+                : state.get().removeCovering(session.woundId(), session.procedure().covering(), gameTime);
         if (!changed) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.WOUND_CHANGED);
             return;
         }
         if (session.action().consumesItem()) {
-            consumeRequiredItem(actor, session.treatmentType());
+            consumeRequiredItems(actor, session.procedure());
         }
         release(session);
         ModNetworking.sendTreatmentCompleted(actor, patient.getId(), session);
@@ -222,20 +222,37 @@ public final class TreatmentService {
                 && actor.hasLineOfSight(patient));
     }
 
-    private static boolean hasRequiredItem(ServerPlayer actor, TreatmentType treatmentType) {
-        int remaining = treatmentType.requiredCount();
-        Inventory inventory = actor.getInventory();
-        for (int slot = 0; slot < inventory.getContainerSize() && remaining > 0; slot++) {
-            ItemStack stack = inventory.getItem(slot);
-            if (stack.is(treatmentType.requiredItem())) {
-                remaining -= stack.getCount();
+    private static boolean hasRequiredItems(ServerPlayer actor, TreatmentProcedure procedure) {
+        for (TreatmentIngredient ingredient : procedure.ingredients()) {
+            if (countItem(actor, ingredient.type()) < ingredient.count()) {
+                return false;
             }
         }
-        return remaining <= 0;
+        return true;
     }
 
-    private static void consumeRequiredItem(ServerPlayer actor, TreatmentType treatmentType) {
-        int remaining = treatmentType.requiredCount();
+    private static int countItem(ServerPlayer actor, TreatmentType treatmentType) {
+        int count = 0;
+        Inventory inventory = actor.getInventory();
+        for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
+            ItemStack stack = inventory.getItem(slot);
+            if (stack.is(treatmentType.requiredItem())) {
+                count += stack.getCount();
+            }
+        }
+        return count;
+    }
+
+    private static void consumeRequiredItems(ServerPlayer actor, TreatmentProcedure procedure) {
+        for (TreatmentIngredient ingredient : procedure.ingredients()) {
+            consumeItem(actor, ingredient.type(), ingredient.count());
+        }
+        actor.getInventory().setChanged();
+        actor.inventoryMenu.broadcastChanges();
+    }
+
+    private static void consumeItem(ServerPlayer actor, TreatmentType treatmentType, int requiredCount) {
+        int remaining = requiredCount;
         Inventory inventory = actor.getInventory();
         for (int slot = 0; slot < inventory.getContainerSize() && remaining > 0; slot++) {
             ItemStack stack = inventory.getItem(slot);
@@ -246,8 +263,6 @@ public final class TreatmentService {
             stack.shrink(consumed);
             remaining -= consumed;
         }
-        inventory.setChanged();
-        actor.inventoryMenu.broadcastChanges();
     }
 
     private static ServerPlayer player(ServerPlayer reference, UUID playerId) {

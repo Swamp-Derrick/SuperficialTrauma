@@ -1,7 +1,6 @@
 package com.swampd.superficialtrauma.client;
 
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentType;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractButton;
@@ -9,26 +8,25 @@ import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 
-import java.util.UUID;
-
 final class TreatmentItemButton extends AbstractButton {
-    private final UUID woundId;
     private final TreatmentType treatmentType;
-    private final TreatmentAction action;
+    private final boolean removal;
+    private final Component tooltip;
     private final Runnable onPress;
 
     TreatmentItemButton(
             int x,
             int y,
-            UUID woundId,
             TreatmentType treatmentType,
-            TreatmentAction action,
+            boolean removal,
+            Component message,
+            Component tooltip,
             Runnable onPress
     ) {
-        super(x, y, 22, 22, Component.translatable(action.translationKey(treatmentType)));
-        this.woundId = woundId;
+        super(x, y, 22, 22, message);
         this.treatmentType = treatmentType;
-        this.action = action;
+        this.removal = removal;
+        this.tooltip = tooltip;
         this.onPress = onPress;
     }
 
@@ -43,7 +41,6 @@ final class TreatmentItemButton extends AbstractButton {
     protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         int x = getX();
         int y = getY();
-        boolean removal = action == TreatmentAction.REMOVE;
         int border = !active
                 ? 0xFF68717F
                 : removal
@@ -74,31 +71,7 @@ final class TreatmentItemButton extends AbstractButton {
         defaultButtonNarrationText(output);
     }
 
-    UUID woundId() {
-        return woundId;
-    }
-
-    TreatmentType treatmentType() {
-        return treatmentType;
-    }
-
-    TreatmentAction action() {
-        return action;
-    }
-
     Component tooltip() {
-        if (action == TreatmentAction.REMOVE) {
-            return Component.translatable(
-                    "screen.superficialtrauma.health.treatment_remove_tooltip",
-                    Component.translatable(action.translationKey(treatmentType)),
-                    treatmentType.durationTicks() / 20L
-            );
-        }
-        return Component.translatable(
-                "screen.superficialtrauma.health.treatment_tooltip",
-                Component.translatable(treatmentType.translationKey()),
-                treatmentType.requiredCount(),
-                treatmentType.requiredItem().getDescription()
-        );
+        return tooltip;
     }
 }

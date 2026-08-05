@@ -14,11 +14,11 @@ public enum TreatmentAction {
         return name().toLowerCase(Locale.ROOT);
     }
 
-    public String translationKey(TreatmentType type) {
+    public String translationKey(TreatmentProcedure procedure) {
         return "treatment_action.superficialtrauma."
                 + serializedName()
                 + "."
-                + type.serializedName();
+                + procedure.serializedName();
     }
 
     public static TreatmentAction fromSerializedName(String name) {

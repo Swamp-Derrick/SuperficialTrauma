@@ -8,7 +8,7 @@ public record TreatmentSession(
         UUID actorId,
         UUID patientId,
         UUID woundId,
-        TreatmentType treatmentType,
+        TreatmentProcedure procedure,
         TreatmentAction action,
         long startedGameTime,
         long endsGameTime,

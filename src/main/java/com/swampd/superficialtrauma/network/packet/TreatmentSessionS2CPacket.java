@@ -3,7 +3,7 @@ package com.swampd.superficialtrauma.network.packet;
 import com.swampd.superficialtrauma.client.ClientTreatmentState;
 import com.swampd.superficialtrauma.common.treatment.TreatmentCancelReason;
 import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
-import com.swampd.superficialtrauma.common.treatment.TreatmentType;
+import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.DistExecutor;
@@ -16,7 +16,7 @@ public record TreatmentSessionS2CPacket(
         Status status,
         int patientEntityId,
         UUID woundId,
-        TreatmentType treatmentType,
+        TreatmentProcedure procedure,
         TreatmentAction action,
         long endsGameTime,
         TreatmentCancelReason cancelReason
@@ -24,7 +24,7 @@ public record TreatmentSessionS2CPacket(
     public static TreatmentSessionS2CPacket started(
             int patientEntityId,
             UUID woundId,
-            TreatmentType type,
+            TreatmentProcedure procedure,
             TreatmentAction action,
             long endsGameTime
     ) {
@@ -32,7 +32,7 @@ public record TreatmentSessionS2CPacket(
                 Status.STARTED,
                 patientEntityId,
                 woundId,
-                type,
+                procedure,
                 action,
                 endsGameTime,
                 null
@@ -42,7 +42,7 @@ public record TreatmentSessionS2CPacket(
     public static TreatmentSessionS2CPacket cancelled(
             int patientEntityId,
             UUID woundId,
-            TreatmentType type,
+            TreatmentProcedure procedure,
             TreatmentAction action,
             TreatmentCancelReason reason
     ) {
@@ -50,7 +50,7 @@ public record TreatmentSessionS2CPacket(
                 Status.CANCELLED,
                 patientEntityId,
                 woundId,
-                type,
+                procedure,
                 action,
                 -1L,
                 reason
@@ -60,14 +60,14 @@ public record TreatmentSessionS2CPacket(
     public static TreatmentSessionS2CPacket completed(
             int patientEntityId,
             UUID woundId,
-            TreatmentType type,
+            TreatmentProcedure procedure,
             TreatmentAction action
     ) {
         return new TreatmentSessionS2CPacket(
                 Status.COMPLETED,
                 patientEntityId,
                 woundId,
-                type,
+                procedure,
                 action,
                 -1L,
                 null
@@ -78,7 +78,7 @@ public record TreatmentSessionS2CPacket(
         buffer.writeEnum(packet.status);
         buffer.writeVarInt(packet.patientEntityId);
         buffer.writeUUID(packet.woundId);
-        buffer.writeUtf(packet.treatmentType.serializedName());
+        buffer.writeUtf(packet.procedure.serializedName());
         buffer.writeUtf(packet.action.serializedName());
         buffer.writeLong(packet.endsGameTime);
         buffer.writeBoolean(packet.cancelReason != null);
@@ -91,13 +91,21 @@ public record TreatmentSessionS2CPacket(
         Status status = buffer.readEnum(Status.class);
         int patientEntityId = buffer.readVarInt();
         UUID woundId = buffer.readUUID();
-        TreatmentType type = TreatmentType.fromSerializedName(buffer.readUtf(64));
+        TreatmentProcedure procedure = TreatmentProcedure.fromSerializedName(buffer.readUtf(64));
         TreatmentAction action = TreatmentAction.fromSerializedName(buffer.readUtf(32));
         long endsGameTime = buffer.readLong();
         TreatmentCancelReason reason = buffer.readBoolean()
                 ? buffer.readEnum(TreatmentCancelReason.class)
                 : null;
-        return new TreatmentSessionS2CPacket(status, patientEntityId, woundId, type, action, endsGameTime, reason);
+        return new TreatmentSessionS2CPacket(
+                status,
+                patientEntityId,
+                woundId,
+                procedure,
+                action,
+                endsGameTime,
+                reason
+        );
     }
 
     public static void handle(TreatmentSessionS2CPacket packet, Supplier<NetworkEvent.Context> contextSupplier) {
@@ -107,12 +115,12 @@ public record TreatmentSessionS2CPacket(
                 case STARTED -> ClientTreatmentState.started(
                         packet.patientEntityId,
                         packet.woundId,
-                        packet.treatmentType,
+                        packet.procedure,
                         packet.action,
                         packet.endsGameTime
                 );
                 case CANCELLED -> ClientTreatmentState.cancelled(packet.cancelReason);
-                case COMPLETED -> ClientTreatmentState.completed(packet.treatmentType, packet.action);
+                case COMPLETED -> ClientTreatmentState.completed(packet.procedure, packet.action);
             }
         }));
         context.setPacketHandled(true);

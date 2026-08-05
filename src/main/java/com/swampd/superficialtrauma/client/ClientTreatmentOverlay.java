@@ -19,7 +19,7 @@ public final class ClientTreatmentOverlay {
         ClientTreatmentState.ActiveTreatment active = ClientTreatmentState.activeTreatment();
         Component message = Component.translatable(
                 "screen.superficialtrauma.health.treatment_progress",
-                Component.translatable(active.action().translationKey(active.type())),
+                Component.translatable(active.action().translationKey(active.procedure())),
                 String.format(java.util.Locale.ROOT, "%.1f", ClientTreatmentState.remainingSeconds())
         );
         int textWidth = minecraft.font.width(message);

@@ -5,6 +5,7 @@ import com.swampd.superficialtrauma.common.damage.DamageClassification;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.DamageWindow;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
+import com.swampd.superficialtrauma.common.wound.WoundCovering;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
 import com.swampd.superficialtrauma.common.wound.WoundType;
 import net.minecraft.nbt.CompoundTag;
@@ -22,7 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 10;
+    public static final int CURRENT_DATA_VERSION = 11;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
@@ -319,8 +320,12 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     public boolean applyTemporaryDressing(UUID woundId, long gameTime) {
+        return applyCovering(woundId, WoundCovering.TEMPORARY_DRESSING, gameTime);
+    }
+
+    public boolean applyCovering(UUID woundId, WoundCovering covering, long gameTime) {
         Optional<WoundInstance> wound = wound(woundId);
-        if (wound.isEmpty() || !wound.get().applyTemporaryDressing(gameTime)) {
+        if (wound.isEmpty() || !wound.get().applyCovering(covering, gameTime)) {
             return false;
         }
         markChanged();
@@ -328,8 +333,12 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     public boolean removeTemporaryDressing(UUID woundId, long gameTime) {
+        return removeCovering(woundId, WoundCovering.TEMPORARY_DRESSING, gameTime);
+    }
+
+    public boolean removeCovering(UUID woundId, WoundCovering expectedCovering, long gameTime) {
         Optional<WoundInstance> wound = wound(woundId);
-        if (wound.isEmpty() || !wound.get().removeTemporaryDressing(gameTime)) {
+        if (wound.isEmpty() || !wound.get().removeCovering(expectedCovering, gameTime)) {
             return false;
         }
         markChanged();

@@ -4,7 +4,11 @@ import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.damage.DamageWindow;
 import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
+import com.swampd.superficialtrauma.common.treatment.TreatmentIngredient;
+import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
+import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
 import com.swampd.superficialtrauma.common.treatment.TreatmentType;
+import com.swampd.superficialtrauma.common.wound.WoundCovering;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
 import com.swampd.superficialtrauma.network.ModNetworking;
@@ -12,12 +16,15 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 public final class HealthScreen extends Screen {
     private static final int BACKGROUND_COLOR = 0xF0181C22;
@@ -35,8 +42,9 @@ public final class HealthScreen extends Screen {
     private final int inspectedEntityId;
     private final List<TreatmentItemButton> treatmentButtons = new ArrayList<>();
     private long lastButtonRevision = Long.MIN_VALUE;
-    private int lastRequiredItemCount = -1;
+    private long lastInventorySignature = Long.MIN_VALUE;
     private boolean lastTreatmentActive;
+    private TreatmentPreparation preparation;
 
     public HealthScreen() {
         super(Component.translatable("screen.superficialtrauma.health.title"));
@@ -63,10 +71,24 @@ public final class HealthScreen extends Screen {
             return;
         }
         BodyState state = displayedState();
-        int itemCount = countItem(TreatmentType.TEMPORARY_DRESSING.requiredItem());
         boolean treatmentActive = ClientTreatmentState.isActive();
+        if (preparation != null) {
+            if (treatmentActive) {
+                preparation = null;
+            } else if (patientMovedSincePreparation()) {
+                preparation = null;
+                if (minecraft != null) {
+                    minecraft.setScreen(null);
+                }
+                return;
+            } else if (!preparationStillValid(state)) {
+                preparation = null;
+                rebuildTreatmentButtons();
+            }
+        }
+        long inventorySignature = inventorySignature();
         if (state.revision() != lastButtonRevision
-                || itemCount != lastRequiredItemCount
+                || inventorySignature != lastInventorySignature
                 || treatmentActive != lastTreatmentActive) {
             rebuildTreatmentButtons();
         }
@@ -129,6 +151,9 @@ public final class HealthScreen extends Screen {
                 layout.rightWidth - 12,
                 contentHeight
         );
+        if (preparation != null) {
+            drawPreparationShade(graphics, layout);
+        }
 
         super.render(graphics, mouseX, mouseY, partialTick);
         for (TreatmentItemButton button : treatmentButtons) {
@@ -475,8 +500,8 @@ public final class HealthScreen extends Screen {
     private String woundTagSummary(WoundInstance wound, boolean movementBleedingActive) {
         List<String> labels = new ArrayList<>();
         boolean hasBleedingTag = wound.woundTags().stream().anyMatch(tag -> tag.bleedingLevel() > 0);
-        if (wound.temporaryDressingApplied()) {
-            labels.add(Component.translatable("screen.superficialtrauma.health.temporary_dressing_applied").getString());
+        if (wound.covering().isApplied()) {
+            labels.add(Component.translatable(wound.covering().translationKey()).getString());
         }
 
         int effectiveBleedingLevel = wound.bleedingLevel(movementBleedingActive);
@@ -484,7 +509,7 @@ public final class HealthScreen extends Screen {
             labels.add(Component.translatable(
                     "wound_tag.superficialtrauma.bleeding_" + effectiveBleedingLevel
             ).getString());
-        } else if (hasBleedingTag && wound.temporaryDressingApplied()) {
+        } else if (hasBleedingTag && wound.covering().isApplied()) {
             labels.add(Component.translatable("screen.superficialtrauma.health.bleeding_controlled").getString());
         }
 
@@ -516,16 +541,11 @@ public final class HealthScreen extends Screen {
             List<WoundInstance> visibleWounds = visibleWounds(displayedState(), availableHeight);
             int statusY = y + 30;
             for (WoundInstance wound : visibleWounds) {
-                if (wound.temporaryDressingApplied()) {
-                    int visibleButtonCount = 0;
-                    for (TreatmentType type : TreatmentType.values()) {
-                        if (type.supports(wound)) {
-                            visibleButtonCount++;
-                        }
-                    }
-                    int statusOffset = 6 + visibleButtonCount * 25;
+                if (wound.covering().isApplied()) {
+                    int statusOffset = 6 + TreatmentType.values().length * 25;
                     Component status = Component.translatable(
-                            "screen.superficialtrauma.health.temporary_dressing_status",
+                            "screen.superficialtrauma.health.covering_status",
+                            Component.translatable(wound.covering().translationKey()),
                             oneDecimal(wound.baseHealingPerSecond())
                     );
                     if (availableWidth - statusOffset >= 20) {
@@ -548,7 +568,7 @@ public final class HealthScreen extends Screen {
                     graphics,
                     Component.translatable(
                             "screen.superficialtrauma.health.treatment_progress",
-                            Component.translatable(active.action().translationKey(active.type())),
+                            Component.translatable(active.action().translationKey(active.procedure())),
                             oneDecimal(ClientTreatmentState.remainingSeconds())
                     ),
                     x,
@@ -570,37 +590,219 @@ public final class HealthScreen extends Screen {
         Layout layout = layout();
         BodyState state = displayedState();
         List<WoundInstance> visibleWounds = visibleWounds(state, layout.innerHeight - 12);
-        int requiredItemCount = countItem(TreatmentType.TEMPORARY_DRESSING.requiredItem());
         boolean anyTreatmentActive = ClientTreatmentState.isActive();
         int patientEntityId = displayedEntityId();
         int rowY = layout.innerY + 6 + 16;
 
         for (int row = 0; row < visibleWounds.size(); row++) {
             WoundInstance wound = visibleWounds.get(row);
+            if (!TreatmentProcedure.TEMPORARY_DRESSING.supports(wound)) {
+                continue;
+            }
             int treatmentColumn = 0;
             for (TreatmentType type : TreatmentType.values()) {
-                if (!type.supports(wound)) {
-                    continue;
-                }
-                TreatmentAction action = type.actionFor(wound);
-                TreatmentItemButton button = new TreatmentItemButton(
+                addTreatmentButton(
                         layout.rightX + 10 + treatmentColumn * 25,
                         rowY + row * WOUND_ROW_HEIGHT + 9,
-                        wound.id(),
+                        patientEntityId,
+                        wound,
                         type,
-                        action,
-                        () -> ModNetworking.requestTreatment(patientEntityId, wound.id(), type, action)
+                        anyTreatmentActive
                 );
-                button.active = !anyTreatmentActive
-                        && (!action.consumesItem() || requiredItemCount >= type.requiredCount());
-                treatmentButtons.add(addRenderableWidget(button));
                 treatmentColumn++;
             }
         }
 
         lastButtonRevision = state.revision();
-        lastRequiredItemCount = requiredItemCount;
+        lastInventorySignature = inventorySignature();
         lastTreatmentActive = anyTreatmentActive;
+    }
+
+    private void addTreatmentButton(
+            int x,
+            int y,
+            int patientEntityId,
+            WoundInstance wound,
+            TreatmentType type,
+            boolean anyTreatmentActive
+    ) {
+        boolean active = false;
+        boolean removal = false;
+        Component message = Component.translatable(type.translationKey());
+        Component tooltip;
+        Runnable onPress = () -> {
+        };
+
+        TreatmentProcedure appliedProcedure = TreatmentProcedure.forCovering(wound.covering());
+        if (anyTreatmentActive) {
+            tooltip = Component.translatable("screen.superficialtrauma.health.treatment_busy_tooltip");
+        } else if (appliedProcedure != null) {
+            if (type == appliedProcedure.removalAnchor()) {
+                active = true;
+                removal = true;
+                message = Component.translatable(
+                        TreatmentAction.REMOVE.translationKey(appliedProcedure)
+                );
+                tooltip = Component.translatable(
+                        "screen.superficialtrauma.health.treatment_remove_tooltip",
+                        message,
+                        appliedProcedure.durationTicks() / 20L
+                );
+                TreatmentProcedure procedure = appliedProcedure;
+                onPress = () -> ModNetworking.requestTreatment(
+                        patientEntityId,
+                        wound.id(),
+                        procedure,
+                        TreatmentAction.REMOVE
+                );
+            } else {
+                tooltip = Component.translatable(
+                        "screen.superficialtrauma.health.treatment_blocked_by_covering",
+                        Component.translatable(wound.covering().translationKey())
+                );
+            }
+        } else if (preparation != null) {
+            if (preparation.matches(patientEntityId, wound.id())
+                    && (type == TreatmentType.MEDICAL_TAPE
+                    || type == TreatmentType.SELF_ADHESIVE_BANDAGE)) {
+                TreatmentProcedure procedure = TreatmentProcedure.bandageCombination(type);
+                active = procedure != null && hasRequiredItems(procedure);
+                tooltip = Component.translatable(
+                        "screen.superficialtrauma.health.treatment_combo_finish_tooltip",
+                        Component.translatable(type.translationKey())
+                );
+                if (procedure != null) {
+                    onPress = () -> submitPreparedTreatment(patientEntityId, wound.id(), procedure);
+                }
+            } else {
+                tooltip = Component.translatable("screen.superficialtrauma.health.treatment_preparation_locked");
+            }
+        } else {
+            switch (type) {
+                case TEMPORARY_DRESSING -> {
+                    TreatmentProcedure procedure = TreatmentProcedure.TEMPORARY_DRESSING;
+                    active = hasRequiredItems(procedure);
+                    tooltip = singleTreatmentTooltip(type);
+                    onPress = () -> ModNetworking.requestTreatment(
+                            patientEntityId,
+                            wound.id(),
+                            procedure,
+                            TreatmentAction.APPLY
+                    );
+                }
+                case BANDAGE -> {
+                    active = countItem(TreatmentType.BANDAGE) > 0
+                            && (countItem(TreatmentType.MEDICAL_TAPE) > 0
+                            || countItem(TreatmentType.SELF_ADHESIVE_BANDAGE) > 0);
+                    tooltip = Component.translatable("screen.superficialtrauma.health.bandage_combo_tooltip");
+                    onPress = () -> beginBandagePreparation(patientEntityId, wound.id());
+                }
+                case MEDICAL_TAPE -> tooltip = Component.translatable(
+                        "screen.superficialtrauma.health.medical_tape_requires_bandage"
+                );
+                case SELF_ADHESIVE_BANDAGE -> {
+                    TreatmentProcedure procedure = TreatmentProcedure.SELF_ADHESIVE_BANDAGE;
+                    active = hasRequiredItems(procedure);
+                    tooltip = Component.translatable(
+                            "screen.superficialtrauma.health.self_adhesive_bandage_tooltip"
+                    );
+                    onPress = () -> ModNetworking.requestTreatment(
+                            patientEntityId,
+                            wound.id(),
+                            procedure,
+                            TreatmentAction.APPLY
+                    );
+                }
+                default -> tooltip = Component.empty();
+            }
+        }
+
+        TreatmentItemButton button = new TreatmentItemButton(
+                x,
+                y,
+                type,
+                removal,
+                message,
+                tooltip,
+                onPress
+        );
+        button.active = active;
+        treatmentButtons.add(addRenderableWidget(button));
+    }
+
+    private Component singleTreatmentTooltip(TreatmentType type) {
+        return Component.translatable(
+                "screen.superficialtrauma.health.treatment_tooltip",
+                Component.translatable(type.translationKey()),
+                1,
+                type.requiredItem().getDescription()
+        );
+    }
+
+    private void beginBandagePreparation(int patientEntityId, UUID woundId) {
+        Vec3 patientPosition = displayedPatientPosition();
+        if (patientPosition == null) {
+            return;
+        }
+        preparation = new TreatmentPreparation(patientEntityId, woundId, patientPosition);
+        rebuildTreatmentButtons();
+    }
+
+    private void submitPreparedTreatment(
+            int patientEntityId,
+            UUID woundId,
+            TreatmentProcedure procedure
+    ) {
+        preparation = null;
+        ModNetworking.requestTreatment(patientEntityId, woundId, procedure, TreatmentAction.APPLY);
+        rebuildTreatmentButtons();
+    }
+
+    private boolean preparationStillValid(BodyState state) {
+        if (preparation == null || preparation.patientEntityId != displayedEntityId()) {
+            return false;
+        }
+        WoundInstance wound = state.wound(preparation.woundId).orElse(null);
+        return wound != null
+                && !wound.covering().isApplied()
+                && countItem(TreatmentType.BANDAGE) > 0
+                && (countItem(TreatmentType.MEDICAL_TAPE) > 0
+                || countItem(TreatmentType.SELF_ADHESIVE_BANDAGE) > 0);
+    }
+
+    private boolean patientMovedSincePreparation() {
+        if (preparation == null) {
+            return false;
+        }
+        Vec3 current = displayedPatientPosition();
+        return current == null
+                || current.distanceToSqr(preparation.patientStartPosition)
+                > TreatmentMovementRules.MOVEMENT_TOLERANCE_SQUARED;
+    }
+
+    private Vec3 displayedPatientPosition() {
+        if (minecraft == null || minecraft.level == null) {
+            return null;
+        }
+        Entity entity = minecraft.level.getEntity(displayedEntityId());
+        return entity == null ? null : entity.position();
+    }
+
+    private boolean hasRequiredItems(TreatmentProcedure procedure) {
+        for (TreatmentIngredient ingredient : procedure.ingredients()) {
+            if (countItem(ingredient.type()) < ingredient.count()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private long inventorySignature() {
+        long signature = 1L;
+        for (TreatmentType type : TreatmentType.values()) {
+            signature = signature * 31L + countItem(type);
+        }
+        return signature;
     }
 
     private List<WoundInstance> sortedWounds(BodyState state) {
@@ -618,6 +820,10 @@ public final class HealthScreen extends Screen {
         return new ArrayList<>(sorted.subList(0, count));
     }
 
+    private int countItem(TreatmentType type) {
+        return countItem(type.requiredItem());
+    }
+
     private int countItem(Item item) {
         if (minecraft == null || minecraft.player == null) {
             return 0;
@@ -629,6 +835,35 @@ public final class HealthScreen extends Screen {
             }
         }
         return count;
+    }
+
+    private void drawPreparationShade(GuiGraphics graphics, Layout layout) {
+        graphics.fill(
+                layout.innerX,
+                layout.innerY,
+                layout.innerX + layout.leftWidth,
+                layout.innerY + layout.innerHeight,
+                0xB8101217
+        );
+        graphics.fill(
+                layout.middleX,
+                layout.innerY,
+                layout.middleX + layout.middleWidth,
+                layout.innerY + layout.innerHeight,
+                0xB8101217
+        );
+        Component prompt = Component.translatable(
+                "screen.superficialtrauma.health.treatment_preparation_prompt"
+        );
+        int combinedStart = layout.innerX;
+        int combinedEnd = layout.middleX + layout.middleWidth;
+        graphics.drawCenteredString(
+                font,
+                prompt,
+                combinedStart + (combinedEnd - combinedStart) / 2,
+                layout.innerY + layout.innerHeight / 2,
+                WARN_COLOR
+        );
     }
 
     private boolean hasSnapshot() {
@@ -737,6 +972,7 @@ public final class HealthScreen extends Screen {
 
     @Override
     public void removed() {
+        preparation = null;
         super.removed();
         if (inspectingOtherPlayer) {
             if (minecraft != null && minecraft.getConnection() != null) {
@@ -788,5 +1024,15 @@ public final class HealthScreen extends Screen {
             int rightX,
             int rightWidth
     ) {
+    }
+
+    private record TreatmentPreparation(
+            int patientEntityId,
+            UUID woundId,
+            Vec3 patientStartPosition
+    ) {
+        private boolean matches(int entityId, UUID candidateWoundId) {
+            return patientEntityId == entityId && woundId.equals(candidateWoundId);
+        }
     }
 }
