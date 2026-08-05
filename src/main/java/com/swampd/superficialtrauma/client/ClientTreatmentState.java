@@ -24,7 +24,9 @@ public final class ClientTreatmentState {
 
     public static void completed(TreatmentType type) {
         activeTreatment = null;
-        showActionBar(Component.translatable("message.superficialtrauma.treatment.completed", Component.translatable(type.translationKey())));
+        showActionBar(Component.translatable(
+                "message.superficialtrauma.treatment.completed." + type.serializedName()
+        ));
     }
 
     public static boolean isActive() {

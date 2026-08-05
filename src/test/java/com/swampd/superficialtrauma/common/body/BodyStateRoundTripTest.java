@@ -352,6 +352,7 @@ public final class BodyStateRoundTripTest {
         assertEquals(2, wound.bleedingLevel(false), "untreated sharp severity two must bleed at level two");
         assertFloatEquals(0.1F, wound.baseHealingPerSecond(), "untreated sharp severity two must retain its natural rate");
 
+        state.advanceBodyProgression(0L);
         long revisionBeforeTreatment = state.revision();
         assertEquals(true, state.applyTemporaryDressing(wound.id(), 20L), "temporary dressing must apply once");
         assertEquals(true, state.revision() > revisionBeforeTreatment, "treatment must advance BodyState revision");
@@ -359,6 +360,15 @@ public final class BodyStateRoundTripTest {
         assertEquals(1, wound.bleedingLevel(false), "temporary dressing must reduce bleeding by one level");
         assertFloatEquals(1.0F, wound.baseHealingPerSecond(), "temporary dressing must raise healing to one H/s");
         assertEquals(false, state.applyTemporaryDressing(wound.id(), 21L), "the same dressing must not apply twice");
+
+        float progressBeforeTick = wound.healingProgress();
+        BodyProgressionResult progression = state.advanceBodyProgression(20L);
+        assertEquals(1, progression.progressedWounds(), "a dressed wound must progress on the server tick");
+        assertFloatEquals(
+                progressBeforeTick - 1.0F,
+                wound.healingProgress(),
+                "temporary dressing must remove one H after one elapsed second"
+        );
 
         BodyState restored = new BodyState();
         restored.deserializeNBT(state.serializeNBT());

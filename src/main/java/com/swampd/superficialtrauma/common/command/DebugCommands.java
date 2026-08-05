@@ -125,6 +125,7 @@ public final class DebugCommands {
                                 + " H=" + wound.healingProgress()
                                 + " natural=" + wound.baseHealingPerSecond() + "/s"
                                 + " bleeding=" + wound.bleedingLevel(bodyState.movementBleedingActive())
+                                + " dressed=" + wound.temporaryDressingApplied()
                                 + " nextBleed=" + wound.nextBleedingGameTime()
                                 + " tags=" + wound.woundTags()
                                 + gunshotContext

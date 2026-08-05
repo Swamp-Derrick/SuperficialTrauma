@@ -406,10 +406,6 @@ public final class HealthScreen extends Screen {
                     false
             );
             String tagSummary = woundTagSummary(wound, state.movementBleedingActive());
-            if (wound.temporaryDressingApplied()) {
-                String dressing = Component.translatable("treatment.superficialtrauma.temporary_dressing").getString();
-                tagSummary = tagSummary.isEmpty() ? dressing : tagSummary + " · " + dressing;
-            }
             if (!tagSummary.isEmpty()) {
                 graphics.drawString(
                         font,
@@ -477,11 +473,22 @@ public final class HealthScreen extends Screen {
 
     private String woundTagSummary(WoundInstance wound, boolean movementBleedingActive) {
         List<String> labels = new ArrayList<>();
+        boolean hasBleedingTag = wound.woundTags().stream().anyMatch(tag -> tag.bleedingLevel() > 0);
+        if (wound.temporaryDressingApplied()) {
+            labels.add(Component.translatable("screen.superficialtrauma.health.temporary_dressing_applied").getString());
+        }
+
+        int effectiveBleedingLevel = wound.bleedingLevel(movementBleedingActive);
+        if (effectiveBleedingLevel > 0) {
+            labels.add(Component.translatable(
+                    "wound_tag.superficialtrauma.bleeding_" + effectiveBleedingLevel
+            ).getString());
+        } else if (hasBleedingTag && wound.temporaryDressingApplied()) {
+            labels.add(Component.translatable("screen.superficialtrauma.health.bleeding_controlled").getString());
+        }
+
         for (WoundTag tag : wound.woundTags()) {
-            if (tag == WoundTag.MOVEMENT_BLEEDING_1) {
-                if (movementBleedingActive) {
-                    labels.add(Component.translatable("wound_tag.superficialtrauma.bleeding_1").getString());
-                }
+            if (tag.bleedingLevel() > 0) {
                 continue;
             }
             labels.add(Component.translatable("wound_tag.superficialtrauma." + tag.serializedName()).getString());
@@ -504,6 +511,27 @@ public final class HealthScreen extends Screen {
                 TITLE_COLOR,
                 false
         );
+        if (hasSnapshot()) {
+            List<WoundInstance> visibleWounds = visibleWounds(displayedState(), availableHeight);
+            int statusY = y + 30;
+            for (WoundInstance wound : visibleWounds) {
+                if (wound.temporaryDressingApplied()) {
+                    Component status = Component.translatable(
+                            "screen.superficialtrauma.health.temporary_dressing_status",
+                            oneDecimal(wound.baseHealingPerSecond())
+                    );
+                    graphics.drawString(
+                            font,
+                            font.plainSubstrByWidth(status.getString(), availableWidth),
+                            x,
+                            statusY,
+                            GOOD_COLOR,
+                            false
+                    );
+                }
+                statusY += WOUND_ROW_HEIGHT;
+            }
+        }
         if (ClientTreatmentState.isActive()) {
             ClientTreatmentState.ActiveTreatment active = ClientTreatmentState.activeTreatment();
             drawWrappedWithin(
