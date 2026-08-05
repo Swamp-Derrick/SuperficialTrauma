@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.client;
 
 import com.swampd.superficialtrauma.common.treatment.TreatmentCancelReason;
+import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
@@ -13,8 +14,14 @@ public final class ClientTreatmentState {
     private ClientTreatmentState() {
     }
 
-    public static void started(int patientEntityId, UUID woundId, TreatmentType type, long endsGameTime) {
-        activeTreatment = new ActiveTreatment(patientEntityId, woundId, type, endsGameTime);
+    public static void started(
+            int patientEntityId,
+            UUID woundId,
+            TreatmentType type,
+            TreatmentAction action,
+            long endsGameTime
+    ) {
+        activeTreatment = new ActiveTreatment(patientEntityId, woundId, type, action, endsGameTime);
     }
 
     public static void cancelled(TreatmentCancelReason reason) {
@@ -22,10 +29,13 @@ public final class ClientTreatmentState {
         showActionBar(Component.translatable(reason.translationKey()));
     }
 
-    public static void completed(TreatmentType type) {
+    public static void completed(TreatmentType type, TreatmentAction action) {
         activeTreatment = null;
         showActionBar(Component.translatable(
-                "message.superficialtrauma.treatment.completed." + type.serializedName()
+                "message.superficialtrauma.treatment.completed."
+                        + action.serializedName()
+                        + "."
+                        + type.serializedName()
         ));
     }
 
@@ -60,6 +70,7 @@ public final class ClientTreatmentState {
             int patientEntityId,
             UUID woundId,
             TreatmentType type,
+            TreatmentAction action,
             long endsGameTime
     ) {
     }

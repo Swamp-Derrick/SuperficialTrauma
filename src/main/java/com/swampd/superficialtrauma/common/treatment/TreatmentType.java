@@ -32,13 +32,27 @@ public enum TreatmentType {
         return requiredCount;
     }
 
-    public boolean isApplicable(WoundInstance wound) {
-        if (this != TEMPORARY_DRESSING || wound == null || wound.temporaryDressingApplied() || wound.isHealed()) {
+    public boolean supports(WoundInstance wound) {
+        if (this != TEMPORARY_DRESSING || wound == null || wound.isHealed()) {
             return false;
         }
-        return wound.bleedingLevel(true) > 0
+        return wound.temporaryDressingApplied()
+                || wound.bleedingLevel(true) > 0
                 || wound.type() == WoundType.EXPLOSION
                 || (wound.type() == WoundType.BLUNT && wound.severity() >= 3);
+    }
+
+    public TreatmentAction actionFor(WoundInstance wound) {
+        return wound != null && wound.temporaryDressingApplied()
+                ? TreatmentAction.REMOVE
+                : TreatmentAction.APPLY;
+    }
+
+    public boolean isApplicable(WoundInstance wound, TreatmentAction action) {
+        if (!supports(wound) || action == null) {
+            return false;
+        }
+        return action == actionFor(wound);
     }
 
     public String serializedName() {

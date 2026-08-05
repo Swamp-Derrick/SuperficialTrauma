@@ -376,10 +376,21 @@ public final class BodyStateRoundTripTest {
                 .orElseThrow(() -> new AssertionError("treated wound must survive NBT round trip"));
         assertEquals(true, restoredWound.temporaryDressingApplied(), "NBT must preserve temporary dressing");
         assertEquals(1, restoredWound.bleedingLevel(false), "restored dressing must keep its bleeding reduction");
+        long revisionBeforeRemoval = restored.revision();
+        assertEquals(true, restored.removeTemporaryDressing(wound.id(), 40L), "temporary dressing must be removable");
+        assertEquals(true, restored.revision() > revisionBeforeRemoval, "removal must advance BodyState revision");
+        assertEquals(false, restoredWound.temporaryDressingApplied(), "removal must clear the dressing state");
+        assertEquals(2, restoredWound.bleedingLevel(false), "removal must restore untreated bleeding");
+        assertFloatEquals(0.1F, restoredWound.baseHealingPerSecond(), "removal must restore natural healing");
+        assertEquals(false, restored.removeTemporaryDressing(wound.id(), 41L), "the same dressing must not be removed twice");
 
-        restoredWound.addAccumulatedDamage(0.5F, 22L);
-        assertEquals(false, restoredWound.temporaryDressingApplied(), "new wound damage must destroy a temporary dressing");
-        assertEquals(2, restoredWound.bleedingLevel(false), "destroying the dressing must restore untreated bleeding");
+        BodyState damagedState = new BodyState();
+        damagedState.deserializeNBT(state.serializeNBT());
+        WoundInstance damagedWound = damagedState.wound(wound.id())
+                .orElseThrow(() -> new AssertionError("treated wound must be available for damage test"));
+        damagedWound.addAccumulatedDamage(0.5F, 22L);
+        assertEquals(false, damagedWound.temporaryDressingApplied(), "new wound damage must destroy a temporary dressing");
+        assertEquals(2, damagedWound.bleedingLevel(false), "destroying the dressing must restore untreated bleeding");
     }
 
     private static void verifyTreatmentMovementRules() {

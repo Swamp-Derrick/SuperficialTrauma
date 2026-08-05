@@ -3,6 +3,7 @@ package com.swampd.superficialtrauma.client;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.damage.DamageWindow;
+import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentType;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
@@ -516,18 +517,27 @@ public final class HealthScreen extends Screen {
             int statusY = y + 30;
             for (WoundInstance wound : visibleWounds) {
                 if (wound.temporaryDressingApplied()) {
+                    int visibleButtonCount = 0;
+                    for (TreatmentType type : TreatmentType.values()) {
+                        if (type.supports(wound)) {
+                            visibleButtonCount++;
+                        }
+                    }
+                    int statusOffset = 6 + visibleButtonCount * 25;
                     Component status = Component.translatable(
                             "screen.superficialtrauma.health.temporary_dressing_status",
                             oneDecimal(wound.baseHealingPerSecond())
                     );
-                    graphics.drawString(
-                            font,
-                            font.plainSubstrByWidth(status.getString(), availableWidth),
-                            x,
-                            statusY,
-                            GOOD_COLOR,
-                            false
-                    );
+                    if (availableWidth - statusOffset >= 20) {
+                        graphics.drawString(
+                                font,
+                                font.plainSubstrByWidth(status.getString(), availableWidth - statusOffset),
+                                x + statusOffset,
+                                statusY,
+                                GOOD_COLOR,
+                                false
+                        );
+                    }
                 }
                 statusY += WOUND_ROW_HEIGHT;
             }
@@ -538,7 +548,7 @@ public final class HealthScreen extends Screen {
                     graphics,
                     Component.translatable(
                             "screen.superficialtrauma.health.treatment_progress",
-                            Component.translatable(active.type().translationKey()),
+                            Component.translatable(active.action().translationKey(active.type())),
                             oneDecimal(ClientTreatmentState.remainingSeconds())
                     ),
                     x,
@@ -569,17 +579,20 @@ public final class HealthScreen extends Screen {
             WoundInstance wound = visibleWounds.get(row);
             int treatmentColumn = 0;
             for (TreatmentType type : TreatmentType.values()) {
-                if (!type.isApplicable(wound)) {
+                if (!type.supports(wound)) {
                     continue;
                 }
+                TreatmentAction action = type.actionFor(wound);
                 TreatmentItemButton button = new TreatmentItemButton(
                         layout.rightX + 10 + treatmentColumn * 25,
                         rowY + row * WOUND_ROW_HEIGHT + 9,
                         wound.id(),
                         type,
-                        () -> ModNetworking.requestTreatment(patientEntityId, wound.id(), type)
+                        action,
+                        () -> ModNetworking.requestTreatment(patientEntityId, wound.id(), type, action)
                 );
-                button.active = !anyTreatmentActive && requiredItemCount >= type.requiredCount();
+                button.active = !anyTreatmentActive
+                        && (!action.consumesItem() || requiredItemCount >= type.requiredCount());
                 treatmentButtons.add(addRenderableWidget(button));
                 treatmentColumn++;
             }

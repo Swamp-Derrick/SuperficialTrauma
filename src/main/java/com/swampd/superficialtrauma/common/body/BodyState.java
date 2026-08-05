@@ -327,6 +327,15 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return true;
     }
 
+    public boolean removeTemporaryDressing(UUID woundId, long gameTime) {
+        Optional<WoundInstance> wound = wound(woundId);
+        if (wound.isEmpty() || !wound.get().removeTemporaryDressing(gameTime)) {
+            return false;
+        }
+        markChanged();
+        return true;
+    }
+
     public Map<WoundType, DamageWindow> damageWindows() {
         return Collections.unmodifiableMap(damageWindows);
     }

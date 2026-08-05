@@ -27,7 +27,8 @@ public final class TreatmentService {
             ServerPlayer actor,
             int patientEntityId,
             UUID woundId,
-            TreatmentType treatmentType
+            TreatmentType treatmentType,
+            TreatmentAction action
     ) {
         Entity entity = actor.serverLevel().getEntity(patientEntityId);
         if (!(entity instanceof ServerPlayer patient)
@@ -59,14 +60,14 @@ public final class TreatmentService {
 
         Optional<BodyState> bodyState = BodyStateCapability.get(patient).resolve();
         Optional<WoundInstance> wound = bodyState.flatMap(state -> state.wound(woundId));
-        if (wound.isEmpty() || !treatmentType.isApplicable(wound.get())) {
+        if (wound.isEmpty() || !treatmentType.isApplicable(wound.get(), action)) {
             actor.displayClientMessage(
                     Component.translatable("message.superficialtrauma.treatment.wound_changed"),
                     true
             );
             return false;
         }
-        if (!hasRequiredItem(actor, treatmentType)) {
+        if (action.consumesItem() && !hasRequiredItem(actor, treatmentType)) {
             actor.displayClientMessage(
                     Component.translatable("message.superficialtrauma.treatment.item_missing"),
                     true
@@ -80,6 +81,7 @@ public final class TreatmentService {
                 patient.getUUID(),
                 woundId,
                 treatmentType,
+                action,
                 gameTime,
                 gameTime + treatmentType.durationTicks(),
                 actor.position(),
@@ -126,11 +128,11 @@ public final class TreatmentService {
         Optional<WoundInstance> wound = BodyStateCapability.get(patient)
                 .resolve()
                 .flatMap(state -> state.wound(session.woundId()));
-        if (wound.isEmpty() || !session.treatmentType().isApplicable(wound.get())) {
+        if (wound.isEmpty() || !session.treatmentType().isApplicable(wound.get(), session.action())) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.WOUND_CHANGED);
             return;
         }
-        if (!hasRequiredItem(actor, session.treatmentType())) {
+        if (session.action().consumesItem() && !hasRequiredItem(actor, session.treatmentType())) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.ITEM_MISSING);
             return;
         }
@@ -161,17 +163,23 @@ public final class TreatmentService {
         Optional<WoundInstance> wound = state.flatMap(bodyState -> bodyState.wound(session.woundId()));
         if (state.isEmpty()
                 || wound.isEmpty()
-                || !session.treatmentType().isApplicable(wound.get())
-                || !hasRequiredItem(actor, session.treatmentType())) {
+                || !session.treatmentType().isApplicable(wound.get(), session.action())
+                || (session.action().consumesItem() && !hasRequiredItem(actor, session.treatmentType()))) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.WOUND_CHANGED);
             return;
         }
 
-        if (!state.get().applyTemporaryDressing(session.woundId(), actor.serverLevel().getGameTime())) {
+        long gameTime = actor.serverLevel().getGameTime();
+        boolean changed = session.action() == TreatmentAction.APPLY
+                ? state.get().applyTemporaryDressing(session.woundId(), gameTime)
+                : state.get().removeTemporaryDressing(session.woundId(), gameTime);
+        if (!changed) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.WOUND_CHANGED);
             return;
         }
-        consumeRequiredItem(actor, session.treatmentType());
+        if (session.action().consumesItem()) {
+            consumeRequiredItem(actor, session.treatmentType());
+        }
         release(session);
         ModNetworking.sendTreatmentCompleted(actor, patient.getId(), session);
         ModNetworking.syncBodyState(patient);

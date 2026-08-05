@@ -221,6 +221,19 @@ public final class WoundInstance {
         return true;
     }
 
+    public boolean removeTemporaryDressing(long gameTime) {
+        if (!temporaryDressingApplied || isHealed()) {
+            return false;
+        }
+        temporaryDressingApplied = false;
+        int effectiveBleedingLevel = bleedingLevel(false);
+        bleedingTimerLevel = effectiveBleedingLevel;
+        nextBleedingGameTime = effectiveBleedingLevel > 0
+                ? gameTime + bleedingIntervalTicksFor(effectiveBleedingLevel)
+                : -1L;
+        return true;
+    }
+
     public boolean isAccumulationWindowOpen(long gameTime) {
         return gameTime < windowEndGameTime;
     }

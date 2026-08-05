@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.client;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentType;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractButton;
@@ -13,12 +14,21 @@ import java.util.UUID;
 final class TreatmentItemButton extends AbstractButton {
     private final UUID woundId;
     private final TreatmentType treatmentType;
+    private final TreatmentAction action;
     private final Runnable onPress;
 
-    TreatmentItemButton(int x, int y, UUID woundId, TreatmentType treatmentType, Runnable onPress) {
-        super(x, y, 22, 22, Component.translatable(treatmentType.translationKey()));
+    TreatmentItemButton(
+            int x,
+            int y,
+            UUID woundId,
+            TreatmentType treatmentType,
+            TreatmentAction action,
+            Runnable onPress
+    ) {
+        super(x, y, 22, 22, Component.translatable(action.translationKey(treatmentType)));
         this.woundId = woundId;
         this.treatmentType = treatmentType;
+        this.action = action;
         this.onPress = onPress;
     }
 
@@ -33,8 +43,16 @@ final class TreatmentItemButton extends AbstractButton {
     protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         int x = getX();
         int y = getY();
-        int border = isHoveredOrFocused() ? 0xFFE3B866 : 0xFF68717F;
-        graphics.fill(x, y, x + width, y + height, active ? 0xFF35453A : 0xFF292D33);
+        boolean removal = action == TreatmentAction.REMOVE;
+        int border = !active
+                ? 0xFF68717F
+                : removal
+                        ? (isHoveredOrFocused() ? 0xFFFF9B9B : 0xFFE06C75)
+                        : (isHoveredOrFocused() ? 0xFFE3B866 : 0xFF68717F);
+        int background = !active
+                ? 0xFF292D33
+                : removal ? 0xFF5A2529 : 0xFF35453A;
+        graphics.fill(x, y, x + width, y + height, background);
         graphics.fill(x, y, x + width, y + 1, border);
         graphics.fill(x, y + height - 1, x + width, y + height, border);
         graphics.fill(x, y, x + 1, y + height, border);
@@ -64,7 +82,18 @@ final class TreatmentItemButton extends AbstractButton {
         return treatmentType;
     }
 
+    TreatmentAction action() {
+        return action;
+    }
+
     Component tooltip() {
+        if (action == TreatmentAction.REMOVE) {
+            return Component.translatable(
+                    "screen.superficialtrauma.health.treatment_remove_tooltip",
+                    Component.translatable(action.translationKey(treatmentType)),
+                    treatmentType.durationTicks() / 20L
+            );
+        }
         return Component.translatable(
                 "screen.superficialtrauma.health.treatment_tooltip",
                 Component.translatable(treatmentType.translationKey()),

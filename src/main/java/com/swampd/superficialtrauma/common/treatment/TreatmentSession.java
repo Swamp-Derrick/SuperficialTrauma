@@ -9,6 +9,7 @@ public record TreatmentSession(
         UUID patientId,
         UUID woundId,
         TreatmentType treatmentType,
+        TreatmentAction action,
         long startedGameTime,
         long endsGameTime,
         Vec3 actorStartPosition,

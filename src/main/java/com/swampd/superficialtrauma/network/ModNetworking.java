@@ -4,6 +4,7 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.treatment.TreatmentCancelReason;
+import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentSession;
 import com.swampd.superficialtrauma.common.treatment.TreatmentType;
 import com.swampd.superficialtrauma.network.packet.BloodLossFeedbackS2CPacket;
@@ -30,7 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "6";
+    private static final String PROTOCOL_VERSION = "7";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -179,8 +180,13 @@ public final class ModNetworking {
         CHANNEL.sendToServer(new CloseInspectionC2SPacket(targetEntityId));
     }
 
-    public static void requestTreatment(int patientEntityId, UUID woundId, TreatmentType treatmentType) {
-        CHANNEL.sendToServer(new StartTreatmentC2SPacket(patientEntityId, woundId, treatmentType));
+    public static void requestTreatment(
+            int patientEntityId,
+            UUID woundId,
+            TreatmentType treatmentType,
+            TreatmentAction action
+    ) {
+        CHANNEL.sendToServer(new StartTreatmentC2SPacket(patientEntityId, woundId, treatmentType, action));
     }
 
     public static void sendInspectionSnapshot(
@@ -216,6 +222,7 @@ public final class ModNetworking {
                         patientEntityId,
                         session.woundId(),
                         session.treatmentType(),
+                        session.action(),
                         session.endsGameTime()
                 )
         );
@@ -232,6 +239,7 @@ public final class ModNetworking {
                         -1,
                         session.woundId(),
                         session.treatmentType(),
+                        session.action(),
                         reason
                 )
         );
@@ -243,7 +251,8 @@ public final class ModNetworking {
                 TreatmentSessionS2CPacket.completed(
                         patientEntityId,
                         session.woundId(),
-                        session.treatmentType()
+                        session.treatmentType(),
+                        session.action()
                 )
         );
     }
