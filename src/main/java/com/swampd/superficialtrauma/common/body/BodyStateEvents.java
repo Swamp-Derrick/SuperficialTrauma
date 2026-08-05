@@ -7,12 +7,15 @@ import com.swampd.superficialtrauma.common.loot.LootingService;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.entity.living.LivingHealEvent;
 import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -34,13 +37,15 @@ public final class BodyStateEvents {
     @SubscribeEvent
     public static void onPlayerClone(PlayerEvent.Clone event) {
         ShotgunVolleyAggregator.clearPlayer(event.getOriginal().getUUID());
-        if (event.isWasDeath()) {
-            return;
-        }
-
         event.getOriginal().reviveCaps();
         BodyStateCapability.get(event.getOriginal()).ifPresent(oldState ->
-                BodyStateCapability.get(event.getEntity()).ifPresent(newState -> newState.copyFrom(oldState))
+                BodyStateCapability.get(event.getEntity()).ifPresent(newState -> {
+                    if (event.isWasDeath()) {
+                        newState.copyPersistentKnowledgeFrom(oldState);
+                    } else {
+                        newState.copyFrom(oldState);
+                    }
+                })
         );
         event.getOriginal().invalidateCaps();
     }
@@ -110,7 +115,12 @@ public final class BodyStateEvents {
             );
             boolean traumaticMovement = serverPlayer.isSprinting()
                     || serverPlayer.getDeltaMovement().y > 0.08D;
-            BodyProgressionResult result = bodyState.advanceBodyProgression(gameTime, traumaticMovement);
+            BodyProgressionResult result = bodyState.advanceBodyProgression(
+                    gameTime,
+                    traumaticMovement,
+                    serverPlayer.getFoodData().getFoodLevel()
+            );
+            updateInfectionEffects(serverPlayer, bodyState, gameTime);
             boolean poseCaptured = !bodyState.canAct()
                     && bodyState.captureDownedPose(DownedPoseCapture.capture(serverPlayer, null, gameTime));
             DownedHitbox.update(serverPlayer, bodyState);
@@ -135,6 +145,19 @@ public final class BodyStateEvents {
             }
             if (poseCaptured) {
                 ModNetworking.syncDownedPose(serverPlayer);
+            }
+        });
+    }
+
+    @SubscribeEvent
+    public static void onLivingHeal(LivingHealEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+        BodyStateCapability.get(player).ifPresent(bodyState -> {
+            float multiplier = bodyState.vanillaHealingMultiplier();
+            if (multiplier < 1.0F) {
+                event.setAmount(event.getAmount() * multiplier);
             }
         });
     }
@@ -169,8 +192,11 @@ public final class BodyStateEvents {
             long gameTime
     ) {
         if (result.becameIncapacitated()) {
+            String messageKey = bodyState.collapseReason() == CollapseReason.SEPSIS
+                    ? "message.superficialtrauma.sepsis_incapacitated"
+                    : "message.superficialtrauma.traumatic_shock_incapacitated";
             player.displayClientMessage(
-                    Component.translatable("message.superficialtrauma.traumatic_shock_incapacitated"),
+                    Component.translatable(messageKey),
                     true
             );
             return;
@@ -188,6 +214,12 @@ public final class BodyStateEvents {
                     Component.translatable("message.superficialtrauma.shock_warning"),
                     true
             );
+        }
+    }
+
+    private static void updateInfectionEffects(ServerPlayer player, BodyState bodyState, long gameTime) {
+        if (bodyState.hasInfectionNausea() && gameTime % 20L == 0L) {
+            player.addEffect(new MobEffectInstance(MobEffects.CONFUSION, 40, 0, false, false, true));
         }
     }
 

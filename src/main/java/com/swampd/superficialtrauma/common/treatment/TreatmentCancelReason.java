@@ -7,6 +7,7 @@ public enum TreatmentCancelReason {
     MOVEMENT,
     INVALID_TARGET,
     ITEM_MISSING,
+    SKILL_MISSING,
     WOUND_CHANGED,
     DISCONNECTED;
 

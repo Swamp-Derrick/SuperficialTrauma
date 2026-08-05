@@ -34,6 +34,10 @@ public final class BodyStateRoundTripTest {
         verifyTemporaryDressing();
         verifyCoveringVariants();
         verifyWoundPacking();
+        verifyInfectionAndDebridement();
+        verifyTemporaryDressingContamination();
+        verifySystemicInfectionSettlement();
+        verifySurgerySkillRoundTrip();
         verifyTreatmentMovementRules();
         verifyPainAccumulationAndTags();
         verifyStressAndPainRecovery();
@@ -1182,6 +1186,155 @@ public final class BodyStateRoundTripTest {
                 restored.downedPoseSnapshot().isPresent(),
                 "version 7 data must wait for the server to capture a safe migration pose"
         );
+    }
+
+    private static void verifyInfectionAndDebridement() {
+        BodyState state = new BodyState();
+        WoundInstance wound = requireWound(state.applyDamage(WoundType.EXPLOSION, 8.0F, 0L));
+        assertEquals(true, wound.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "explosion severity two must require debridement");
+        assertEquals(false, wound.isInfected(), "a new wound must not begin infected");
+
+        state.advanceBodyProgression(0L);
+        BodyProgressionResult beforeDebridementPulse = state.advanceBodyProgression(WoundInstance.INFECTION_SPREAD_INTERVAL_TICKS - 1L);
+        assertFloatEquals(0.0F, beforeDebridementPulse.infectionChange(), "debridement infection must wait a full three minutes");
+        BodyProgressionResult debridementPulse = state.advanceBodyProgression(WoundInstance.INFECTION_SPREAD_INTERVAL_TICKS);
+        assertFloatEquals(0.5F, debridementPulse.infectionChange(), "needs-debridement must add 0.5 infection every three minutes");
+        assertFloatEquals(0.5F, wound.infectionContribution(), "the first debridement pulse must be attributed to the wound");
+        assertEquals(false, wound.isInfected(), "the wound infection tag must remain hidden below 1.5 contribution");
+
+        BodyProgressionResult beforeOnset = state.advanceBodyProgression(WoundInstance.INFECTION_ONSET_DELAY_TICKS - 1L);
+        assertFloatEquals(0.0F, beforeOnset.infectionChange(), "natural infection must not begin before its full five-minute delay");
+        assertFloatEquals(0.5F, state.infection(), "the earlier debridement pulse must remain below systemic-settlement threshold");
+
+        BodyProgressionResult onset = state.advanceBodyProgression(WoundInstance.INFECTION_ONSET_DELAY_TICKS);
+        assertFloatEquals(1.0F, onset.infectionChange(), "an untreated wound must add one infection point after five minutes");
+        assertFloatEquals(1.5F, state.infection(), "natural and debridement infection must accumulate on the whole-body value");
+        assertFloatEquals(1.5F, wound.infectionContribution(), "the wound must retain its own cumulative infection contribution");
+        assertEquals(true, wound.isInfected(), "the wound infection tag must appear at 1.5 contribution");
+
+        assertEquals(true, state.applyWoundPacking(wound.id(), WoundInstance.INFECTION_ONSET_DELAY_TICKS), "a bleeding wound must allow packing before debridement");
+        assertEquals(false, wound.canDebride(), "wound packing must block debridement");
+        assertEquals(true, state.removeWoundPacking(wound.id(), WoundInstance.INFECTION_ONSET_DELAY_TICKS), "packing must be removable before debridement");
+        assertEquals(true, state.debrideWound(wound.id()), "an uncovered unpacked wound must allow debridement");
+        assertEquals(false, wound.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "debridement must clear the requirement tag");
+        assertEquals(false, wound.isInfected(), "debridement must clear the wound infection tag");
+        assertEquals(true, wound.isDebrided(), "debridement must leave a visible completion tag");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(state.serializeNBT());
+        assertFloatEquals(1.5F, restored.infection(), "infection must survive save and reload");
+        assertEquals(true, restored.wounds().get(0).isDebrided(), "debridement state must survive save and reload");
+        assertEquals(false, restored.wounds().get(0).isInfected(), "a reloaded debrided wound must remain uninfected");
+        assertFloatEquals(1.5F, restored.wounds().get(0).infectionContribution(), "per-wound infection contribution must survive save and reload");
+
+        long firstSystemicSettlement = WoundInstance.INFECTION_ONSET_DELAY_TICKS
+                + BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS;
+        BodyProgressionResult afterDebridement = restored.advanceBodyProgression(firstSystemicSettlement, false, 20);
+        assertFloatEquals(-1.0F, afterDebridement.infectionChange(), "adequate food must reduce systemic infection after debridement");
+        assertFloatEquals(0.5F, restored.infection(), "debridement must stop wound growth while nutrition resolves existing infection");
+    }
+
+    private static void verifyTemporaryDressingContamination() {
+        BodyState protectedState = new BodyState();
+        WoundInstance protectedWound = requireWound(protectedState.applyDamage(WoundType.SHARP, 0.5F, 0L));
+        assertEquals(true, protectedState.applyTemporaryDressing(protectedWound.id(), 0L), "a temporary dressing must apply to a light wound");
+        assertFloatEquals(0.0F, protectedState.infection(), "severity one must be protected from temporary-dressing contamination");
+        assertEquals(false, protectedWound.isInfected(), "a light wound must remain uninfected");
+
+        BodyState contaminatedState = new BodyState();
+        WoundInstance contaminatedWound = requireWound(contaminatedState.applyDamage(WoundType.SHARP, 5.0F, 0L));
+        assertEquals(true, contaminatedState.applyTemporaryDressing(contaminatedWound.id(), 0L), "a temporary dressing must apply to a severity-two wound");
+        assertFloatEquals(1.0F, contaminatedState.infection(), "temporary dressing contamination must immediately add one infection point");
+        assertFloatEquals(1.0F, contaminatedWound.infectionContribution(), "temporary dressing contamination must be attributed to its wound");
+        assertEquals(false, contaminatedWound.isInfected(), "one contamination point must remain below the visible tag threshold");
+        assertEquals(false, contaminatedWound.canDebride(), "a covered wound must not allow debridement");
+
+        assertEquals(true, contaminatedState.removeTemporaryDressing(contaminatedWound.id(), 20L), "the contaminated dressing must be removable");
+        assertEquals(false, contaminatedWound.canDebride(), "a wound below the infection-label threshold must not yet offer debridement");
+        assertEquals(true, contaminatedState.applyTemporaryDressing(contaminatedWound.id(), 40L), "the dressing may be applied again after removal");
+        assertFloatEquals(2.0F, contaminatedState.infection(), "each temporary-dressing application must retain its documented infection cost");
+        assertEquals(true, contaminatedWound.isInfected(), "cumulative wound contribution at or above 1.5 must reveal infection");
+        assertEquals(true, contaminatedState.removeTemporaryDressing(contaminatedWound.id(), 60L), "the second dressing must be removable");
+        assertEquals(true, contaminatedWound.canDebride(), "removing the covering must expose a visibly infected wound for debridement");
+    }
+
+    private static void verifySystemicInfectionSettlement() {
+        BodyState wellFed = stateWithInfection(1.5F);
+        wellFed.advanceBodyProgression(0L, false, 15);
+        BodyProgressionResult recovery = wellFed.advanceBodyProgression(
+                BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS,
+                false,
+                15
+        );
+        assertFloatEquals(-1.0F, recovery.infectionChange(), "food level 15 must reduce infection by one per minute");
+        assertFloatEquals(0.5F, wellFed.infection(), "systemic recovery must stop at the documented 0.5 threshold");
+        assertEquals(-1L, wellFed.nextInfectionSettlementGameTime(), "infection at 0.5 must stop the settlement timer");
+
+        assertSystemicGrowth(4.0F, 4.5F, 0.5F, "infection in (0,5] must grow by 0.5 without enough food");
+        assertSystemicGrowth(7.0F, 8.0F, 1.0F, "infection in (5,10] must grow by one without enough food");
+        BodyState severe = assertSystemicGrowth(12.0F, 13.5F, 1.5F, "infection above 10 must grow by 1.5 without enough food");
+        assertFloatEquals(0.5F, severe.vanillaHealingMultiplier(), "infection above 10 must halve vanilla healing");
+        assertEquals(false, severe.hasInfectionNausea(), "infection at or below 17 must not cause persistent nausea");
+
+        BodyState nausea = stateWithInfection(17.5F);
+        assertEquals(true, nausea.hasInfectionNausea(), "infection above 17 must cause persistent nausea");
+
+        BodyState septic = stateWithInfection(19.0F);
+        septic.advanceBodyProgression(0L, false, 0);
+        BodyProgressionResult sepsis = septic.advanceBodyProgression(
+                BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS,
+                false,
+                0
+        );
+        assertFloatEquals(1.0F, sepsis.infectionChange(), "systemic infection growth must clamp at 20");
+        assertFloatEquals(20.0F, septic.infection(), "systemic infection must be capped at 20");
+        assertEquals(true, sepsis.becameIncapacitated(), "reaching 20 infection must incapacitate the player");
+        assertEquals(BodyLifeState.INCAPACITATED, septic.lifeState(), "sepsis must enter the downed state");
+        assertEquals(CollapseReason.SEPSIS, septic.collapseReason(), "sepsis must preserve its collapse reason");
+    }
+
+    private static void verifySurgerySkillRoundTrip() {
+        BodyState state = new BodyState();
+        assertEquals(false, state.hasSurgerySkill(), "new body state must not know surgery");
+        assertEquals(true, state.unlockSurgerySkill(), "the surgery skill book must unlock surgery once");
+        assertEquals(false, state.unlockSurgerySkill(), "reusing a surgery skill book must not unlock twice");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(state.serializeNBT());
+        assertEquals(true, restored.hasSurgerySkill(), "surgery skill must survive save and reload");
+
+        BodyState deathClone = new BodyState();
+        deathClone.copyPersistentKnowledgeFrom(restored);
+        assertEquals(true, deathClone.hasSurgerySkill(), "permanent surgery knowledge must survive a death clone");
+
+        restored.resetAllForDebug();
+        assertEquals(false, restored.hasSurgerySkill(), "the full debug reset must clear learned surgery skill");
+    }
+
+    private static BodyState assertSystemicGrowth(
+            float initial,
+            float expected,
+            float expectedChange,
+            String message
+    ) {
+        BodyState state = stateWithInfection(initial);
+        state.advanceBodyProgression(0L, false, 0);
+        BodyProgressionResult result = state.advanceBodyProgression(
+                BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS,
+                false,
+                0
+        );
+        assertFloatEquals(expectedChange, result.infectionChange(), message);
+        assertFloatEquals(expected, state.infection(), message);
+        return state;
+    }
+
+    private static BodyState stateWithInfection(float infection) {
+        CompoundTag tag = new BodyState().serializeNBT();
+        tag.putFloat("Infection", infection);
+        BodyState state = new BodyState();
+        state.deserializeNBT(tag);
+        return state;
     }
 
     private static void verifyWoundLimitAndActiveWindowUpdate() {

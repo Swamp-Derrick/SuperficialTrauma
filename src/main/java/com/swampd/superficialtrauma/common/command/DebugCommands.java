@@ -99,6 +99,9 @@ public final class DebugCommands {
                             + " collapseReason=" + bodyState.collapseReason().serializedName()
                             + " wounds=" + bodyState.wounds().size()
                             + " pain=" + bodyState.pain()
+                            + " infection=" + bodyState.infection()
+                            + " nextInfection=" + bodyState.nextInfectionSettlementGameTime()
+                            + " surgerySkill=" + bodyState.hasSurgerySkill()
                             + " basePain=" + bodyState.basePain()
                             + " woundPain=" + bodyState.woundPainContribution()
                             + " stress=" + bodyState.stressRemainingTicks(gameTime) + "t"
@@ -127,6 +130,9 @@ public final class DebugCommands {
                                 + " bleeding=" + wound.bleedingLevel(bodyState.movementBleedingActive())
                                 + " covering=" + wound.covering().serializedName()
                                 + " nextBleed=" + wound.nextBleedingGameTime()
+                                + " infectionContribution=" + wound.infectionContribution()
+                                + " infectionOnset=" + wound.infectionOnsetGameTime()
+                                + " nextDebridementInfection=" + wound.nextInfectionSpreadGameTime()
                                 + " tags=" + wound.woundTags()
                                 + gunshotContext
                 ), false);

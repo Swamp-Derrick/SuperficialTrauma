@@ -43,7 +43,7 @@ Phase 0's first vertical slice is implemented:
 - a two-tick shotgun-volley pre-accumulator that groups CGM's separate pellet entities by victim, shooter, ammunition, weapon, and projectile spawn tick before choosing blunt or shotgun trauma;
 - blunt, sharp, burn, explosion, low-velocity gunshot, high-velocity gunshot, and shotgun wounds using reviewed half-open severity ranges;
 - server-authoritative natural healing that updates `H` once per complete second and removes wounds at `H = 0`;
-- version-9 body state with persistent pain, stress, shock warnings, collapse reasons, downed deadlines, downed-pose snapshots, per-wound bleeding clocks, gunshot severity context, and safe migration from earlier saves;
+- version-13 body state with persistent pain, infection, surgery knowledge, stress, shock warnings, collapse reasons, downed deadlines, downed-pose snapshots, per-wound bleeding/infection clocks, gunshot severity context, and safe migration from earlier saves;
 - server-authoritative bleeding pulses for bleeding levels 1-4, including the two-second movement-bleeding linger on level-3 blunt wounds;
 - silent blood-loss health deduction that bypasses the vanilla hurt animation and instead sends a short two-or-three-spot blood overlay to the affected client;
 - traumatic-shock progression: stress suppresses collapse, pain 20 starts a ten-second warning, and pain still at 20 incapacitates the player at the deadline;
@@ -60,8 +60,12 @@ Phase 0's first vertical slice is implemented:
 - brain-death expiry performs one normal server death handoff so later corpse compatibility can remain downstream of the life-state machine;
 - server-side incapacitation restrictions for movement, attacks, block breaking, interaction, and item use;
 - server-to-client body-state snapshots;
-- network protocol 4, requiring the current JAR on the server and every test client because gunshot wound types are synchronized in body-state snapshots;
-- a first-pass three-column health screen, opened with `H`;
+- network protocol 10, requiring the current JAR on the server and every test client;
+- an adaptive three-column health screen, opened with `H`, with treatment, medication, and emergency tabs;
+- server-authoritative, mutually exclusive treatment sessions with movement, sprint, damage, attack, item-use, reload, distance, disconnect, and inventory validation;
+- removable temporary dressings, three bandage combinations, and independent removable wound packing;
+- a complete first infection/debridement loop: protected severity-one wounds, per-wound infection contribution, hidden infection tags under coverings, nutrition-dependent systemic progression, healing reduction, nausea, sepsis downing, and twelve-second surgery-skilled debridement;
+- saline solution (stack 16), surgical kit (stack 1), and surgery skill book (stack 1), including permanent surgery knowledge across death and save/rejoin;
 - `/superficialtrauma status` and `/superficialtrauma selftest` diagnostics;
 - `/superficialtrauma reset [player]` completely clears the mod body state and restores vanilla survival health, hunger, air, effects, absorption, fire, freezing, embedded arrows/stingers, hurt cooldowns, and movement for repeatable cross-version testing; `/recover` remains an alias.
 
@@ -73,7 +77,7 @@ Phase 0's CGM recognition slice is also implemented:
 - version-2 `BodyState` diagnostics with safe migration from version 1;
 - `/superficialtrauma classifyammo` for checking the held ammunition item.
 
-Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. Classified CGM low-velocity, high-velocity, and shotgun hits now create separate gunshot wounds. Individual hits below `D = 4` convert to blunt trauma; qualifying gunshot hits accumulate for twenty seconds, retain the reviewed `V > 10` fragmentation or `L <= 3` close-shot context, and roll the reviewed debridement chance once when the wound is created. Natural healing is active for the reviewed wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, the hidden-duration pain-20 shock warning, traumatic-shock incapacitation, lethal-hit downing, blood-oxygen countdown, downed-damage deadline reduction, cardiac arrest, brain-death expiry, synchronized downed-pose data, the rigid third-person downed transform, the first directional camera pass, the low directional hitbox, and the opaque victim overlay are active. Awakening through treatment, CPR, ventricular fibrillation, internal bleeding derivation, treatments, the two-player target HUD, corpse handoff verification, camera collision polish, accessibility settings, and polished HUD art are not active yet. The agreed downed camera and third-person pose direction is recorded in [DESIGN_NOTES.md](DESIGN_NOTES.md).
+Explosion damage is checked before CGM projectile damage so rockets and explosive projectiles cannot be misclassified as ordinary gunshots. Classified CGM low-velocity, high-velocity, and shotgun hits now create separate gunshot wounds. Individual hits below `D = 4` convert to blunt trauma; qualifying gunshot hits accumulate for twenty seconds, retain the reviewed `V > 10` fragmentation or `L <= 3` close-shot context, and roll the reviewed debridement chance once when the wound is created. Natural healing is active for the reviewed wound rates; wounds that cannot naturally heal remain at their current `H`. Pain accumulation, wound-tag contributions, stress refresh, natural base-pain recovery, external bleeding damage, infection progression and debridement, the hidden-duration pain-20 shock warning, traumatic-shock/sepsis incapacitation, lethal-hit downing, blood-oxygen countdown, downed-damage deadline reduction, cardiac arrest, brain-death expiry, the two-player treatment HUD, synchronized downed-pose data, the rigid third-person downed transform, the first directional camera pass, the low directional hitbox, and the opaque victim overlay are active. Awakening through treatment, CPR, ventricular fibrillation, internal bleeding derivation, corpse handoff verification, camera collision polish, accessibility settings, and polished HUD art are not active yet. The agreed downed camera and third-person pose direction is recorded in [DESIGN_NOTES.md](DESIGN_NOTES.md).
 
 Natural healing and pain timers advance only while the injured player is online. Logging out pauses the progression clock, preventing logout time from being used as free treatment or stress recovery. Whole intervals are calculated from server game time, so delayed processing does not lose elapsed progress.
 
@@ -132,6 +136,18 @@ Blood-loss pulses deduct vanilla health directly on the server instead of invoki
 2. Run `/superficialtrauma reset <player>` as an operator. The no-argument form targets the command sender.
 3. Confirm full vanilla health, hunger, saturation, air, no absorption/effects/fire/freezing/arrows/stingers, active life state, no wounds, no pain, no pending damage windows, and no downed-pose snapshot.
 4. Inventory, experience, game mode, location, and advancements are deliberately preserved.
+
+### Manual infection and debridement check
+
+1. Obtain saline solution, a surgical kit, and a surgery skill book from the Superficial Trauma creative tab. Confirm their stack limits are 16, 1, and 1.
+2. Right-click the surgery skill book. It must be consumed once, unlock surgery permanently, and refuse to consume another copy. Save/rejoin and die/respawn to confirm the knowledge remains.
+3. Create a severity-two explosion wound. At three online minutes, its `Needs debridement 1` tag contributes `0.5` infection; at five online minutes the untreated external wound contributes another `1.0`, revealing the wound's `Infected` tag at `1.5` cumulative contribution.
+4. Apply any covering and confirm the infection tag is hidden without stopping infection. Remove the covering and confirm the tag returns. Wound packing must also be removed before surgery can begin.
+5. With both materials in the caregiver's inventory, press the surgical-kit button. The action lasts 12 seconds and follows all ordinary treatment interruption rules. Success consumes one saline solution and one surgical kit, clears `Needs debridement` and `Infected`, and adds `Debrided`.
+6. Confirm debridement stops that wound's future infection contribution but does not erase infection already accumulated in the whole body.
+7. With food level at least 15, systemic infection above `0.5` falls by `1` each online minute. Below 15 food it instead rises by `0.5`, `1.0`, or `1.5` according to the displayed infection band.
+8. Above infection 10, all vanilla healing is halved; above 17, nausea is continuously refreshed; reaching 20 incapacitates the player with collapse reason `sepsis`.
+9. Severity-one wounds are protected from natural and temporary-dressing infection in this version. `/superficialtrauma status` shows whole-body infection, per-wound contribution, deadlines, and learned surgery knowledge.
 
 ### Manual bleeding check
 

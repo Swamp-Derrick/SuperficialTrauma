@@ -34,26 +34,44 @@ public enum TreatmentProcedure {
             null,
             TreatmentType.MEDICAL_GAUZE,
             new TreatmentIngredient(TreatmentType.MEDICAL_GAUZE, 1)
+    ),
+    DEBRIDEMENT(
+            null,
+            TreatmentType.SURGICAL_KIT,
+            12L * 20L,
+            new TreatmentIngredient(TreatmentType.SALINE_SOLUTION, 1),
+            new TreatmentIngredient(TreatmentType.SURGICAL_KIT, 1)
     );
 
-    private static final long DURATION_TICKS = 5L * 20L;
+    private static final long DEFAULT_DURATION_TICKS = 5L * 20L;
 
     private final WoundCovering covering;
     private final TreatmentType removalAnchor;
     private final List<TreatmentIngredient> ingredients;
+    private final long durationTicks;
 
     TreatmentProcedure(
             WoundCovering covering,
             TreatmentType removalAnchor,
             TreatmentIngredient... ingredients
     ) {
+        this(covering, removalAnchor, DEFAULT_DURATION_TICKS, ingredients);
+    }
+
+    TreatmentProcedure(
+            WoundCovering covering,
+            TreatmentType removalAnchor,
+            long durationTicks,
+            TreatmentIngredient... ingredients
+    ) {
         this.covering = covering;
         this.removalAnchor = removalAnchor;
         this.ingredients = List.of(ingredients);
+        this.durationTicks = Math.max(1L, durationTicks);
     }
 
     public long durationTicks() {
-        return DURATION_TICKS;
+        return durationTicks;
     }
 
     public WoundCovering covering() {
@@ -72,6 +90,10 @@ public enum TreatmentProcedure {
         if (wound == null || wound.isHealed()) {
             return false;
         }
+        if (isDebridement()) {
+            return wound.woundTags().contains(com.swampd.superficialtrauma.common.wound.WoundTag.NEEDS_DEBRIDEMENT_1)
+                    || wound.isInfected();
+        }
         if (isWoundPacking()) {
             return wound.untreatedBleedingLevel(true) > 0;
         }
@@ -85,6 +107,9 @@ public enum TreatmentProcedure {
         if (!supports(wound) || action == null) {
             return false;
         }
+        if (isDebridement()) {
+            return action == TreatmentAction.APPLY && wound.canDebride();
+        }
         if (isWoundPacking()) {
             return action == TreatmentAction.APPLY
                     ? !wound.woundPackingApplied()
@@ -97,6 +122,14 @@ public enum TreatmentProcedure {
 
     public boolean isWoundPacking() {
         return this == WOUND_PACKING;
+    }
+
+    public boolean isDebridement() {
+        return this == DEBRIDEMENT;
+    }
+
+    public boolean requiresSurgerySkill() {
+        return isDebridement();
     }
 
     public String serializedName() {
@@ -121,6 +154,7 @@ public enum TreatmentProcedure {
             case TEMPORARY_DRESSING -> TEMPORARY_DRESSING;
             case SELF_ADHESIVE_BANDAGE -> SELF_ADHESIVE_BANDAGE;
             case MEDICAL_GAUZE -> WOUND_PACKING;
+            case SURGICAL_KIT -> DEBRIDEMENT;
             default -> null;
         };
     }

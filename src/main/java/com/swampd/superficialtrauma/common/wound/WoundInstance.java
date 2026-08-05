@@ -27,7 +27,12 @@ public final class WoundInstance {
     private static final String TAG_TEMPORARY_DRESSING = "TemporaryDressing";
     private static final String TAG_COVERING = "Covering";
     private static final String TAG_WOUND_PACKING = "WoundPacking";
+    private static final String TAG_INFECTION_ONSET_GAME_TIME = "InfectionOnsetGameTime";
+    private static final String TAG_NEXT_INFECTION_SPREAD_GAME_TIME = "NextInfectionSpreadGameTime";
+    private static final String TAG_INFECTION_CONTRIBUTION = "InfectionContribution";
     private static final long SHARP_LEVEL_ONE_PAIN_TICKS = 10L * 20L;
+    public static final long INFECTION_ONSET_DELAY_TICKS = 5L * 60L * 20L;
+    public static final long INFECTION_SPREAD_INTERVAL_TICKS = 3L * 60L * 20L;
 
     private final UUID id;
     private final WoundType type;
@@ -44,6 +49,9 @@ public final class WoundInstance {
     private boolean closeRangeShot;
     private WoundCovering covering;
     private boolean woundPackingApplied;
+    private long infectionOnsetGameTime;
+    private long nextInfectionSpreadGameTime;
+    private float infectionContribution;
 
     private WoundInstance(
             UUID id,
@@ -60,7 +68,10 @@ public final class WoundInstance {
             boolean fragmentationEligible,
             boolean closeRangeShot,
             WoundCovering covering,
-            boolean woundPackingApplied
+            boolean woundPackingApplied,
+            long infectionOnsetGameTime,
+            long nextInfectionSpreadGameTime,
+            float infectionContribution
     ) {
         this.id = id;
         this.type = type;
@@ -77,6 +88,9 @@ public final class WoundInstance {
         this.closeRangeShot = closeRangeShot;
         this.covering = covering == null ? WoundCovering.NONE : covering;
         this.woundPackingApplied = woundPackingApplied;
+        this.infectionOnsetGameTime = infectionOnsetGameTime;
+        this.nextInfectionSpreadGameTime = nextInfectionSpreadGameTime;
+        this.infectionContribution = Math.max(0.0F, infectionContribution);
     }
 
     public static WoundInstance createBlunt(float accumulatedDamage, long createdGameTime, long windowEndGameTime) {
@@ -114,7 +128,10 @@ public final class WoundInstance {
                 false,
                 false,
                 WoundCovering.NONE,
-                false
+                false,
+                infectionOnsetFor(type, severity, createdGameTime),
+                debridementInfectionFor(severity, initialTags, createdGameTime),
+                0.0F
         );
     }
 
@@ -154,7 +171,10 @@ public final class WoundInstance {
                 fragmentationEligible,
                 closeRangeShot,
                 WoundCovering.NONE,
-                false
+                false,
+                infectionOnsetFor(type, severity, createdGameTime),
+                debridementInfectionFor(severity, initialTags, createdGameTime),
+                0.0F
         );
     }
 
@@ -233,6 +253,93 @@ public final class WoundInstance {
 
     public boolean woundPackingApplied() {
         return woundPackingApplied;
+    }
+
+    public boolean isInfected() {
+        return woundTags.contains(WoundTag.INFECTED_1);
+    }
+
+    public boolean isDebrided() {
+        return woundTags.contains(WoundTag.DEBRIDED);
+    }
+
+    public long infectionOnsetGameTime() {
+        return infectionOnsetGameTime;
+    }
+
+    public long nextInfectionSpreadGameTime() {
+        return nextInfectionSpreadGameTime;
+    }
+
+    public float infectionContribution() {
+        return infectionContribution;
+    }
+
+    public boolean canDebride() {
+        return !isHealed()
+                && !covering.isApplied()
+                && !woundPackingApplied
+                && (woundTags.contains(WoundTag.NEEDS_DEBRIDEMENT_1) || isInfected());
+    }
+
+    public boolean debride() {
+        if (!canDebride()) {
+            return false;
+        }
+        woundTags.remove(WoundTag.NEEDS_DEBRIDEMENT_1);
+        woundTags.remove(WoundTag.INFECTED_1);
+        woundTags.add(WoundTag.DEBRIDED);
+        infectionOnsetGameTime = -1L;
+        nextInfectionSpreadGameTime = -1L;
+        return true;
+    }
+
+    public float applyTemporaryDressingContamination(long gameTime) {
+        if (severity <= 1 || isHealed() || isDebrided()) {
+            return 0.0F;
+        }
+        addInfectionContribution(1.0F);
+        return 1.0F;
+    }
+
+    public float advanceInfection(long gameTime) {
+        if (severity <= 1 || isHealed() || isDebrided()) {
+            infectionOnsetGameTime = -1L;
+            nextInfectionSpreadGameTime = -1L;
+            return 0.0F;
+        }
+
+        float increase = 0.0F;
+        if (infectionOnsetGameTime >= 0L && gameTime >= infectionOnsetGameTime) {
+            infectionOnsetGameTime = -1L;
+            increase += 1.0F;
+        }
+
+        if (!woundTags.contains(WoundTag.NEEDS_DEBRIDEMENT_1)) {
+            nextInfectionSpreadGameTime = -1L;
+        } else {
+            if (nextInfectionSpreadGameTime < 0L) {
+                nextInfectionSpreadGameTime = createdGameTime + INFECTION_SPREAD_INTERVAL_TICKS;
+            }
+            if (gameTime >= nextInfectionSpreadGameTime) {
+                long completedPulses = 1L
+                        + (gameTime - nextInfectionSpreadGameTime) / INFECTION_SPREAD_INTERVAL_TICKS;
+                nextInfectionSpreadGameTime += completedPulses * INFECTION_SPREAD_INTERVAL_TICKS;
+                increase += completedPulses * 0.5F;
+            }
+        }
+
+        if (increase > 0.0F) {
+            addInfectionContribution(increase);
+        }
+        return increase;
+    }
+
+    private void addInfectionContribution(float amount) {
+        infectionContribution = Math.max(0.0F, infectionContribution + amount);
+        if (infectionContribution >= 1.5F) {
+            woundTags.add(WoundTag.INFECTED_1);
+        }
     }
 
     public boolean applyCovering(WoundCovering newCovering, long gameTime) {
@@ -316,11 +423,29 @@ public final class WoundInstance {
         int newSeverity = severityFor(type, accumulatedDamage, fragmentationEligible, closeRangeShot);
         if (newSeverity > severity) {
             boolean needsDebridement = woundTags.contains(WoundTag.NEEDS_DEBRIDEMENT_1);
+            boolean infected = woundTags.contains(WoundTag.INFECTED_1);
+            boolean debrided = woundTags.contains(WoundTag.DEBRIDED);
             severity = newSeverity;
             woundTags.clear();
             woundTags.addAll(tagsFor(type, severity));
             if (needsDebridement) {
                 woundTags.add(WoundTag.NEEDS_DEBRIDEMENT_1);
+            }
+            if (infected) {
+                woundTags.add(WoundTag.INFECTED_1);
+            }
+            if (debrided) {
+                woundTags.add(WoundTag.DEBRIDED);
+                woundTags.remove(WoundTag.NEEDS_DEBRIDEMENT_1);
+            }
+            if (!debrided) {
+                if (infectionOnsetGameTime < 0L && isNaturallyInfectable(type, severity)) {
+                    infectionOnsetGameTime = createdGameTime + INFECTION_ONSET_DELAY_TICKS;
+                }
+                if (nextInfectionSpreadGameTime < 0L
+                        && woundTags.contains(WoundTag.NEEDS_DEBRIDEMENT_1)) {
+                    nextInfectionSpreadGameTime = createdGameTime + INFECTION_SPREAD_INTERVAL_TICKS;
+                }
             }
             transientPainEndGameTime = transientPainEndFor(type, severity, createdGameTime);
 
@@ -373,6 +498,12 @@ public final class WoundInstance {
         }
         if (nextBleedingGameTime >= 0L && deltaTicks > 0L) {
             nextBleedingGameTime += deltaTicks;
+        }
+        if (infectionOnsetGameTime >= 0L && deltaTicks > 0L) {
+            infectionOnsetGameTime += deltaTicks;
+        }
+        if (nextInfectionSpreadGameTime >= 0L && deltaTicks > 0L) {
+            nextInfectionSpreadGameTime += deltaTicks;
         }
     }
 
@@ -593,6 +724,25 @@ public final class WoundInstance {
                 : -1L;
     }
 
+    private static long infectionOnsetFor(WoundType type, int severity, long createdGameTime) {
+        return isNaturallyInfectable(type, severity)
+                ? createdGameTime + INFECTION_ONSET_DELAY_TICKS
+                : -1L;
+    }
+
+    private static long debridementInfectionFor(int severity, Set<WoundTag> tags, long createdGameTime) {
+        return severity > 1 && tags.contains(WoundTag.NEEDS_DEBRIDEMENT_1)
+                ? createdGameTime + INFECTION_SPREAD_INTERVAL_TICKS
+                : -1L;
+    }
+
+    private static boolean isNaturallyInfectable(WoundType type, int severity) {
+        if (severity <= 1) {
+            return false;
+        }
+        return type != WoundType.BLUNT || severity >= 3;
+    }
+
     private static int bleedingLevel(Set<WoundTag> tags, boolean movementBleedingActive) {
         int level = 0;
         for (WoundTag tag : tags) {
@@ -635,6 +785,9 @@ public final class WoundInstance {
         tag.putString(TAG_COVERING, covering.serializedName());
         tag.putBoolean(TAG_TEMPORARY_DRESSING, covering == WoundCovering.TEMPORARY_DRESSING);
         tag.putBoolean(TAG_WOUND_PACKING, woundPackingApplied);
+        tag.putLong(TAG_INFECTION_ONSET_GAME_TIME, infectionOnsetGameTime);
+        tag.putLong(TAG_NEXT_INFECTION_SPREAD_GAME_TIME, nextInfectionSpreadGameTime);
+        tag.putFloat(TAG_INFECTION_CONTRIBUTION, infectionContribution);
 
         ListTag woundTagList = new ListTag();
         for (WoundTag woundTag : woundTags) {
@@ -667,13 +820,23 @@ public final class WoundInstance {
                 : tag.getBoolean(TAG_TEMPORARY_DRESSING)
                         ? WoundCovering.TEMPORARY_DRESSING
                         : WoundCovering.NONE;
+        long createdGameTime = tag.getLong(TAG_CREATED_GAME_TIME);
+        long infectionOnsetGameTime = tag.contains(TAG_INFECTION_ONSET_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                ? tag.getLong(TAG_INFECTION_ONSET_GAME_TIME)
+                : infectionOnsetFor(type, severity, createdGameTime);
+        long nextInfectionSpreadGameTime = tag.contains(TAG_NEXT_INFECTION_SPREAD_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                ? tag.getLong(TAG_NEXT_INFECTION_SPREAD_GAME_TIME)
+                : debridementInfectionFor(severity, woundTags, createdGameTime);
+        float infectionContribution = tag.contains(TAG_INFECTION_CONTRIBUTION, Tag.TAG_ANY_NUMERIC)
+                ? Math.max(0.0F, tag.getFloat(TAG_INFECTION_CONTRIBUTION))
+                : woundTags.contains(WoundTag.INFECTED_1) ? 1.5F : 0.0F;
         return new WoundInstance(
                 id,
                 type,
                 severity,
                 tag.getFloat(TAG_ACCUMULATED_DAMAGE),
                 tag.contains(TAG_HEALING_PROGRESS, Tag.TAG_FLOAT) ? tag.getFloat(TAG_HEALING_PROGRESS) : 100.0F,
-                tag.getLong(TAG_CREATED_GAME_TIME),
+                createdGameTime,
                 tag.getLong(TAG_WINDOW_END_GAME_TIME),
                 woundTags,
                 hasTransientPainMetadata
@@ -688,7 +851,10 @@ public final class WoundInstance {
                 tag.getBoolean(TAG_FRAGMENTATION_ELIGIBLE),
                 tag.getBoolean(TAG_CLOSE_RANGE_SHOT),
                 covering,
-                tag.getBoolean(TAG_WOUND_PACKING)
+                tag.getBoolean(TAG_WOUND_PACKING),
+                infectionOnsetGameTime,
+                nextInfectionSpreadGameTime,
+                infectionContribution
         );
     }
 }

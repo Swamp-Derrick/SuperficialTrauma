@@ -532,6 +532,9 @@ public final class HealthScreen extends Screen {
             if (tag.bleedingLevel() > 0) {
                 continue;
             }
+            if (tag == WoundTag.INFECTED_1 && wound.covering().isApplied()) {
+                continue;
+            }
             labels.add(Component.translatable("wound_tag.superficialtrauma." + tag.serializedName()).getString());
         }
         return String.join(" · ", labels);
@@ -693,7 +696,7 @@ public final class HealthScreen extends Screen {
 
             for (WoundRow row : visibleRows) {
                 WoundInstance wound = row.wound();
-                if (TreatmentProcedure.TEMPORARY_DRESSING.supports(wound)) {
+                if (hasSupportedTreatment(wound)) {
                     int treatmentIndex = 0;
                     for (TreatmentType type : TreatmentType.values()) {
                         addTreatmentButton(
@@ -869,6 +872,36 @@ public final class HealthScreen extends Screen {
                             TreatmentAction.APPLY
                     );
                 }
+                case SALINE_SOLUTION -> tooltip = Component.translatable(
+                        "screen.superficialtrauma.health.saline_requires_surgical_kit"
+                );
+                case SURGICAL_KIT -> {
+                    TreatmentProcedure procedure = TreatmentProcedure.DEBRIDEMENT;
+                    boolean skillAvailable = actorHasSurgerySkill();
+                    active = skillAvailable
+                            && procedure.isApplicable(wound, TreatmentAction.APPLY)
+                            && hasRequiredItems(procedure);
+                    if (!skillAvailable) {
+                        tooltip = Component.translatable(
+                                "screen.superficialtrauma.health.surgery_skill_required"
+                        );
+                    } else if (!procedure.isApplicable(wound, TreatmentAction.APPLY)) {
+                        tooltip = Component.translatable(
+                                "screen.superficialtrauma.health.debridement_not_available"
+                        );
+                    } else {
+                        tooltip = Component.translatable(
+                                "screen.superficialtrauma.health.debridement_tooltip",
+                                procedure.durationTicks() / 20L
+                        );
+                    }
+                    onPress = () -> ModNetworking.requestTreatment(
+                            patientEntityId,
+                            wound.id(),
+                            procedure,
+                            TreatmentAction.APPLY
+                    );
+                }
                 default -> tooltip = Component.empty();
             }
         }
@@ -893,6 +926,19 @@ public final class HealthScreen extends Screen {
                 1,
                 type.requiredItem().getDescription()
         );
+    }
+
+    private boolean actorHasSurgerySkill() {
+        return ClientBodyState.hasReceivedSnapshot() && ClientBodyState.snapshot().hasSurgerySkill();
+    }
+
+    private static boolean hasSupportedTreatment(WoundInstance wound) {
+        for (TreatmentProcedure procedure : TreatmentProcedure.values()) {
+            if (procedure.supports(wound)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void beginBandagePreparation(int patientEntityId, UUID woundId) {

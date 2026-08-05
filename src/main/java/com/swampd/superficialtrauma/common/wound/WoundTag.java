@@ -16,7 +16,9 @@ public enum WoundTag {
     DISORIENTATION_2,
     DISORIENTATION_3,
     NECROSIS_3,
-    NEEDS_DEBRIDEMENT_1;
+    NEEDS_DEBRIDEMENT_1,
+    INFECTED_1,
+    DEBRIDED;
 
     public String serializedName() {
         return name().toLowerCase(Locale.ROOT);

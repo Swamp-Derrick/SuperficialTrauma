@@ -23,7 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 12;
+    public static final int CURRENT_DATA_VERSION = 13;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
@@ -37,6 +37,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     public static final long BLOOD_OXYGEN_POINT_DURATION_TICKS = 9L * 20L;
     public static final long CARDIAC_ARREST_DURATION_TICKS = 180L * 20L;
     public static final long DOWNED_DAMAGE_TICKS_PER_POINT = 10L * 20L;
+    public static final long INFECTION_SETTLEMENT_INTERVAL_TICKS = 60L * 20L;
 
     private static final String TAG_DATA_VERSION = "DataVersion";
     private static final String TAG_REVISION = "Revision";
@@ -45,6 +46,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_BASE_PAIN = "BasePain";
     private static final String LEGACY_TAG_PAIN = "Pain";
     private static final String TAG_INFECTION = "Infection";
+    private static final String TAG_NEXT_INFECTION_SETTLEMENT_GAME_TIME = "NextInfectionSettlementGameTime";
+    private static final String TAG_SURGERY_SKILL = "SurgerySkill";
     private static final String TAG_BLOOD_DRUG_CONCENTRATION = "BloodDrugConcentration";
     private static final String TAG_ADRENALINE_LEVEL = "AdrenalineLevel";
     private static final String TAG_BLOOD_OXYGEN = "BloodOxygen";
@@ -79,6 +82,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private CollapseReason collapseReason;
     private float basePain;
     private float infection;
+    private long nextInfectionSettlementGameTime;
+    private boolean surgerySkill;
     private float bloodDrugConcentration;
     private int adrenalineLevel;
     private float bloodOxygen;
@@ -200,6 +205,31 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public float infection() {
         return infection;
+    }
+
+    public long nextInfectionSettlementGameTime() {
+        return nextInfectionSettlementGameTime;
+    }
+
+    public float vanillaHealingMultiplier() {
+        return infection > 10.0F ? 0.5F : 1.0F;
+    }
+
+    public boolean hasInfectionNausea() {
+        return infection > 17.0F;
+    }
+
+    public boolean hasSurgerySkill() {
+        return surgerySkill;
+    }
+
+    public boolean unlockSurgerySkill() {
+        if (surgerySkill) {
+            return false;
+        }
+        surgerySkill = true;
+        markChanged();
+        return true;
     }
 
     public float bloodDrugConcentration() {
@@ -328,6 +358,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         if (wound.isEmpty() || !wound.get().applyCovering(covering, gameTime)) {
             return false;
         }
+        if (covering == WoundCovering.TEMPORARY_DRESSING) {
+            addInfection(wound.get().applyTemporaryDressingContamination(gameTime));
+        }
         markChanged();
         return true;
     }
@@ -357,6 +390,15 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     public boolean removeWoundPacking(UUID woundId, long gameTime) {
         Optional<WoundInstance> wound = wound(woundId);
         if (wound.isEmpty() || !wound.get().removeWoundPacking(gameTime)) {
+            return false;
+        }
+        markChanged();
+        return true;
+    }
+
+    public boolean debrideWound(UUID woundId) {
+        Optional<WoundInstance> wound = wound(woundId);
+        if (wound.isEmpty() || !wound.get().debride()) {
             return false;
         }
         markChanged();
@@ -556,6 +598,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             nextPainRecoveryGameTime = shiftDeadline(nextPainRecoveryGameTime, pausedTicks);
             movementBleedingEndGameTime = shiftDeadline(movementBleedingEndGameTime, pausedTicks);
             shockWarningEndGameTime = shiftDeadline(shockWarningEndGameTime, pausedTicks);
+            nextInfectionSettlementGameTime = shiftDeadline(nextInfectionSettlementGameTime, pausedTicks);
             for (WoundInstance wound : wounds) {
                 wound.shiftProgressionDeadlines(pausedTicks);
             }
@@ -570,10 +613,18 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     public BodyProgressionResult advanceBodyProgression(long gameTime) {
-        return advanceBodyProgression(gameTime, false);
+        return advanceBodyProgression(gameTime, false, 20);
     }
 
     public BodyProgressionResult advanceBodyProgression(long gameTime, boolean traumaticMovement) {
+        return advanceBodyProgression(gameTime, traumaticMovement, 20);
+    }
+
+    public BodyProgressionResult advanceBodyProgression(
+            long gameTime,
+            boolean traumaticMovement,
+            int foodLevel
+    ) {
         if (gameTime < 0L) {
             return BodyProgressionResult.unchanged();
         }
@@ -635,6 +686,21 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             bleedingTimerChanged |= previousDeadline != wound.nextBleedingGameTime();
         }
 
+        float woundInfectionIncrease = 0.0F;
+        for (WoundInstance wound : wounds) {
+            woundInfectionIncrease += wound.advanceInfection(gameTime);
+        }
+        float infectionChange = changeInfection(woundInfectionIncrease);
+        long previousInfectionSettlement = nextInfectionSettlementGameTime;
+        infectionChange += advanceSystemicInfection(gameTime, foodLevel);
+        boolean infectionTimerChanged = previousInfectionSettlement != nextInfectionSettlementGameTime;
+
+        boolean becameSeptic = false;
+        if (infection >= 20.0F && lifeState == BodyLifeState.ACTIVE) {
+            enterIncapacitated(CollapseReason.SEPSIS, gameTime);
+            becameSeptic = true;
+        }
+
         ShockProgression shockProgression = advanceTraumaticShock(gameTime);
         DownedProgression downedProgression = advanceDownedProgression(gameTime);
         float recoveredBasePain = isShockWarningActive(gameTime)
@@ -647,6 +713,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 expiredTransientWoundTags,
                 recoveredBasePain,
                 bleedingDamage,
+                infectionChange,
+                becameSeptic,
+                infectionTimerChanged,
                 bleedingTimerChanged,
                 movementBleedingStateChanged,
                 shockProgression,
@@ -661,6 +730,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             int expiredTransientWoundTags,
             float recoveredBasePain,
             float bleedingDamage,
+            float infectionChange,
+            boolean becameSeptic,
+            boolean infectionTimerChanged,
             boolean bleedingTimerChanged,
             boolean movementBleedingStateChanged,
             ShockProgression shockProgression,
@@ -672,6 +744,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 && expiredTransientWoundTags == 0
                 && recoveredBasePain <= 0.0F
                 && bleedingDamage <= 0.0F
+                && Math.abs(infectionChange) <= 0.0001F
+                && !becameSeptic
+                && !infectionTimerChanged
                 && !bleedingTimerChanged
                 && !movementBleedingStateChanged
                 && !shockProgression.changed()
@@ -688,9 +763,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 expiredTransientWoundTags,
                 recoveredBasePain,
                 bleedingDamage,
+                infectionChange,
                 shockProgression.warningStarted(),
                 shockProgression.warningCancelled(),
-                shockProgression.becameIncapacitated(),
+                becameSeptic || shockProgression.becameIncapacitated(),
                 downedProgression.bloodOxygenChanged(),
                 downedProgression.becameCardiacArrest(),
                 downedProgression.becameBrainDead()
@@ -911,8 +987,63 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         deserializeNBT(other.serializeNBT());
     }
 
+    public void copyPersistentKnowledgeFrom(BodyState other) {
+        if (other != null && other.surgerySkill && !surgerySkill) {
+            surgerySkill = true;
+            markChanged();
+        }
+    }
+
     private void markChanged() {
         revision++;
+    }
+
+    private void addInfection(float amount) {
+        changeInfection(amount);
+    }
+
+    private float changeInfection(float amount) {
+        if (amount == 0.0F) {
+            return 0.0F;
+        }
+        float previous = infection;
+        infection = clamp(infection + amount, 0.0F, 20.0F);
+        return infection - previous;
+    }
+
+    private float advanceSystemicInfection(long gameTime, int foodLevel) {
+        if (infection <= 0.5F || infection >= 20.0F) {
+            nextInfectionSettlementGameTime = -1L;
+            return 0.0F;
+        }
+        if (nextInfectionSettlementGameTime < 0L) {
+            nextInfectionSettlementGameTime = gameTime + INFECTION_SETTLEMENT_INTERVAL_TICKS;
+            return 0.0F;
+        }
+        if (gameTime < nextInfectionSettlementGameTime) {
+            return 0.0F;
+        }
+
+        float totalChange = 0.0F;
+        while (gameTime >= nextInfectionSettlementGameTime && infection > 0.5F && infection < 20.0F) {
+            float step = foodLevel >= 15 ? -1.0F : systemicInfectionGrowth(infection);
+            totalChange += changeInfection(step);
+            nextInfectionSettlementGameTime += INFECTION_SETTLEMENT_INTERVAL_TICKS;
+        }
+        if (infection <= 0.5F || infection >= 20.0F) {
+            nextInfectionSettlementGameTime = -1L;
+        }
+        return totalChange;
+    }
+
+    private static float systemicInfectionGrowth(float currentInfection) {
+        if (currentInfection <= 5.0F) {
+            return 0.5F;
+        }
+        if (currentInfection <= 10.0F) {
+            return 1.0F;
+        }
+        return 1.5F;
     }
 
     private void resetToDefaults() {
@@ -921,6 +1052,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         collapseReason = CollapseReason.NONE;
         basePain = 0.0F;
         infection = 0.0F;
+        nextInfectionSettlementGameTime = -1L;
+        surgerySkill = false;
         bloodDrugConcentration = 0.0F;
         adrenalineLevel = 0;
         bloodOxygen = MAX_BLOOD_OXYGEN;
@@ -964,6 +1097,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         tag.putString(TAG_COLLAPSE_REASON, collapseReason.serializedName());
         tag.putFloat(TAG_BASE_PAIN, basePain);
         tag.putFloat(TAG_INFECTION, infection);
+        tag.putLong(TAG_NEXT_INFECTION_SETTLEMENT_GAME_TIME, nextInfectionSettlementGameTime);
+        tag.putBoolean(TAG_SURGERY_SKILL, surgerySkill);
         tag.putFloat(TAG_BLOOD_DRUG_CONCENTRATION, bloodDrugConcentration);
         tag.putInt(TAG_ADRENALINE_LEVEL, adrenalineLevel);
         tag.putFloat(TAG_BLOOD_OXYGEN, bloodOxygen);
@@ -1030,7 +1165,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         basePain = tag.contains(TAG_BASE_PAIN, Tag.TAG_ANY_NUMERIC)
                 ? clamp(tag.getFloat(TAG_BASE_PAIN), 0.0F, 30.0F)
                 : clamp(tag.getFloat(LEGACY_TAG_PAIN), 0.0F, 30.0F);
-        infection = Math.max(0.0F, tag.getFloat(TAG_INFECTION));
+        infection = clamp(tag.getFloat(TAG_INFECTION), 0.0F, 20.0F);
+        nextInfectionSettlementGameTime = tag.contains(TAG_NEXT_INFECTION_SETTLEMENT_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                ? tag.getLong(TAG_NEXT_INFECTION_SETTLEMENT_GAME_TIME)
+                : -1L;
+        surgerySkill = tag.getBoolean(TAG_SURGERY_SKILL);
         bloodDrugConcentration = Math.max(0.0F, tag.getFloat(TAG_BLOOD_DRUG_CONCENTRATION));
         adrenalineLevel = Math.max(0, tag.getInt(TAG_ADRENALINE_LEVEL));
         bloodOxygen = tag.contains(TAG_BLOOD_OXYGEN, Tag.TAG_ANY_NUMERIC)

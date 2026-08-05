@@ -12,7 +12,9 @@ public enum TreatmentType {
     BANDAGE(ModItems.BANDAGE::get),
     MEDICAL_TAPE(ModItems.MEDICAL_TAPE::get),
     SELF_ADHESIVE_BANDAGE(ModItems.SELF_ADHESIVE_BANDAGE::get),
-    MEDICAL_GAUZE(ModItems.MEDICAL_GAUZE::get);
+    MEDICAL_GAUZE(ModItems.MEDICAL_GAUZE::get),
+    SALINE_SOLUTION(ModItems.SALINE_SOLUTION::get),
+    SURGICAL_KIT(ModItems.SURGICAL_KIT::get);
 
     private final Supplier<Item> requiredItem;
 

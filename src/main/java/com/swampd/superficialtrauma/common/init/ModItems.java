@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.common.init;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
+import com.swampd.superficialtrauma.common.item.SurgerySkillBookItem;
 import net.minecraft.world.item.Item;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.registries.DeferredRegister;
@@ -28,6 +29,18 @@ public final class ModItems {
     public static final RegistryObject<Item> MEDICAL_GAUZE = ITEMS.register(
             "medical_gauze",
             () -> new Item(new Item.Properties())
+    );
+    public static final RegistryObject<Item> SALINE_SOLUTION = ITEMS.register(
+            "saline_solution",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
+    public static final RegistryObject<Item> SURGICAL_KIT = ITEMS.register(
+            "surgical_kit",
+            () -> new Item(new Item.Properties().stacksTo(1))
+    );
+    public static final RegistryObject<Item> SURGERY_SKILL_BOOK = ITEMS.register(
+            "surgery_skill_book",
+            () -> new SurgerySkillBookItem(new Item.Properties().stacksTo(1))
     );
 
     private ModItems() {
