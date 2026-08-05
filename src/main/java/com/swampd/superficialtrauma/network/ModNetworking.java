@@ -2,11 +2,21 @@ package com.swampd.superficialtrauma.network;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
+import com.swampd.superficialtrauma.common.body.BodyState;
+import com.swampd.superficialtrauma.common.treatment.TreatmentCancelReason;
+import com.swampd.superficialtrauma.common.treatment.TreatmentSession;
+import com.swampd.superficialtrauma.common.treatment.TreatmentType;
 import com.swampd.superficialtrauma.network.packet.BloodLossFeedbackS2CPacket;
 import com.swampd.superficialtrauma.network.packet.BodyStateSyncS2CPacket;
 import com.swampd.superficialtrauma.network.packet.DownedPoseSyncS2CPacket;
 import com.swampd.superficialtrauma.network.packet.RequestBodyStateC2SPacket;
 import com.swampd.superficialtrauma.network.packet.RequestLootTargetC2SPacket;
+import com.swampd.superficialtrauma.network.packet.CloseInspectionC2SPacket;
+import com.swampd.superficialtrauma.network.packet.CloseInspectionS2CPacket;
+import com.swampd.superficialtrauma.network.packet.InspectionSnapshotS2CPacket;
+import com.swampd.superficialtrauma.network.packet.RequestInspectionC2SPacket;
+import com.swampd.superficialtrauma.network.packet.StartTreatmentC2SPacket;
+import com.swampd.superficialtrauma.network.packet.TreatmentSessionS2CPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkDirection;
@@ -20,7 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "5";
+    private static final String PROTOCOL_VERSION = "6";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -75,6 +85,54 @@ public final class ModNetworking {
                 RequestLootTargetC2SPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER)
         );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                RequestInspectionC2SPacket.class,
+                RequestInspectionC2SPacket::encode,
+                RequestInspectionC2SPacket::decode,
+                RequestInspectionC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                CloseInspectionC2SPacket.class,
+                CloseInspectionC2SPacket::encode,
+                CloseInspectionC2SPacket::decode,
+                CloseInspectionC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                InspectionSnapshotS2CPacket.class,
+                InspectionSnapshotS2CPacket::encode,
+                InspectionSnapshotS2CPacket::decode,
+                InspectionSnapshotS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                CloseInspectionS2CPacket.class,
+                CloseInspectionS2CPacket::encode,
+                CloseInspectionS2CPacket::decode,
+                CloseInspectionS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                StartTreatmentC2SPacket.class,
+                StartTreatmentC2SPacket::encode,
+                StartTreatmentC2SPacket::decode,
+                StartTreatmentC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                TreatmentSessionS2CPacket.class,
+                TreatmentSessionS2CPacket::encode,
+                TreatmentSessionS2CPacket::decode,
+                TreatmentSessionS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
     }
 
     public static void syncBodyState(ServerPlayer player) {
@@ -111,6 +169,83 @@ public final class ModNetworking {
 
     public static void requestLootTarget(int targetEntityId) {
         CHANNEL.sendToServer(new RequestLootTargetC2SPacket(targetEntityId));
+    }
+
+    public static void requestInspection(int targetEntityId) {
+        CHANNEL.sendToServer(new RequestInspectionC2SPacket(targetEntityId));
+    }
+
+    public static void closeInspection(int targetEntityId) {
+        CHANNEL.sendToServer(new CloseInspectionC2SPacket(targetEntityId));
+    }
+
+    public static void requestTreatment(int patientEntityId, UUID woundId, TreatmentType treatmentType) {
+        CHANNEL.sendToServer(new StartTreatmentC2SPacket(patientEntityId, woundId, treatmentType));
+    }
+
+    public static void sendInspectionSnapshot(
+            ServerPlayer inspector,
+            ServerPlayer patient,
+            BodyState bodyState,
+            boolean openScreen
+    ) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> inspector),
+                new InspectionSnapshotS2CPacket(
+                        patient.getId(),
+                        patient.getDisplayName(),
+                        patient.getHealth(),
+                        patient.getMaxHealth(),
+                        bodyState.serializeNBT(),
+                        openScreen
+                )
+        );
+    }
+
+    public static void closeInspection(ServerPlayer inspector, int patientEntityId) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> inspector),
+                new CloseInspectionS2CPacket(patientEntityId)
+        );
+    }
+
+    public static void sendTreatmentStarted(ServerPlayer actor, int patientEntityId, TreatmentSession session) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> actor),
+                TreatmentSessionS2CPacket.started(
+                        patientEntityId,
+                        session.woundId(),
+                        session.treatmentType(),
+                        session.endsGameTime()
+                )
+        );
+    }
+
+    public static void sendTreatmentCancelled(
+            ServerPlayer actor,
+            TreatmentSession session,
+            TreatmentCancelReason reason
+    ) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> actor),
+                TreatmentSessionS2CPacket.cancelled(
+                        -1,
+                        session.woundId(),
+                        session.treatmentType(),
+                        reason
+                )
+        );
+    }
+
+    public static void sendTreatmentCompleted(ServerPlayer actor, int patientEntityId, TreatmentSession session) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> actor),
+                TreatmentSessionS2CPacket.completed(
+                        patientEntityId,
+                        session.woundId(),
+                        session.treatmentType()
+                )
+        );
     }
 
     public static void sendBloodLossFeedback(ServerPlayer player, float amount) {

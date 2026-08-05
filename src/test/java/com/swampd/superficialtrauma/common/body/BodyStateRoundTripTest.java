@@ -4,6 +4,7 @@ import com.swampd.superficialtrauma.common.damage.DamageClassification;
 import com.swampd.superficialtrauma.common.damage.DamageDowning;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAccumulator;
+import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
 import com.swampd.superficialtrauma.common.wound.WoundType;
@@ -29,6 +30,8 @@ public final class BodyStateRoundTripTest {
         verifyPendingDamageAccumulation();
         verifyIndependentDamageWindows();
         verifyWoundDefinitions();
+        verifyTemporaryDressing();
+        verifyTreatmentMovementRules();
         verifyPainAccumulationAndTags();
         verifyStressAndPainRecovery();
         verifyTraumaticShockWarningAndCollapse();
@@ -341,6 +344,67 @@ public final class BodyStateRoundTripTest {
         assertEquals(true, extensive.woundTags().contains(WoundTag.BLEEDING_2), "level-3 explosion wound must carry bleeding 2");
         assertFloatEquals(0.0F, extensive.baseHealingPerSecond(), "level-3 explosion wound must not naturally heal");
         assertFloatEquals(10.0F, extensive.minimumHealingProgressWithoutSkinGraft(), "skin-graft floor must be recorded as H=10");
+    }
+
+    private static void verifyTemporaryDressing() {
+        BodyState state = new BodyState();
+        WoundInstance wound = requireWound(state.applyDamage(WoundType.SHARP, 5.0F, 0L));
+        assertEquals(2, wound.bleedingLevel(false), "untreated sharp severity two must bleed at level two");
+        assertFloatEquals(0.1F, wound.baseHealingPerSecond(), "untreated sharp severity two must retain its natural rate");
+
+        long revisionBeforeTreatment = state.revision();
+        assertEquals(true, state.applyTemporaryDressing(wound.id(), 20L), "temporary dressing must apply once");
+        assertEquals(true, state.revision() > revisionBeforeTreatment, "treatment must advance BodyState revision");
+        assertEquals(true, wound.temporaryDressingApplied(), "wound must record its dressing");
+        assertEquals(1, wound.bleedingLevel(false), "temporary dressing must reduce bleeding by one level");
+        assertFloatEquals(1.0F, wound.baseHealingPerSecond(), "temporary dressing must raise healing to one H/s");
+        assertEquals(false, state.applyTemporaryDressing(wound.id(), 21L), "the same dressing must not apply twice");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(state.serializeNBT());
+        WoundInstance restoredWound = restored.wound(wound.id())
+                .orElseThrow(() -> new AssertionError("treated wound must survive NBT round trip"));
+        assertEquals(true, restoredWound.temporaryDressingApplied(), "NBT must preserve temporary dressing");
+        assertEquals(1, restoredWound.bleedingLevel(false), "restored dressing must keep its bleeding reduction");
+
+        restoredWound.addAccumulatedDamage(0.5F, 22L);
+        assertEquals(false, restoredWound.temporaryDressingApplied(), "new wound damage must destroy a temporary dressing");
+        assertEquals(2, restoredWound.bleedingLevel(false), "destroying the dressing must restore untreated bleeding");
+    }
+
+    private static void verifyTreatmentMovementRules() {
+        Vec3 origin = Vec3.ZERO;
+        Vec3 walkingPosition = new Vec3(2.0D, 0.0D, 0.0D);
+        assertEquals(
+                false,
+                TreatmentMovementRules.interrupts(true, false, origin, walkingPosition, origin, walkingPosition),
+                "ordinary walking must not interrupt self treatment"
+        );
+        assertEquals(
+                true,
+                TreatmentMovementRules.interrupts(true, true, origin, walkingPosition, origin, walkingPosition),
+                "sprinting must interrupt self treatment"
+        );
+        assertEquals(
+                false,
+                TreatmentMovementRules.interrupts(true, false, origin, origin, origin, origin),
+                "standing still must not interrupt self treatment"
+        );
+        assertEquals(
+                true,
+                TreatmentMovementRules.interrupts(false, false, origin, walkingPosition, origin, origin),
+                "caregiver movement must interrupt treatment of another player"
+        );
+        assertEquals(
+                true,
+                TreatmentMovementRules.interrupts(false, false, origin, origin, origin, walkingPosition),
+                "patient movement must interrupt treatment by another player"
+        );
+        assertEquals(
+                false,
+                TreatmentMovementRules.interrupts(false, false, origin, origin, origin, origin),
+                "two stationary players must keep treatment active"
+        );
     }
 
     private static void verifyPainAccumulationAndTags() {

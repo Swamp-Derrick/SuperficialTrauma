@@ -3,12 +3,15 @@ package com.swampd.superficialtrauma.client;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.damage.DamageWindow;
+import com.swampd.superficialtrauma.common.treatment.TreatmentType;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
+import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.item.Item;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -25,88 +28,163 @@ public final class HealthScreen extends Screen {
     private static final int GOOD_COLOR = 0xFF83C991;
     private static final int WARN_COLOR = 0xFFE3B866;
     private static final int DANGER_COLOR = 0xFFE06C75;
+    private static final int WOUND_ROW_HEIGHT = 43;
+
+    private final boolean inspectingOtherPlayer;
+    private final int inspectedEntityId;
+    private final List<TreatmentItemButton> treatmentButtons = new ArrayList<>();
+    private long lastButtonRevision = Long.MIN_VALUE;
+    private int lastRequiredItemCount = -1;
+    private boolean lastTreatmentActive;
 
     public HealthScreen() {
         super(Component.translatable("screen.superficialtrauma.health.title"));
+        inspectingOtherPlayer = false;
+        inspectedEntityId = -1;
+    }
+
+    public HealthScreen(int inspectedEntityId, Component inspectedName) {
+        super(Component.translatable("screen.superficialtrauma.health.target_title", inspectedName));
+        inspectingOtherPlayer = true;
+        this.inspectedEntityId = inspectedEntityId;
+    }
+
+    @Override
+    protected void init() {
+        super.init();
+        rebuildTreatmentButtons();
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (!hasSnapshot()) {
+            return;
+        }
+        BodyState state = displayedState();
+        int itemCount = countItem(TreatmentType.TEMPORARY_DRESSING.requiredItem());
+        boolean treatmentActive = ClientTreatmentState.isActive();
+        if (state.revision() != lastButtonRevision
+                || itemCount != lastRequiredItemCount
+                || treatmentActive != lastTreatmentActive) {
+            rebuildTreatmentButtons();
+        }
     }
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(graphics);
+        Layout layout = layout();
 
-        int panelWidth = Math.min(510, width - 20);
-        int panelHeight = Math.min(272, height - 20);
-        int panelX = (width - panelWidth) / 2;
-        int panelY = (height - panelHeight) / 2;
-        int innerX = panelX + 8;
-        int innerY = panelY + 30;
-        int innerHeight = panelHeight - 38;
-        int gap = 5;
-        int leftWidth = Math.max(105, panelWidth * 25 / 100);
-        int middleWidth = Math.max(145, panelWidth * 39 / 100);
-        int rightWidth = panelWidth - 16 - leftWidth - middleWidth - gap * 2;
+        graphics.fill(
+                layout.panelX,
+                layout.panelY,
+                layout.panelX + layout.panelWidth,
+                layout.panelY + layout.panelHeight,
+                BACKGROUND_COLOR
+        );
+        drawBorder(graphics, layout.panelX, layout.panelY, layout.panelWidth, layout.panelHeight, BORDER_COLOR);
+        graphics.drawCenteredString(font, title, layout.panelX + layout.panelWidth / 2, layout.panelY + 10, TITLE_COLOR);
 
-        graphics.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, BACKGROUND_COLOR);
-        drawBorder(graphics, panelX, panelY, panelWidth, panelHeight, BORDER_COLOR);
-        graphics.drawCenteredString(font, title, panelX + panelWidth / 2, panelY + 10, TITLE_COLOR);
+        drawColumn(graphics, layout.innerX, layout.innerY, layout.leftWidth, layout.innerHeight);
+        drawColumn(graphics, layout.middleX, layout.innerY, layout.middleWidth, layout.innerHeight);
+        drawColumn(graphics, layout.rightX, layout.innerY, layout.rightWidth, layout.innerHeight);
 
-        int middleX = innerX + leftWidth + gap;
-        int rightX = middleX + middleWidth + gap;
-        drawColumn(graphics, innerX, innerY, leftWidth, innerHeight);
-        drawColumn(graphics, middleX, innerY, middleWidth, innerHeight);
-        drawColumn(graphics, rightX, innerY, rightWidth, innerHeight);
-
-        if (!ClientBodyState.hasReceivedSnapshot()) {
+        if (!hasSnapshot()) {
             graphics.drawCenteredString(
                     font,
                     Component.translatable("screen.superficialtrauma.health.loading"),
-                    panelX + panelWidth / 2,
-                    panelY + panelHeight / 2,
+                    layout.panelX + layout.panelWidth / 2,
+                    layout.panelY + layout.panelHeight / 2,
                     TEXT_COLOR
             );
             super.render(graphics, mouseX, mouseY, partialTick);
             return;
         }
 
-        BodyState state = ClientBodyState.snapshot();
-        int contentHeight = innerHeight - 12;
-        drawWholeBodyColumn(graphics, state, innerX + 6, innerY + 6, leftWidth - 12);
-        WoundInstance selected = drawWoundColumn(
+        BodyState state = displayedState();
+        int contentHeight = layout.innerHeight - 12;
+        drawWholeBodyColumn(
                 graphics,
                 state,
-                middleX + 6,
-                innerY + 6,
-                middleWidth - 12,
+                layout.innerX + 6,
+                layout.innerY + 6,
+                layout.leftWidth - 12,
+                displayedHealth(),
+                displayedMaximumHealth()
+        );
+        drawWoundColumn(
+                graphics,
+                state,
+                layout.middleX + 6,
+                layout.innerY + 6,
+                layout.middleWidth - 12,
                 contentHeight
         );
-        drawActionColumn(
+        drawTreatmentColumn(
                 graphics,
-                selected,
-                rightX + 6,
-                innerY + 6,
-                rightWidth - 12,
+                layout.rightX + 6,
+                layout.innerY + 6,
+                layout.rightWidth - 12,
                 contentHeight
         );
 
         super.render(graphics, mouseX, mouseY, partialTick);
+        for (TreatmentItemButton button : treatmentButtons) {
+            if (button.isHovered()) {
+                graphics.renderTooltip(font, button.tooltip(), mouseX, mouseY);
+                break;
+            }
+        }
     }
 
-    private void drawWholeBodyColumn(GuiGraphics graphics, BodyState state, int x, int y, int availableWidth) {
-        graphics.drawString(font, Component.translatable("screen.superficialtrauma.health.whole_body"), x, y, TITLE_COLOR, false);
+    private void drawWholeBodyColumn(
+            GuiGraphics graphics,
+            BodyState state,
+            int x,
+            int y,
+            int availableWidth,
+            float currentHealth,
+            float maximumHealth
+    ) {
+        graphics.drawString(
+                font,
+                Component.translatable("screen.superficialtrauma.health.whole_body"),
+                x,
+                y,
+                TITLE_COLOR,
+                false
+        );
         int lineY = y + 16;
-        float currentHealth = minecraft != null && minecraft.player != null ? minecraft.player.getHealth() : 0.0F;
-        float maximumHealth = minecraft != null && minecraft.player != null ? minecraft.player.getMaxHealth() : 0.0F;
-
-        lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.vanilla_health",
-                oneDecimal(currentHealth) + "/" + oneDecimal(maximumHealth), GOOD_COLOR);
-        lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.life_state",
-                Component.translatable("life_state.superficialtrauma." + state.lifeState().serializedName()).getString(), TEXT_COLOR);
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.vanilla_health",
+                oneDecimal(currentHealth) + "/" + oneDecimal(maximumHealth),
+                GOOD_COLOR
+        );
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.life_state",
+                Component.translatable("life_state.superficialtrauma." + state.lifeState().serializedName()).getString(),
+                TEXT_COLOR
+        );
         float effectivePain = state.pain();
-        String visiblePain = effectivePain > 20.0F
-                ? "20+/20"
-                : oneDecimal(effectivePain) + "/20";
-        lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.pain",
-                visiblePain, effectivePain >= 20.0F ? DANGER_COLOR : TEXT_COLOR);
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.pain",
+                effectivePain > 20.0F ? "20+/20" : oneDecimal(effectivePain) + "/20",
+                effectivePain >= 20.0F ? DANGER_COLOR : TEXT_COLOR
+        );
+
         long gameTime = minecraft != null && minecraft.level != null ? minecraft.level.getGameTime() : 0L;
         long stressTicks = state.stressRemainingTicks(gameTime);
         String stressValue = stressTicks > 0L
@@ -115,8 +193,15 @@ public final class HealthScreen extends Screen {
                         oneDecimal(stressTicks / 20.0F)
                 ).getString()
                 : Component.translatable("screen.superficialtrauma.health.stress_inactive").getString();
-        lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.stress",
-                stressValue, stressTicks > 0L ? WARN_COLOR : MUTED_COLOR);
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.stress",
+                stressValue,
+                stressTicks > 0L ? WARN_COLOR : MUTED_COLOR
+        );
         if (state.isShockWarningActive(gameTime)) {
             lineY = drawValue(
                     graphics,
@@ -139,13 +224,34 @@ public final class HealthScreen extends Screen {
                     DANGER_COLOR
             );
         }
-        lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.infection",
-                oneDecimal(state.infection()), TEXT_COLOR);
-        lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.drug",
-                oneDecimal(state.bloodDrugConcentration()), TEXT_COLOR);
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.infection",
+                oneDecimal(state.infection()),
+                TEXT_COLOR
+        );
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.drug",
+                oneDecimal(state.bloodDrugConcentration()),
+                TEXT_COLOR
+        );
         if (state.canAct()) {
-            lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.oxygen",
-                    oneDecimal(state.bloodOxygen()) + "/30", TEXT_COLOR);
+            lineY = drawValue(
+                    graphics,
+                    x,
+                    lineY,
+                    availableWidth,
+                    "screen.superficialtrauma.health.oxygen",
+                    oneDecimal(state.bloodOxygen()) + "/30",
+                    TEXT_COLOR
+            );
         } else {
             long dangerTicks = state.downedDangerRemainingTicks(gameTime);
             lineY = drawValue(
@@ -163,23 +269,65 @@ public final class HealthScreen extends Screen {
         }
 
         lineY += 5;
-        graphics.drawString(font, Component.translatable("screen.superficialtrauma.health.stage0_debug"), x, lineY, MUTED_COLOR, false);
+        graphics.drawString(
+                font,
+                Component.translatable("screen.superficialtrauma.health.stage0_debug"),
+                x,
+                lineY,
+                MUTED_COLOR,
+                false
+        );
         lineY += 13;
-        lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.last_damage",
-                oneDecimal(state.lastFinalDamage()), WARN_COLOR);
-        lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.damage_type",
-                state.lastDamageType(), MUTED_COLOR);
-        lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.damage_classification",
-                Component.translatable(state.lastDamageKind().translationKey()).getString(), WARN_COLOR);
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.last_damage",
+                oneDecimal(state.lastFinalDamage()),
+                WARN_COLOR
+        );
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.damage_type",
+                state.lastDamageType(),
+                MUTED_COLOR
+        );
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.damage_classification",
+                Component.translatable(state.lastDamageKind().translationKey()).getString(),
+                WARN_COLOR
+        );
         if (!"none".equals(state.lastAmmoId())) {
-            lineY = drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.ammo",
-                    compactIdentifier(state.lastAmmoId()), MUTED_COLOR);
+            lineY = drawValue(
+                    graphics,
+                    x,
+                    lineY,
+                    availableWidth,
+                    "screen.superficialtrauma.health.ammo",
+                    compactIdentifier(state.lastAmmoId()),
+                    MUTED_COLOR
+            );
         }
-        drawValue(graphics, x, lineY, availableWidth, "screen.superficialtrauma.health.data_version",
-                Integer.toString(state.dataVersion()), MUTED_COLOR);
+        drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.data_version",
+                Integer.toString(state.dataVersion()),
+                MUTED_COLOR
+        );
     }
 
-    private WoundInstance drawWoundColumn(
+    private void drawWoundColumn(
             GuiGraphics graphics,
             BodyState state,
             int x,
@@ -187,13 +335,16 @@ public final class HealthScreen extends Screen {
             int availableWidth,
             int availableHeight
     ) {
-        graphics.drawString(font, Component.translatable("screen.superficialtrauma.health.wounds"), x, y, TITLE_COLOR, false);
-
-        List<WoundInstance> sortedWounds = new ArrayList<>(state.wounds());
-        sortedWounds.sort(Comparator
-                .comparingInt(WoundInstance::severity).reversed()
-                .thenComparing(Comparator.comparingLong(WoundInstance::createdGameTime).reversed()));
-
+        graphics.drawString(
+                font,
+                Component.translatable("screen.superficialtrauma.health.wounds"),
+                x,
+                y,
+                TITLE_COLOR,
+                false
+        );
+        List<WoundInstance> sortedWounds = sortedWounds(state);
+        List<WoundInstance> visibleWounds = visibleWounds(state, availableHeight);
         int cardY = y + 16;
         if (sortedWounds.isEmpty()) {
             graphics.drawString(
@@ -207,13 +358,19 @@ public final class HealthScreen extends Screen {
             cardY += 18;
         }
 
-        int maximumVisibleCards = Math.max(1, (availableHeight - 18) / 43);
-        int count = Math.min(Math.min(5, maximumVisibleCards), sortedWounds.size());
-        for (int i = 0; i < count; i++) {
-            WoundInstance wound = sortedWounds.get(i);
-            int cardColor = wound.severity() >= 3 ? 0xAA4C2529 : wound.severity() == 2 ? 0xAA4A3C24 : 0xAA263D31;
+        for (WoundInstance wound : visibleWounds) {
+            int cardColor = wound.severity() >= 3
+                    ? 0xAA4C2529
+                    : wound.severity() == 2 ? 0xAA4A3C24 : 0xAA263D31;
             graphics.fill(x, cardY, x + availableWidth, cardY + 40, cardColor);
-            drawBorder(graphics, x, cardY, availableWidth, 40, wound.severity() >= 3 ? DANGER_COLOR : BORDER_COLOR);
+            drawBorder(
+                    graphics,
+                    x,
+                    cardY,
+                    availableWidth,
+                    40,
+                    wound.severity() >= 3 ? DANGER_COLOR : BORDER_COLOR
+            );
             Component woundName = Component.translatable(wound.displayTranslationKey());
             Component triage = Component.translatable(wound.triageTranslationKey());
             int triageWidth = font.width(triage);
@@ -249,6 +406,10 @@ public final class HealthScreen extends Screen {
                     false
             );
             String tagSummary = woundTagSummary(wound, state.movementBleedingActive());
+            if (wound.temporaryDressingApplied()) {
+                String dressing = Component.translatable("treatment.superficialtrauma.temporary_dressing").getString();
+                tagSummary = tagSummary.isEmpty() ? dressing : tagSummary + " · " + dressing;
+            }
             if (!tagSummary.isEmpty()) {
                 graphics.drawString(
                         font,
@@ -259,14 +420,14 @@ public final class HealthScreen extends Screen {
                         false
                 );
             }
-            cardY += 43;
+            cardY += WOUND_ROW_HEIGHT;
         }
 
         int columnBottom = y + availableHeight;
-        if (sortedWounds.size() > count && cardY + font.lineHeight <= columnBottom) {
+        if (sortedWounds.size() > visibleWounds.size() && cardY + font.lineHeight <= columnBottom) {
             Component moreWounds = Component.translatable(
                     "screen.superficialtrauma.health.more_wounds",
-                    sortedWounds.size() - count
+                    sortedWounds.size() - visibleWounds.size()
             );
             graphics.drawString(
                     font,
@@ -285,19 +446,18 @@ public final class HealthScreen extends Screen {
         for (DamageWindow window : pendingWindows) {
             pendingY = drawPendingWindow(graphics, window, x, pendingY, availableWidth, columnBottom);
         }
-        return sortedWounds.isEmpty() ? null : sortedWounds.get(0);
     }
 
     private int drawPendingWindow(
             GuiGraphics graphics,
             DamageWindow window,
             int x,
-            int pendingY,
+            int y,
             int availableWidth,
             int columnBottom
     ) {
-        if (pendingY + font.lineHeight > columnBottom) {
-            return pendingY;
+        if (y + font.lineHeight > columnBottom) {
+            return y;
         }
         Component pending = Component.translatable(
                 "screen.superficialtrauma.health.pending_wound",
@@ -308,11 +468,11 @@ public final class HealthScreen extends Screen {
                 font,
                 font.plainSubstrByWidth(pending.getString(), availableWidth),
                 x,
-                pendingY,
-            MUTED_COLOR,
-            false
+                y,
+                MUTED_COLOR,
+                false
         );
-        return pendingY + 13;
+        return y + 13;
     }
 
     private String woundTagSummary(WoundInstance wound, boolean movementBleedingActive) {
@@ -329,84 +489,136 @@ public final class HealthScreen extends Screen {
         return String.join(" · ", labels);
     }
 
-    private void drawActionColumn(
+    private void drawTreatmentColumn(
             GuiGraphics graphics,
-            WoundInstance selected,
             int x,
             int y,
             int availableWidth,
             int availableHeight
     ) {
-        graphics.drawString(font, Component.translatable("screen.superficialtrauma.health.actions"), x, y, TITLE_COLOR, false);
-        int lineY = y + 17;
-        Component closeHint = Component.translatable("screen.superficialtrauma.health.close_hint");
-        List<FormattedCharSequence> footerLines = font.split(closeHint, Math.max(20, availableWidth));
-        int footerHeight = footerLines.size() * 11;
-        int footerY = Math.max(lineY, y + availableHeight - footerHeight);
-        int contentBottom = footerY - 5;
-
-        if (selected == null) {
+        graphics.drawString(
+                font,
+                Component.translatable("screen.superficialtrauma.health.treatments"),
+                x,
+                y,
+                TITLE_COLOR,
+                false
+        );
+        if (ClientTreatmentState.isActive()) {
+            ClientTreatmentState.ActiveTreatment active = ClientTreatmentState.activeTreatment();
             drawWrappedWithin(
                     graphics,
-                    Component.translatable("screen.superficialtrauma.health.no_action_needed"),
+                    Component.translatable(
+                            "screen.superficialtrauma.health.treatment_progress",
+                            Component.translatable(active.type().translationKey()),
+                            oneDecimal(ClientTreatmentState.remainingSeconds())
+                    ),
                     x,
-                    lineY,
-                    availableWidth,
-                    GOOD_COLOR,
-                    contentBottom
-            );
-        } else {
-            graphics.drawString(font, Component.translatable(selected.displayTranslationKey()), x, lineY, TEXT_COLOR, false);
-            lineY += 15;
-            float healingRate = selected.baseHealingPerSecond();
-            Component healingStatus = healingRate > 0.0F
-                    ? Component.translatable(
-                            "screen.superficialtrauma.health.natural_healing_active",
-                            oneDecimal(healingRate)
-                    )
-                    : Component.translatable("screen.superficialtrauma.health.natural_healing_stopped");
-            lineY = drawWrappedWithin(
-                    graphics,
-                    healingStatus,
-                    x,
-                    lineY,
-                    availableWidth,
-                    healingRate > 0.0F ? GOOD_COLOR : DANGER_COLOR,
-                    contentBottom
-            );
-            lineY += 5;
-            Component recommendation = Component.translatable(
-                    "screen.superficialtrauma.health.recommend_"
-                            + selected.type().serializedName()
-                            + "_"
-                            + selected.severity()
-            );
-            lineY = drawWrappedWithin(
-                    graphics,
-                    recommendation,
-                    x,
-                    lineY,
+                    y + availableHeight - 26,
                     availableWidth,
                     WARN_COLOR,
-                    contentBottom
+                    y + availableHeight
             );
-            lineY += 7;
-            drawWrappedWithin(
-                    graphics,
-                    Component.translatable("screen.superficialtrauma.health.actions_placeholder"),
-                    x,
-                    lineY,
-                    availableWidth,
-                    MUTED_COLOR,
-                    contentBottom
-            );
+        }
+    }
+
+    private void rebuildTreatmentButtons() {
+        clearWidgets();
+        treatmentButtons.clear();
+        if (!hasSnapshot() || minecraft == null || minecraft.player == null) {
+            return;
         }
 
-        int footerLineY = footerY;
-        for (FormattedCharSequence footerLine : footerLines) {
-            graphics.drawString(font, footerLine, x, footerLineY, MUTED_COLOR, false);
-            footerLineY += 11;
+        Layout layout = layout();
+        BodyState state = displayedState();
+        List<WoundInstance> visibleWounds = visibleWounds(state, layout.innerHeight - 12);
+        int requiredItemCount = countItem(TreatmentType.TEMPORARY_DRESSING.requiredItem());
+        boolean anyTreatmentActive = ClientTreatmentState.isActive();
+        int patientEntityId = displayedEntityId();
+        int rowY = layout.innerY + 6 + 16;
+
+        for (int row = 0; row < visibleWounds.size(); row++) {
+            WoundInstance wound = visibleWounds.get(row);
+            int treatmentColumn = 0;
+            for (TreatmentType type : TreatmentType.values()) {
+                if (!type.isApplicable(wound)) {
+                    continue;
+                }
+                TreatmentItemButton button = new TreatmentItemButton(
+                        layout.rightX + 10 + treatmentColumn * 25,
+                        rowY + row * WOUND_ROW_HEIGHT + 9,
+                        wound.id(),
+                        type,
+                        () -> ModNetworking.requestTreatment(patientEntityId, wound.id(), type)
+                );
+                button.active = !anyTreatmentActive && requiredItemCount >= type.requiredCount();
+                treatmentButtons.add(addRenderableWidget(button));
+                treatmentColumn++;
+            }
         }
+
+        lastButtonRevision = state.revision();
+        lastRequiredItemCount = requiredItemCount;
+        lastTreatmentActive = anyTreatmentActive;
+    }
+
+    private List<WoundInstance> sortedWounds(BodyState state) {
+        List<WoundInstance> sorted = new ArrayList<>(state.wounds());
+        sorted.sort(Comparator
+                .comparingInt(WoundInstance::severity).reversed()
+                .thenComparing(Comparator.comparingLong(WoundInstance::createdGameTime).reversed()));
+        return sorted;
+    }
+
+    private List<WoundInstance> visibleWounds(BodyState state, int availableHeight) {
+        List<WoundInstance> sorted = sortedWounds(state);
+        int maximumVisibleCards = Math.max(1, (availableHeight - 18) / WOUND_ROW_HEIGHT);
+        int count = Math.min(Math.min(5, maximumVisibleCards), sorted.size());
+        return new ArrayList<>(sorted.subList(0, count));
+    }
+
+    private int countItem(Item item) {
+        if (minecraft == null || minecraft.player == null) {
+            return 0;
+        }
+        int count = 0;
+        for (int slot = 0; slot < minecraft.player.getInventory().getContainerSize(); slot++) {
+            if (minecraft.player.getInventory().getItem(slot).is(item)) {
+                count += minecraft.player.getInventory().getItem(slot).getCount();
+            }
+        }
+        return count;
+    }
+
+    private boolean hasSnapshot() {
+        return inspectingOtherPlayer
+                ? ClientInspectionState.hasReceivedSnapshot(inspectedEntityId)
+                : ClientBodyState.hasReceivedSnapshot();
+    }
+
+    private BodyState displayedState() {
+        return inspectingOtherPlayer ? ClientInspectionState.snapshot() : ClientBodyState.snapshot();
+    }
+
+    private int displayedEntityId() {
+        if (inspectingOtherPlayer) {
+            return inspectedEntityId;
+        }
+        return minecraft != null && minecraft.player != null ? minecraft.player.getId() : -1;
+    }
+
+    private float displayedHealth() {
+        if (inspectingOtherPlayer) {
+            return ClientInspectionState.health();
+        }
+        return minecraft != null && minecraft.player != null ? minecraft.player.getHealth() : 0.0F;
+    }
+
+    private float displayedMaximumHealth() {
+        if (inspectingOtherPlayer) {
+            return ClientInspectionState.maximumHealth();
+        }
+        return minecraft != null && minecraft.player != null ? minecraft.player.getMaxHealth() : 0.0F;
     }
 
     private int drawValue(
@@ -448,6 +660,56 @@ public final class HealthScreen extends Screen {
         return lineY;
     }
 
+    private Layout layout() {
+        int panelWidth = Math.min(510, width - 20);
+        int panelHeight = Math.min(272, height - 20);
+        int panelX = (width - panelWidth) / 2;
+        int panelY = (height - panelHeight) / 2;
+        int innerX = panelX + 8;
+        int innerY = panelY + 30;
+        int innerHeight = panelHeight - 38;
+        int gap = 5;
+        int leftWidth = Math.max(105, panelWidth * 25 / 100);
+        int middleWidth = Math.max(145, panelWidth * 39 / 100);
+        int middleX = innerX + leftWidth + gap;
+        int rightX = middleX + middleWidth + gap;
+        int rightWidth = panelWidth - 16 - leftWidth - middleWidth - gap * 2;
+        return new Layout(
+                panelX,
+                panelY,
+                panelWidth,
+                panelHeight,
+                innerX,
+                innerY,
+                innerHeight,
+                leftWidth,
+                middleX,
+                middleWidth,
+                rightX,
+                rightWidth
+        );
+    }
+
+    public boolean isInspecting(int entityId) {
+        return inspectingOtherPlayer && inspectedEntityId == entityId;
+    }
+
+    @Override
+    public void removed() {
+        super.removed();
+        if (inspectingOtherPlayer) {
+            if (minecraft != null && minecraft.getConnection() != null) {
+                ModNetworking.closeInspection(inspectedEntityId);
+            }
+            ClientInspectionState.clear();
+        }
+    }
+
+    @Override
+    public boolean isPauseScreen() {
+        return false;
+    }
+
     private static String oneDecimal(float value) {
         return String.format(Locale.ROOT, "%.1f", value);
     }
@@ -471,8 +733,19 @@ public final class HealthScreen extends Screen {
         graphics.fill(x + width - 1, y, x + width, y + height, color);
     }
 
-    @Override
-    public boolean isPauseScreen() {
-        return false;
+    private record Layout(
+            int panelX,
+            int panelY,
+            int panelWidth,
+            int panelHeight,
+            int innerX,
+            int innerY,
+            int innerHeight,
+            int leftWidth,
+            int middleX,
+            int middleWidth,
+            int rightX,
+            int rightWidth
+    ) {
     }
 }

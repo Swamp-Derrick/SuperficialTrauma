@@ -22,7 +22,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 9;
+    public static final int CURRENT_DATA_VERSION = 10;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
@@ -309,6 +309,22 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public List<WoundInstance> wounds() {
         return Collections.unmodifiableList(wounds);
+    }
+
+    public Optional<WoundInstance> wound(UUID woundId) {
+        if (woundId == null) {
+            return Optional.empty();
+        }
+        return wounds.stream().filter(wound -> wound.id().equals(woundId)).findFirst();
+    }
+
+    public boolean applyTemporaryDressing(UUID woundId, long gameTime) {
+        Optional<WoundInstance> wound = wound(woundId);
+        if (wound.isEmpty() || !wound.get().applyTemporaryDressing(gameTime)) {
+            return false;
+        }
+        markChanged();
+        return true;
     }
 
     public Map<WoundType, DamageWindow> damageWindows() {

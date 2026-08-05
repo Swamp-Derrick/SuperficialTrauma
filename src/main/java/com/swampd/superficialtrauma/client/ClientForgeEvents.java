@@ -55,12 +55,17 @@ public final class ClientForgeEvents {
                 || !(event.getTarget() instanceof Player target)
                 || event.getEntity() != Minecraft.getInstance().player
                 || event.getEntity() == target
-                || ClientDownedPoses.get(event.getEntity().getId()).isPresent()
-                || ClientDownedPoses.get(target.getId()).isEmpty()) {
+                || ClientDownedPoses.get(event.getEntity().getId()).isPresent()) {
             return;
         }
 
-        ModNetworking.requestLootTarget(target.getId());
+        if (event.getEntity().isShiftKeyDown()) {
+            ModNetworking.requestInspection(target.getId());
+        } else if (ClientDownedPoses.get(target.getId()).isPresent()) {
+            ModNetworking.requestLootTarget(target.getId());
+        } else {
+            return;
+        }
         event.setCancellationResult(InteractionResult.SUCCESS);
         event.setCanceled(true);
     }
@@ -80,6 +85,7 @@ public final class ClientForgeEvents {
                     height,
                     event.getPartialTick()
             );
+            ClientTreatmentOverlay.render(event.getGuiGraphics(), width, height);
         }
     }
 
@@ -98,6 +104,8 @@ public final class ClientForgeEvents {
     @SubscribeEvent
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         ClientBodyState.clear();
+        ClientInspectionState.clear();
+        ClientTreatmentState.clear();
         ClientDownedPoses.clear();
         ClientBloodLossOverlay.clear();
     }

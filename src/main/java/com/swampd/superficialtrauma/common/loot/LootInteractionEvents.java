@@ -20,6 +20,7 @@ public final class LootInteractionEvents {
                 || event.getHand() != InteractionHand.MAIN_HAND
                 || !(event.getEntity() instanceof ServerPlayer looter)
                 || !(event.getTarget() instanceof ServerPlayer target)
+                || looter.isShiftKeyDown()
                 || !LootingService.isLootable(target)) {
             return;
         }
