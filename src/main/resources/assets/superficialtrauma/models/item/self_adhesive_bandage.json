@@ -1,6 +1,6 @@
 {
   "parent": "minecraft:item/generated",
   "textures": {
-    "layer0": "minecraft:item/rabbit_hide"
+    "layer0": "superficialtrauma:item/self_adhesive_bandage"
   }
 }

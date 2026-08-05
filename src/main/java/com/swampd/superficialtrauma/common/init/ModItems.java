@@ -1,9 +1,7 @@
 package com.swampd.superficialtrauma.common.init;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
-import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
-import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -33,14 +31,5 @@ public final class ModItems {
 
     public static void register(IEventBus eventBus) {
         ITEMS.register(eventBus);
-        eventBus.addListener(ModItems::addCreativeTabContents);
-    }
-
-    private static void addCreativeTabContents(BuildCreativeModeTabContentsEvent event) {
-        if (CreativeModeTabs.INGREDIENTS.equals(event.getTabKey())) {
-            event.accept(BANDAGE);
-            event.accept(MEDICAL_TAPE);
-            event.accept(SELF_ADHESIVE_BANDAGE);
-        }
     }
 }

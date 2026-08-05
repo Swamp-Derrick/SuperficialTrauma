@@ -2,6 +2,7 @@ package com.swampd.superficialtrauma;
 
 import com.mojang.logging.LogUtils;
 import com.swampd.superficialtrauma.common.body.BodyState;
+import com.swampd.superficialtrauma.common.init.ModCreativeTabs;
 import com.swampd.superficialtrauma.common.init.ModMenus;
 import com.swampd.superficialtrauma.common.init.ModItems;
 import com.swampd.superficialtrauma.network.ModNetworking;
@@ -20,6 +21,7 @@ public final class SuperficialTrauma {
     public SuperficialTrauma(FMLJavaModLoadingContext loadingContext) {
         IEventBus modEventBus = loadingContext.getModEventBus();
         ModItems.register(modEventBus);
+        ModCreativeTabs.register(modEventBus);
         ModMenus.register(modEventBus);
         modEventBus.addListener(this::onCommonSetup);
         modEventBus.addListener(this::onRegisterCapabilities);
