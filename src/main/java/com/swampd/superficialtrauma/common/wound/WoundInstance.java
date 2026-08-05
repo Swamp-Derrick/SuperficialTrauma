@@ -275,6 +275,23 @@ public final class WoundInstance {
         return infectionContribution;
     }
 
+    public boolean canApplyIcePack() {
+        return type == WoundType.BLUNT
+                && severity == 2
+                && !isHealed()
+                && woundTags.contains(WoundTag.PAIN_1);
+    }
+
+    public boolean applyIcePack() {
+        if (!canApplyIcePack()) {
+            return false;
+        }
+        healingProgress = Math.max(0.0F, healingProgress - 90.0F);
+        woundTags.remove(WoundTag.PAIN_1);
+        transientPainEndGameTime = -1L;
+        return true;
+    }
+
     public boolean canDebride() {
         return !isHealed()
                 && !covering.isApplied()

@@ -414,6 +414,18 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return true;
     }
 
+    public boolean applyIcePack(UUID woundId) {
+        Optional<WoundInstance> wound = wound(woundId);
+        if (wound.isEmpty() || !wound.get().applyIcePack()) {
+            return false;
+        }
+        if (wound.get().isHealed()) {
+            wounds.remove(wound.get());
+        }
+        markChanged();
+        return true;
+    }
+
     public Map<WoundType, DamageWindow> damageWindows() {
         return Collections.unmodifiableMap(damageWindows);
     }

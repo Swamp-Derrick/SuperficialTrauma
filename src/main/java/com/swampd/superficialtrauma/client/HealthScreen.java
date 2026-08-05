@@ -889,6 +889,21 @@ public final class HealthScreen extends Screen {
                             TreatmentAction.APPLY
                     );
                 }
+                case ICE_PACK -> {
+                    TreatmentProcedure procedure = TreatmentProcedure.ICE_PACK;
+                    active = procedure.isApplicable(wound, TreatmentAction.APPLY)
+                            && hasRequiredItems(procedure);
+                    tooltip = Component.translatable(
+                            "screen.superficialtrauma.health.ice_pack_tooltip",
+                            procedure.durationTicks() / 20L
+                    );
+                    onPress = () -> ModNetworking.requestTreatment(
+                            patientEntityId,
+                            wound.id(),
+                            procedure,
+                            TreatmentAction.APPLY
+                    );
+                }
                 case SALINE_SOLUTION -> tooltip = Component.translatable(
                         "screen.superficialtrauma.health.saline_requires_surgical_kit"
                 );

@@ -186,6 +186,9 @@ public final class TreatmentService {
         if (session.procedure().isDebridement()) {
             changed = session.action() == TreatmentAction.APPLY
                     && state.get().debrideWound(session.woundId());
+        } else if (session.procedure().isIcePack()) {
+            changed = session.action() == TreatmentAction.APPLY
+                    && state.get().applyIcePack(session.woundId());
         } else if (session.procedure().isWoundPacking()) {
             changed = session.action() == TreatmentAction.APPLY
                     ? state.get().applyWoundPacking(session.woundId(), gameTime)

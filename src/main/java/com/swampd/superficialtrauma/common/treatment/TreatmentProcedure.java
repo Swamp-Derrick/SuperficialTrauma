@@ -35,6 +35,11 @@ public enum TreatmentProcedure {
             TreatmentType.MEDICAL_GAUZE,
             new TreatmentIngredient(TreatmentType.MEDICAL_GAUZE, 1)
     ),
+    ICE_PACK(
+            null,
+            TreatmentType.ICE_PACK,
+            new TreatmentIngredient(TreatmentType.ICE_PACK, 1)
+    ),
     DEBRIDEMENT(
             null,
             TreatmentType.SURGICAL_KIT,
@@ -94,6 +99,9 @@ public enum TreatmentProcedure {
             return wound.woundTags().contains(com.swampd.superficialtrauma.common.wound.WoundTag.NEEDS_DEBRIDEMENT_1)
                     || wound.isInfected();
         }
+        if (isIcePack()) {
+            return wound.canApplyIcePack();
+        }
         if (isWoundPacking()) {
             return wound.untreatedBleedingLevel(true) > 0;
         }
@@ -109,6 +117,9 @@ public enum TreatmentProcedure {
         }
         if (isDebridement()) {
             return action == TreatmentAction.APPLY && wound.canDebride();
+        }
+        if (isIcePack()) {
+            return action == TreatmentAction.APPLY && wound.canApplyIcePack();
         }
         if (isWoundPacking()) {
             return action == TreatmentAction.APPLY
@@ -126,6 +137,10 @@ public enum TreatmentProcedure {
 
     public boolean isDebridement() {
         return this == DEBRIDEMENT;
+    }
+
+    public boolean isIcePack() {
+        return this == ICE_PACK;
     }
 
     public boolean requiresSurgerySkill() {
@@ -154,6 +169,7 @@ public enum TreatmentProcedure {
             case TEMPORARY_DRESSING -> TEMPORARY_DRESSING;
             case SELF_ADHESIVE_BANDAGE -> SELF_ADHESIVE_BANDAGE;
             case MEDICAL_GAUZE -> WOUND_PACKING;
+            case ICE_PACK -> ICE_PACK;
             case SURGICAL_KIT -> DEBRIDEMENT;
             default -> null;
         };

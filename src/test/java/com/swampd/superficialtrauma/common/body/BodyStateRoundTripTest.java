@@ -34,6 +34,7 @@ public final class BodyStateRoundTripTest {
         verifyTemporaryDressing();
         verifyCoveringVariants();
         verifyWoundPacking();
+        verifyIcePackTreatment();
         verifyInfectionAndDebridement();
         verifyTemporaryDressingContamination();
         verifySystemicInfectionSettlement();
@@ -552,6 +553,42 @@ public final class BodyStateRoundTripTest {
         );
         assertEquals(true, restored.woundPackingApplied(), "removing a covering must not remove wound packing");
         assertEquals(1, restored.bleedingLevel(false), "packing alone must reduce bleeding 3 to bleeding 1");
+    }
+
+    private static void verifyIcePackTreatment() {
+        BodyState minorState = new BodyState();
+        WoundInstance minor = requireWound(minorState.applyDamage(WoundType.BLUNT, 1.5F, 0L));
+        assertEquals(false, minor.canApplyIcePack(), "severity-one blunt trauma must reject an ice pack");
+        assertEquals(false, minorState.applyIcePack(minor.id()), "the body state must reject an ineligible ice pack");
+
+        BodyState state = new BodyState();
+        WoundInstance wound = requireWound(state.applyDamage(WoundType.BLUNT, 4.0F, 0L));
+        assertEquals(true, wound.canApplyIcePack(), "severity-two blunt trauma must accept one ice pack");
+        assertFloatEquals(5.0F, state.pain(), "untreated severity-two blunt trauma must include Pain 1");
+        assertEquals(true, state.applyIcePack(wound.id()), "an eligible ice pack must apply");
+        assertFloatEquals(10.0F, wound.healingProgress(), "an ice pack must remove exactly 90 H");
+        assertEquals(false, wound.woundTags().contains(WoundTag.PAIN_1), "an ice pack must clear Pain 1");
+        assertFloatEquals(4.0F, state.pain(), "clearing Pain 1 must immediately reduce effective pain by one");
+        assertEquals(false, state.applyIcePack(wound.id()), "the same wound must not accept a second ice pack");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(state.serializeNBT());
+        WoundInstance restoredWound = restored.wound(wound.id())
+                .orElseThrow(() -> new AssertionError("an ice-pack-treated wound must survive save and reload"));
+        assertFloatEquals(10.0F, restoredWound.healingProgress(), "ice-pack H reduction must survive save and reload");
+        assertEquals(false, restoredWound.woundTags().contains(WoundTag.PAIN_1), "ice-pack pain relief must survive save and reload");
+
+        state.applyDamage(WoundType.BLUNT, 9.0F, 10L);
+        assertEquals(3, wound.severity(), "new damage in the same window must still upgrade an ice-packed wound");
+        assertEquals(true, wound.woundTags().contains(WoundTag.PAIN_1), "a severity upgrade must restore the new wound's Pain 1");
+        assertEquals(false, wound.canApplyIcePack(), "severity-three blunt trauma must not accept an ice pack");
+
+        BodyState nearlyHealedState = new BodyState();
+        WoundInstance nearlyHealed = requireWound(nearlyHealedState.applyDamage(WoundType.BLUNT, 4.0F, 0L));
+        nearlyHealed.advanceNaturalHealing(190.0F);
+        assertFloatEquals(5.0F, nearlyHealed.healingProgress(), "test setup must leave five H");
+        assertEquals(true, nearlyHealedState.applyIcePack(nearlyHealed.id()), "an ice pack may finish a nearly healed eligible wound");
+        assertEquals(true, nearlyHealedState.wounds().isEmpty(), "an ice pack that reaches zero H must remove the wound immediately");
     }
 
     private static void verifyPainAccumulationAndTags() {

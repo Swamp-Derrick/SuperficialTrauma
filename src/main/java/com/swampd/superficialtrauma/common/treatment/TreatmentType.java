@@ -13,6 +13,7 @@ public enum TreatmentType {
     MEDICAL_TAPE(ModItems.MEDICAL_TAPE::get),
     SELF_ADHESIVE_BANDAGE(ModItems.SELF_ADHESIVE_BANDAGE::get),
     MEDICAL_GAUZE(ModItems.MEDICAL_GAUZE::get),
+    ICE_PACK(ModItems.ICE_PACK::get),
     SALINE_SOLUTION(ModItems.SALINE_SOLUTION::get),
     SURGICAL_KIT(ModItems.SURGICAL_KIT::get);
 

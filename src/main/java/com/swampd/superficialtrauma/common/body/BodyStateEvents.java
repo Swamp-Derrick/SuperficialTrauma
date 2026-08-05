@@ -22,6 +22,8 @@ import net.minecraftforge.fml.common.Mod;
 
 @Mod.EventBusSubscriber(modid = SuperficialTrauma.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public final class BodyStateEvents {
+    private static final int INFECTION_NAUSEA_REFRESH_DURATION_TICKS = 5 * 20;
+
     private BodyStateEvents() {
     }
 
@@ -219,7 +221,14 @@ public final class BodyStateEvents {
 
     private static void updateInfectionEffects(ServerPlayer player, BodyState bodyState, long gameTime) {
         if (bodyState.hasInfectionNausea() && gameTime % 20L == 0L) {
-            player.addEffect(new MobEffectInstance(MobEffects.CONFUSION, 40, 0, false, false, true));
+            player.addEffect(new MobEffectInstance(
+                    MobEffects.CONFUSION,
+                    INFECTION_NAUSEA_REFRESH_DURATION_TICKS,
+                    0,
+                    false,
+                    false,
+                    true
+            ));
         }
     }
 

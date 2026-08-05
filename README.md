@@ -60,11 +60,12 @@ Phase 0's first vertical slice is implemented:
 - brain-death expiry performs one normal server death handoff so later corpse compatibility can remain downstream of the life-state machine;
 - server-side incapacitation restrictions for movement, attacks, block breaking, interaction, and item use;
 - server-to-client body-state snapshots;
-- network protocol 10, requiring the current JAR on the server and every test client;
+- network protocol 11, requiring the current JAR on the server and every test client;
 - an adaptive three-column health screen, opened with `H`, with treatment, medication, and emergency tabs;
 - server-authoritative, mutually exclusive treatment sessions with movement, sprint, damage, attack, item-use, reload, distance, disconnect, and inventory validation;
 - removable temporary dressings, three bandage combinations, and independent removable wound packing;
 - a complete first infection/debridement loop: protected severity-one wounds, per-wound infection contribution, hidden infection tags under coverings, nutrition-dependent systemic progression, healing reduction, nausea, sepsis downing, and twelve-second surgery-skilled debridement;
+- a disposable ice-pack treatment for severity-two blunt wounds: five seconds, one ice pack, immediate `-90 H`, and removal of that wound's `Pain 1` tag;
 - saline solution (stack 16), surgical kit (stack 1), and surgery skill book (stack 1), including permanent surgery knowledge across death and save/rejoin;
 - `/superficialtrauma status` and `/superficialtrauma selftest` diagnostics;
 - `/superficialtrauma reset [player]` completely clears the mod body state and restores vanilla survival health, hunger, air, effects, absorption, fire, freezing, embedded arrows/stingers, hurt cooldowns, and movement for repeatable cross-version testing; `/recover` remains an alias. Operators can use `/superficialtrauma setinfection <value>` for themselves or `/superficialtrauma setinfection <player> <value>` to set infection in the inclusive range 0 through 20.
@@ -148,6 +149,13 @@ Blood-loss pulses deduct vanilla health directly on the server instead of invoki
 7. With food level at least 15, systemic infection above `0.5` falls by `1` each online minute. Below 15 food it instead rises by `0.5`, `1.0`, or `1.5` according to the displayed infection band.
 8. Above infection 10, all vanilla healing is halved; above 17, nausea is continuously refreshed; reaching 20 incapacitates the player with collapse reason `sepsis`.
 9. Severity-one wounds are protected from natural and temporary-dressing infection in this version. `/superficialtrauma status` shows whole-body infection, per-wound contribution, deadlines, and learned surgery knowledge.
+
+### Manual nausea and ice-pack check
+
+1. Run `/superficialtrauma setinfection 17.5`. The nausea icon and vanilla nausea distortion must both appear; the effect is refreshed with enough remaining duration for the vanilla renderer to ramp up.
+2. Create a severity-two blunt wound with accumulated final damage in `[4, 13)`, then obtain an ice pack from the Superficial Trauma creative tab. Its current development texture intentionally reuses the vanilla snowball icon.
+3. Only that severity-two blunt wound should enable the ice-pack button. Completing the five-second action consumes one ice pack, changes `H` from `100` to `10`, and removes `Pain 1` from the wound.
+4. Confirm the same wound cannot consume a second ice pack. Save and rejoin; the reduced `H` and removed pain tag must remain.
 
 ### Manual bleeding check
 

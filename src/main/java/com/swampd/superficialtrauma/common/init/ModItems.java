@@ -30,6 +30,10 @@ public final class ModItems {
             "medical_gauze",
             () -> new Item(new Item.Properties())
     );
+    public static final RegistryObject<Item> ICE_PACK = ITEMS.register(
+            "ice_pack",
+            () -> new Item(new Item.Properties())
+    );
     public static final RegistryObject<Item> SALINE_SOLUTION = ITEMS.register(
             "saline_solution",
             () -> new Item(new Item.Properties().stacksTo(16))
