@@ -29,6 +29,11 @@ public enum TreatmentProcedure {
             TreatmentType.BANDAGE,
             new TreatmentIngredient(TreatmentType.BANDAGE, 1),
             new TreatmentIngredient(TreatmentType.SELF_ADHESIVE_BANDAGE, 1)
+    ),
+    WOUND_PACKING(
+            null,
+            TreatmentType.MEDICAL_GAUZE,
+            new TreatmentIngredient(TreatmentType.MEDICAL_GAUZE, 1)
     );
 
     private static final long DURATION_TICKS = 5L * 20L;
@@ -67,6 +72,9 @@ public enum TreatmentProcedure {
         if (wound == null || wound.isHealed()) {
             return false;
         }
+        if (isWoundPacking()) {
+            return wound.untreatedBleedingLevel(true) > 0;
+        }
         return wound.covering().isApplied()
                 || untreatedBleedingLevel(wound) > 0
                 || wound.type() == WoundType.EXPLOSION
@@ -77,9 +85,18 @@ public enum TreatmentProcedure {
         if (!supports(wound) || action == null) {
             return false;
         }
+        if (isWoundPacking()) {
+            return action == TreatmentAction.APPLY
+                    ? !wound.woundPackingApplied()
+                    : wound.woundPackingApplied();
+        }
         return action == TreatmentAction.APPLY
                 ? !wound.covering().isApplied()
                 : wound.covering() == covering;
+    }
+
+    public boolean isWoundPacking() {
+        return this == WOUND_PACKING;
     }
 
     public String serializedName() {
@@ -92,7 +109,7 @@ public enum TreatmentProcedure {
 
     public static TreatmentProcedure forCovering(WoundCovering covering) {
         for (TreatmentProcedure procedure : values()) {
-            if (procedure.covering == covering) {
+            if (procedure.covering != null && procedure.covering == covering) {
                 return procedure;
             }
         }
@@ -103,6 +120,7 @@ public enum TreatmentProcedure {
         return switch (type) {
             case TEMPORARY_DRESSING -> TEMPORARY_DRESSING;
             case SELF_ADHESIVE_BANDAGE -> SELF_ADHESIVE_BANDAGE;
+            case MEDICAL_GAUZE -> WOUND_PACKING;
             default -> null;
         };
     }
@@ -125,7 +143,6 @@ public enum TreatmentProcedure {
     }
 
     private static int untreatedBleedingLevel(WoundInstance wound) {
-        int effective = wound.bleedingLevel(true);
-        return effective + wound.covering().bleedingReduction();
+        return wound.untreatedBleedingLevel(true);
     }
 }

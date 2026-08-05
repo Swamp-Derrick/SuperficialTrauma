@@ -33,6 +33,7 @@ public final class BodyStateRoundTripTest {
         verifyWoundDefinitions();
         verifyTemporaryDressing();
         verifyCoveringVariants();
+        verifyWoundPacking();
         verifyTreatmentMovementRules();
         verifyPainAccumulationAndTags();
         verifyStressAndPainRecovery();
@@ -499,6 +500,53 @@ public final class BodyStateRoundTripTest {
                 "bandage and self-adhesive bandage must apply as one reinforced covering"
         );
         assertEquals(0, reinforced.bleedingLevel(false), "reinforced bandage must reduce bleeding by three with zero floor");
+    }
+
+    private static void verifyWoundPacking() {
+        BodyState state = new BodyState();
+        WoundInstance wound = requireWound(state.applyDamage(WoundType.SHARP, 15.0F, 0L));
+        assertEquals(3, wound.bleedingLevel(false), "severe sharp trauma must begin with bleeding 3");
+        assertEquals(
+                true,
+                state.applyCovering(wound.id(), WoundCovering.SELF_ADHESIVE_BANDAGE, 20L),
+                "a covering must apply before wound packing"
+        );
+        assertEquals(2, wound.bleedingLevel(false), "self-adhesive bandage must reduce bleeding by one");
+        assertEquals(true, state.applyWoundPacking(wound.id(), 21L), "medical gauze must pack a bleeding wound");
+        assertEquals(true, wound.woundPackingApplied(), "wound packing state must be visible on the wound");
+        assertEquals(
+                WoundCovering.SELF_ADHESIVE_BANDAGE,
+                wound.covering(),
+                "packing must not replace the wound covering"
+        );
+        assertEquals(0, wound.bleedingLevel(false), "covering reduction and packing reduction must stack with a zero floor");
+        assertEquals(-1L, wound.nextBleedingGameTime(), "fully controlled bleeding must stop its damage timer");
+        assertEquals(false, state.applyWoundPacking(wound.id(), 22L), "a wound must reject duplicate packing");
+
+        BodyState restoredState = new BodyState();
+        restoredState.deserializeNBT(state.serializeNBT());
+        WoundInstance restored = restoredState.wound(wound.id())
+                .orElseThrow(() -> new AssertionError("packed wound must survive NBT round trip"));
+        assertEquals(true, restored.woundPackingApplied(), "NBT must preserve wound packing");
+        assertEquals(
+                WoundCovering.SELF_ADHESIVE_BANDAGE,
+                restored.covering(),
+                "NBT must preserve packing and covering independently"
+        );
+        assertEquals(true, restoredState.removeWoundPacking(wound.id(), 40L), "wound packing must be removable");
+        assertEquals(false, restored.woundPackingApplied(), "packing state must clear after removal");
+        assertEquals(2, restored.bleedingLevel(false), "removing packing must retain the covering's reduction");
+        assertEquals(180L, restored.nextBleedingGameTime(), "removing packing must schedule a fresh bleeding-2 interval");
+        assertEquals(false, restoredState.removeWoundPacking(wound.id(), 41L), "removed packing must not be removable twice");
+
+        assertEquals(true, restoredState.applyWoundPacking(wound.id(), 42L), "packing must be applicable again after removal");
+        assertEquals(
+                true,
+                restoredState.removeCovering(wound.id(), WoundCovering.SELF_ADHESIVE_BANDAGE, 43L),
+                "covering must remain independently removable while packing is present"
+        );
+        assertEquals(true, restored.woundPackingApplied(), "removing a covering must not remove wound packing");
+        assertEquals(1, restored.bleedingLevel(false), "packing alone must reduce bleeding 3 to bleeding 1");
     }
 
     private static void verifyPainAccumulationAndTags() {

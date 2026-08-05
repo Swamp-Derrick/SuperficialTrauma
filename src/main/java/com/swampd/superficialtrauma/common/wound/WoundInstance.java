@@ -26,6 +26,7 @@ public final class WoundInstance {
     private static final String TAG_CLOSE_RANGE_SHOT = "CloseRangeShot";
     private static final String TAG_TEMPORARY_DRESSING = "TemporaryDressing";
     private static final String TAG_COVERING = "Covering";
+    private static final String TAG_WOUND_PACKING = "WoundPacking";
     private static final long SHARP_LEVEL_ONE_PAIN_TICKS = 10L * 20L;
 
     private final UUID id;
@@ -42,6 +43,7 @@ public final class WoundInstance {
     private boolean fragmentationEligible;
     private boolean closeRangeShot;
     private WoundCovering covering;
+    private boolean woundPackingApplied;
 
     private WoundInstance(
             UUID id,
@@ -57,7 +59,8 @@ public final class WoundInstance {
             int bleedingTimerLevel,
             boolean fragmentationEligible,
             boolean closeRangeShot,
-            WoundCovering covering
+            WoundCovering covering,
+            boolean woundPackingApplied
     ) {
         this.id = id;
         this.type = type;
@@ -73,6 +76,7 @@ public final class WoundInstance {
         this.fragmentationEligible = fragmentationEligible;
         this.closeRangeShot = closeRangeShot;
         this.covering = covering == null ? WoundCovering.NONE : covering;
+        this.woundPackingApplied = woundPackingApplied;
     }
 
     public static WoundInstance createBlunt(float accumulatedDamage, long createdGameTime, long windowEndGameTime) {
@@ -109,7 +113,8 @@ public final class WoundInstance {
                 initialBleedingLevel,
                 false,
                 false,
-                WoundCovering.NONE
+                WoundCovering.NONE,
+                false
         );
     }
 
@@ -148,7 +153,8 @@ public final class WoundInstance {
                 initialBleedingLevel,
                 fragmentationEligible,
                 closeRangeShot,
-                WoundCovering.NONE
+                WoundCovering.NONE,
+                false
         );
     }
 
@@ -193,8 +199,12 @@ public final class WoundInstance {
     }
 
     public int bleedingLevel(boolean movementBleedingActive) {
-        int untreatedLevel = bleedingLevel(woundTags, movementBleedingActive);
-        return Math.max(0, untreatedLevel - covering.bleedingReduction());
+        int treatmentReduction = covering.bleedingReduction() + (woundPackingApplied ? 2 : 0);
+        return Math.max(0, untreatedBleedingLevel(movementBleedingActive) - treatmentReduction);
+    }
+
+    public int untreatedBleedingLevel(boolean movementBleedingActive) {
+        return bleedingLevel(woundTags, movementBleedingActive);
     }
 
     public boolean fragmentationEligible() {
@@ -221,16 +231,16 @@ public final class WoundInstance {
         return covering;
     }
 
+    public boolean woundPackingApplied() {
+        return woundPackingApplied;
+    }
+
     public boolean applyCovering(WoundCovering newCovering, long gameTime) {
         if (newCovering == null || !newCovering.isApplied() || covering.isApplied() || isHealed()) {
             return false;
         }
         covering = newCovering;
-        int effectiveBleedingLevel = bleedingLevel(false);
-        bleedingTimerLevel = effectiveBleedingLevel;
-        nextBleedingGameTime = effectiveBleedingLevel > 0
-                ? gameTime + bleedingIntervalTicksFor(effectiveBleedingLevel)
-                : -1L;
+        rescheduleBleeding(gameTime);
         return true;
     }
 
@@ -239,12 +249,34 @@ public final class WoundInstance {
             return false;
         }
         covering = WoundCovering.NONE;
+        rescheduleBleeding(gameTime);
+        return true;
+    }
+
+    public boolean applyWoundPacking(long gameTime) {
+        if (woundPackingApplied || untreatedBleedingLevel(true) <= 0 || isHealed()) {
+            return false;
+        }
+        woundPackingApplied = true;
+        rescheduleBleeding(gameTime);
+        return true;
+    }
+
+    public boolean removeWoundPacking(long gameTime) {
+        if (!woundPackingApplied || isHealed()) {
+            return false;
+        }
+        woundPackingApplied = false;
+        rescheduleBleeding(gameTime);
+        return true;
+    }
+
+    private void rescheduleBleeding(long gameTime) {
         int effectiveBleedingLevel = bleedingLevel(false);
         bleedingTimerLevel = effectiveBleedingLevel;
         nextBleedingGameTime = effectiveBleedingLevel > 0
                 ? gameTime + bleedingIntervalTicksFor(effectiveBleedingLevel)
                 : -1L;
-        return true;
     }
 
     public boolean isAccumulationWindowOpen(long gameTime) {
@@ -276,6 +308,7 @@ public final class WoundInstance {
         int previousBleedingLevel = bleedingLevel(false);
         if (amount > 0.0F) {
             covering = WoundCovering.NONE;
+            woundPackingApplied = false;
         }
         accumulatedDamage = Math.max(0.0F, accumulatedDamage + amount);
         fragmentationEligible |= hitFragmentationEligible;
@@ -601,6 +634,7 @@ public final class WoundInstance {
         tag.putBoolean(TAG_CLOSE_RANGE_SHOT, closeRangeShot);
         tag.putString(TAG_COVERING, covering.serializedName());
         tag.putBoolean(TAG_TEMPORARY_DRESSING, covering == WoundCovering.TEMPORARY_DRESSING);
+        tag.putBoolean(TAG_WOUND_PACKING, woundPackingApplied);
 
         ListTag woundTagList = new ListTag();
         for (WoundTag woundTag : woundTags) {
@@ -653,7 +687,8 @@ public final class WoundInstance {
                         : 0,
                 tag.getBoolean(TAG_FRAGMENTATION_ELIGIBLE),
                 tag.getBoolean(TAG_CLOSE_RANGE_SHOT),
-                covering
+                covering,
+                tag.getBoolean(TAG_WOUND_PACKING)
         );
     }
 }

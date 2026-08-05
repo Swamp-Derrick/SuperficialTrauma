@@ -23,7 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 11;
+    public static final int CURRENT_DATA_VERSION = 12;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
@@ -339,6 +339,24 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     public boolean removeCovering(UUID woundId, WoundCovering expectedCovering, long gameTime) {
         Optional<WoundInstance> wound = wound(woundId);
         if (wound.isEmpty() || !wound.get().removeCovering(expectedCovering, gameTime)) {
+            return false;
+        }
+        markChanged();
+        return true;
+    }
+
+    public boolean applyWoundPacking(UUID woundId, long gameTime) {
+        Optional<WoundInstance> wound = wound(woundId);
+        if (wound.isEmpty() || !wound.get().applyWoundPacking(gameTime)) {
+            return false;
+        }
+        markChanged();
+        return true;
+    }
+
+    public boolean removeWoundPacking(UUID woundId, long gameTime) {
+        Optional<WoundInstance> wound = wound(woundId);
+        if (wound.isEmpty() || !wound.get().removeWoundPacking(gameTime)) {
             return false;
         }
         markChanged();

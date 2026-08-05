@@ -503,13 +503,16 @@ public final class HealthScreen extends Screen {
         if (wound.covering().isApplied()) {
             labels.add(Component.translatable(wound.covering().translationKey()).getString());
         }
+        if (wound.woundPackingApplied()) {
+            labels.add(Component.translatable("wound_packing.superficialtrauma.applied").getString());
+        }
 
         int effectiveBleedingLevel = wound.bleedingLevel(movementBleedingActive);
         if (effectiveBleedingLevel > 0) {
             labels.add(Component.translatable(
                     "wound_tag.superficialtrauma.bleeding_" + effectiveBleedingLevel
             ).getString());
-        } else if (hasBleedingTag && wound.covering().isApplied()) {
+        } else if (hasBleedingTag && (wound.covering().isApplied() || wound.woundPackingApplied())) {
             labels.add(Component.translatable("screen.superficialtrauma.health.bleeding_controlled").getString());
         }
 
@@ -541,13 +544,22 @@ public final class HealthScreen extends Screen {
             List<WoundInstance> visibleWounds = visibleWounds(displayedState(), availableHeight);
             int statusY = y + 30;
             for (WoundInstance wound : visibleWounds) {
-                if (wound.covering().isApplied()) {
+                if (wound.covering().isApplied() || wound.woundPackingApplied()) {
                     int statusOffset = 6 + TreatmentType.values().length * 25;
-                    Component status = Component.translatable(
-                            "screen.superficialtrauma.health.covering_status",
-                            Component.translatable(wound.covering().translationKey()),
-                            oneDecimal(wound.baseHealingPerSecond())
-                    );
+                    List<String> statusParts = new ArrayList<>();
+                    if (wound.covering().isApplied()) {
+                        statusParts.add(Component.translatable(
+                                "screen.superficialtrauma.health.covering_status",
+                                Component.translatable(wound.covering().translationKey()),
+                                oneDecimal(wound.baseHealingPerSecond())
+                        ).getString());
+                    }
+                    if (wound.woundPackingApplied()) {
+                        statusParts.add(Component.translatable(
+                                "screen.superficialtrauma.health.wound_packing_status"
+                        ).getString());
+                    }
+                    Component status = Component.literal(String.join(" · ", statusParts));
                     if (availableWidth - statusOffset >= 20) {
                         graphics.drawString(
                                 font,
@@ -636,6 +648,49 @@ public final class HealthScreen extends Screen {
         TreatmentProcedure appliedProcedure = TreatmentProcedure.forCovering(wound.covering());
         if (anyTreatmentActive) {
             tooltip = Component.translatable("screen.superficialtrauma.health.treatment_busy_tooltip");
+        } else if (preparation != null) {
+            if (preparation.matches(patientEntityId, wound.id())
+                    && (type == TreatmentType.MEDICAL_TAPE
+                    || type == TreatmentType.SELF_ADHESIVE_BANDAGE)) {
+                TreatmentProcedure procedure = TreatmentProcedure.bandageCombination(type);
+                active = procedure != null && hasRequiredItems(procedure);
+                tooltip = Component.translatable(
+                        "screen.superficialtrauma.health.treatment_combo_finish_tooltip",
+                        Component.translatable(type.translationKey())
+                );
+                if (procedure != null) {
+                    onPress = () -> submitPreparedTreatment(patientEntityId, wound.id(), procedure);
+                }
+            } else {
+                tooltip = Component.translatable("screen.superficialtrauma.health.treatment_preparation_locked");
+            }
+        } else if (type == TreatmentType.MEDICAL_GAUZE) {
+            TreatmentProcedure procedure = TreatmentProcedure.WOUND_PACKING;
+            if (wound.woundPackingApplied()) {
+                active = true;
+                removal = true;
+                message = Component.translatable(TreatmentAction.REMOVE.translationKey(procedure));
+                tooltip = Component.translatable(
+                        "screen.superficialtrauma.health.treatment_remove_tooltip",
+                        message,
+                        procedure.durationTicks() / 20L
+                );
+                onPress = () -> ModNetworking.requestTreatment(
+                        patientEntityId,
+                        wound.id(),
+                        procedure,
+                        TreatmentAction.REMOVE
+                );
+            } else {
+                active = procedure.isApplicable(wound, TreatmentAction.APPLY) && hasRequiredItems(procedure);
+                tooltip = Component.translatable("screen.superficialtrauma.health.medical_gauze_tooltip");
+                onPress = () -> ModNetworking.requestTreatment(
+                        patientEntityId,
+                        wound.id(),
+                        procedure,
+                        TreatmentAction.APPLY
+                );
+            }
         } else if (appliedProcedure != null) {
             if (type == appliedProcedure.removalAnchor()) {
                 active = true;
@@ -660,22 +715,6 @@ public final class HealthScreen extends Screen {
                         "screen.superficialtrauma.health.treatment_blocked_by_covering",
                         Component.translatable(wound.covering().translationKey())
                 );
-            }
-        } else if (preparation != null) {
-            if (preparation.matches(patientEntityId, wound.id())
-                    && (type == TreatmentType.MEDICAL_TAPE
-                    || type == TreatmentType.SELF_ADHESIVE_BANDAGE)) {
-                TreatmentProcedure procedure = TreatmentProcedure.bandageCombination(type);
-                active = procedure != null && hasRequiredItems(procedure);
-                tooltip = Component.translatable(
-                        "screen.superficialtrauma.health.treatment_combo_finish_tooltip",
-                        Component.translatable(type.translationKey())
-                );
-                if (procedure != null) {
-                    onPress = () -> submitPreparedTreatment(patientEntityId, wound.id(), procedure);
-                }
-            } else {
-                tooltip = Component.translatable("screen.superficialtrauma.health.treatment_preparation_locked");
             }
         } else {
             switch (type) {

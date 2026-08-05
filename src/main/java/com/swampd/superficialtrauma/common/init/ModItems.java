@@ -25,6 +25,10 @@ public final class ModItems {
             "self_adhesive_bandage",
             () -> new Item(new Item.Properties())
     );
+    public static final RegistryObject<Item> MEDICAL_GAUZE = ITEMS.register(
+            "medical_gauze",
+            () -> new Item(new Item.Properties())
+    );
 
     private ModItems() {
     }

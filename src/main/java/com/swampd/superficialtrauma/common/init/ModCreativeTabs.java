@@ -24,6 +24,7 @@ public final class ModCreativeTabs {
                         output.accept(ModItems.BANDAGE.get());
                         output.accept(ModItems.MEDICAL_TAPE.get());
                         output.accept(ModItems.SELF_ADHESIVE_BANDAGE.get());
+                        output.accept(ModItems.MEDICAL_GAUZE.get());
                     })
                     .build()
     );

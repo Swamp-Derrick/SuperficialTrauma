@@ -11,7 +11,8 @@ public enum TreatmentType {
     TEMPORARY_DRESSING(() -> Items.LEATHER),
     BANDAGE(ModItems.BANDAGE::get),
     MEDICAL_TAPE(ModItems.MEDICAL_TAPE::get),
-    SELF_ADHESIVE_BANDAGE(ModItems.SELF_ADHESIVE_BANDAGE::get);
+    SELF_ADHESIVE_BANDAGE(ModItems.SELF_ADHESIVE_BANDAGE::get),
+    MEDICAL_GAUZE(ModItems.MEDICAL_GAUZE::get);
 
     private final Supplier<Item> requiredItem;
 

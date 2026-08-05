@@ -170,9 +170,16 @@ public final class TreatmentService {
         }
 
         long gameTime = actor.serverLevel().getGameTime();
-        boolean changed = session.action() == TreatmentAction.APPLY
-                ? state.get().applyCovering(session.woundId(), session.procedure().covering(), gameTime)
-                : state.get().removeCovering(session.woundId(), session.procedure().covering(), gameTime);
+        boolean changed;
+        if (session.procedure().isWoundPacking()) {
+            changed = session.action() == TreatmentAction.APPLY
+                    ? state.get().applyWoundPacking(session.woundId(), gameTime)
+                    : state.get().removeWoundPacking(session.woundId(), gameTime);
+        } else {
+            changed = session.action() == TreatmentAction.APPLY
+                    ? state.get().applyCovering(session.woundId(), session.procedure().covering(), gameTime)
+                    : state.get().removeCovering(session.woundId(), session.procedure().covering(), gameTime);
+        }
         if (!changed) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.WOUND_CHANGED);
             return;
