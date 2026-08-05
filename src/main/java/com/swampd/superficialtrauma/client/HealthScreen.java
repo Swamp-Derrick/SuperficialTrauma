@@ -36,7 +36,10 @@ public final class HealthScreen extends Screen {
     private static final int GOOD_COLOR = 0xFF83C991;
     private static final int WARN_COLOR = 0xFFE3B866;
     private static final int DANGER_COLOR = 0xFFE06C75;
-    private static final int WOUND_ROW_HEIGHT = 43;
+    private static final int MINIMUM_WOUND_ROW_HEIGHT = 43;
+    private static final int TREATMENT_BUTTON_SIZE = 22;
+    private static final int TREATMENT_BUTTON_STEP = 25;
+    private static final int TREATMENT_BUTTON_TOP = 9;
 
     private final boolean inspectingOtherPlayer;
     private final int inspectedEntityId;
@@ -45,6 +48,7 @@ public final class HealthScreen extends Screen {
     private long lastInventorySignature = Long.MIN_VALUE;
     private boolean lastTreatmentActive;
     private TreatmentPreparation preparation;
+    private PanelMode panelMode = PanelMode.TREATMENT;
 
     public HealthScreen() {
         super(Component.translatable("screen.superficialtrauma.health.title"));
@@ -142,14 +146,17 @@ public final class HealthScreen extends Screen {
                 layout.middleX + 6,
                 layout.innerY + 6,
                 layout.middleWidth - 12,
-                contentHeight
+                contentHeight,
+                layout.rightWidth - 12
         );
-        drawTreatmentColumn(
+        drawRightPanel(
                 graphics,
+                state,
                 layout.rightX + 6,
                 layout.innerY + 6,
                 layout.rightWidth - 12,
-                contentHeight
+                contentHeight,
+                layout.middleWidth - 12
         );
         if (preparation != null) {
             drawPreparationShade(graphics, layout);
@@ -359,7 +366,8 @@ public final class HealthScreen extends Screen {
             int x,
             int y,
             int availableWidth,
-            int availableHeight
+            int availableHeight,
+            int treatmentAvailableWidth
     ) {
         graphics.drawString(
                 font,
@@ -370,7 +378,12 @@ public final class HealthScreen extends Screen {
                 false
         );
         List<WoundInstance> sortedWounds = sortedWounds(state);
-        List<WoundInstance> visibleWounds = visibleWounds(state, availableHeight);
+        List<WoundRow> visibleRows = visibleWoundRows(
+                state,
+                availableHeight,
+                availableWidth,
+                treatmentAvailableWidth
+        );
         int cardY = y + 16;
         if (sortedWounds.isEmpty()) {
             graphics.drawString(
@@ -384,17 +397,19 @@ public final class HealthScreen extends Screen {
             cardY += 18;
         }
 
-        for (WoundInstance wound : visibleWounds) {
+        for (WoundRow row : visibleRows) {
+            WoundInstance wound = row.wound();
+            int cardHeight = row.height() - 3;
             int cardColor = wound.severity() >= 3
                     ? 0xAA4C2529
                     : wound.severity() == 2 ? 0xAA4A3C24 : 0xAA263D31;
-            graphics.fill(x, cardY, x + availableWidth, cardY + 40, cardColor);
+            graphics.fill(x, cardY, x + availableWidth, cardY + cardHeight, cardColor);
             drawBorder(
                     graphics,
                     x,
                     cardY,
                     availableWidth,
-                    40,
+                    cardHeight,
                     wound.severity() >= 3 ? DANGER_COLOR : BORDER_COLOR
             );
             Component woundName = Component.translatable(wound.displayTranslationKey());
@@ -433,23 +448,20 @@ public final class HealthScreen extends Screen {
             );
             String tagSummary = woundTagSummary(wound, state.movementBleedingActive());
             if (!tagSummary.isEmpty()) {
-                graphics.drawString(
-                        font,
-                        font.plainSubstrByWidth(tagSummary, Math.max(20, availableWidth - 8)),
-                        x + 4,
-                        cardY + 28,
-                        MUTED_COLOR,
-                        false
-                );
+                int tagY = cardY + 28;
+                for (FormattedCharSequence line : woundTagLines(tagSummary, availableWidth)) {
+                    graphics.drawString(font, line, x + 4, tagY, MUTED_COLOR, false);
+                    tagY += 11;
+                }
             }
-            cardY += WOUND_ROW_HEIGHT;
+            cardY += row.height();
         }
 
         int columnBottom = y + availableHeight;
-        if (sortedWounds.size() > visibleWounds.size() && cardY + font.lineHeight <= columnBottom) {
+        if (sortedWounds.size() > visibleRows.size() && cardY + font.lineHeight <= columnBottom) {
             Component moreWounds = Component.translatable(
                     "screen.superficialtrauma.health.more_wounds",
-                    sortedWounds.size() - visibleWounds.size()
+                    sortedWounds.size() - visibleRows.size()
             );
             graphics.drawString(
                     font,
@@ -525,54 +537,91 @@ public final class HealthScreen extends Screen {
         return String.join(" · ", labels);
     }
 
-    private void drawTreatmentColumn(
+    private void drawRightPanel(
             GuiGraphics graphics,
+            BodyState state,
             int x,
             int y,
             int availableWidth,
-            int availableHeight
+            int availableHeight,
+            int middleAvailableWidth
     ) {
-        graphics.drawString(
-                font,
-                Component.translatable("screen.superficialtrauma.health.treatments"),
-                x,
-                y,
-                TITLE_COLOR,
-                false
+        switch (panelMode) {
+            case TREATMENT -> drawTreatmentColumn(
+                    graphics,
+                    state,
+                    x,
+                    y,
+                    availableWidth,
+                    availableHeight,
+                    middleAvailableWidth
+            );
+            case MEDICATION -> drawPanelPlaceholder(
+                    graphics,
+                    "screen.superficialtrauma.health.panel.medication_description",
+                    x,
+                    y + 22,
+                    availableWidth,
+                    availableHeight
+            );
+            case EMERGENCY -> drawPanelPlaceholder(
+                    graphics,
+                    "screen.superficialtrauma.health.panel.emergency_description",
+                    x,
+                    y + 22,
+                    availableWidth,
+                    availableHeight
+            );
+        }
+    }
+
+    private void drawTreatmentColumn(
+            GuiGraphics graphics,
+            BodyState state,
+            int x,
+            int y,
+            int availableWidth,
+            int availableHeight,
+            int middleAvailableWidth
+    ) {
+        List<WoundRow> visibleRows = visibleWoundRows(
+                state,
+                availableHeight,
+                middleAvailableWidth,
+                availableWidth
         );
-        if (hasSnapshot()) {
-            List<WoundInstance> visibleWounds = visibleWounds(displayedState(), availableHeight);
-            int statusY = y + 30;
-            for (WoundInstance wound : visibleWounds) {
-                if (wound.covering().isApplied() || wound.woundPackingApplied()) {
-                    int statusOffset = 6 + TreatmentType.values().length * 25;
-                    List<String> statusParts = new ArrayList<>();
-                    if (wound.covering().isApplied()) {
-                        statusParts.add(Component.translatable(
-                                "screen.superficialtrauma.health.covering_status",
-                                Component.translatable(wound.covering().translationKey()),
-                                oneDecimal(wound.baseHealingPerSecond())
-                        ).getString());
-                    }
-                    if (wound.woundPackingApplied()) {
-                        statusParts.add(Component.translatable(
-                                "screen.superficialtrauma.health.wound_packing_status"
-                        ).getString());
-                    }
-                    Component status = Component.literal(String.join(" · ", statusParts));
-                    if (availableWidth - statusOffset >= 20) {
-                        graphics.drawString(
-                                font,
-                                font.plainSubstrByWidth(status.getString(), availableWidth - statusOffset),
-                                x + statusOffset,
-                                statusY,
-                                GOOD_COLOR,
-                                false
-                        );
-                    }
+        int rowY = y + 16;
+        int buttonRows = treatmentButtonRows(availableWidth);
+        for (WoundRow row : visibleRows) {
+            WoundInstance wound = row.wound();
+            if (wound.covering().isApplied() || wound.woundPackingApplied()) {
+                int statusY = rowY + TREATMENT_BUTTON_TOP + buttonRows * TREATMENT_BUTTON_STEP;
+                List<String> statusParts = new ArrayList<>();
+                if (wound.covering().isApplied()) {
+                    statusParts.add(Component.translatable(
+                            "screen.superficialtrauma.health.covering_status",
+                            Component.translatable(wound.covering().translationKey()),
+                            oneDecimal(wound.baseHealingPerSecond())
+                    ).getString());
                 }
-                statusY += WOUND_ROW_HEIGHT;
+                if (wound.woundPackingApplied()) {
+                    statusParts.add(Component.translatable(
+                            "screen.superficialtrauma.health.wound_packing_status"
+                    ).getString());
+                }
+                Component status = Component.literal(String.join(" · ", statusParts));
+                if (statusY + font.lineHeight <= rowY + row.height()) {
+                    graphics.drawString(
+                            font,
+                            font.plainSubstrByWidth(status.getString(), Math.max(20, availableWidth - 8)),
+                            x + 4,
+                            statusY,
+                            GOOD_COLOR,
+                            false
+                    );
+                }
             }
+            rowY += row.height();
         }
         if (ClientTreatmentState.isActive()) {
             ClientTreatmentState.ActiveTreatment active = ClientTreatmentState.activeTreatment();
@@ -592,42 +641,110 @@ public final class HealthScreen extends Screen {
         }
     }
 
+    private void drawPanelPlaceholder(
+            GuiGraphics graphics,
+            String descriptionKey,
+            int x,
+            int y,
+            int availableWidth,
+            int availableHeight
+    ) {
+        drawWrappedWithin(
+                graphics,
+                Component.translatable(descriptionKey),
+                x + 4,
+                y,
+                availableWidth - 8,
+                MUTED_COLOR,
+                y + availableHeight - 18
+        );
+        graphics.drawCenteredString(
+                font,
+                Component.translatable("screen.superficialtrauma.health.panel.no_actions"),
+                x + availableWidth / 2,
+                y + Math.min(58, availableHeight / 2),
+                MUTED_COLOR
+        );
+    }
+
     private void rebuildTreatmentButtons() {
         clearWidgets();
         treatmentButtons.clear();
+        Layout layout = layout();
+        addPanelModeButtons(layout);
         if (!hasSnapshot() || minecraft == null || minecraft.player == null) {
             return;
         }
 
-        Layout layout = layout();
         BodyState state = displayedState();
-        List<WoundInstance> visibleWounds = visibleWounds(state, layout.innerHeight - 12);
         boolean anyTreatmentActive = ClientTreatmentState.isActive();
-        int patientEntityId = displayedEntityId();
-        int rowY = layout.innerY + 6 + 16;
+        if (panelMode == PanelMode.TREATMENT) {
+            int availableHeight = layout.innerHeight - 12;
+            int treatmentAvailableWidth = layout.rightWidth - 12;
+            List<WoundRow> visibleRows = visibleWoundRows(
+                    state,
+                    availableHeight,
+                    layout.middleWidth - 12,
+                    treatmentAvailableWidth
+            );
+            int patientEntityId = displayedEntityId();
+            int rowY = layout.innerY + 6 + 16;
+            int buttonsPerRow = treatmentButtonsPerRow(treatmentAvailableWidth);
 
-        for (int row = 0; row < visibleWounds.size(); row++) {
-            WoundInstance wound = visibleWounds.get(row);
-            if (!TreatmentProcedure.TEMPORARY_DRESSING.supports(wound)) {
-                continue;
-            }
-            int treatmentColumn = 0;
-            for (TreatmentType type : TreatmentType.values()) {
-                addTreatmentButton(
-                        layout.rightX + 10 + treatmentColumn * 25,
-                        rowY + row * WOUND_ROW_HEIGHT + 9,
-                        patientEntityId,
-                        wound,
-                        type,
-                        anyTreatmentActive
-                );
-                treatmentColumn++;
+            for (WoundRow row : visibleRows) {
+                WoundInstance wound = row.wound();
+                if (TreatmentProcedure.TEMPORARY_DRESSING.supports(wound)) {
+                    int treatmentIndex = 0;
+                    for (TreatmentType type : TreatmentType.values()) {
+                        addTreatmentButton(
+                                layout.rightX + 10 + treatmentIndex % buttonsPerRow * TREATMENT_BUTTON_STEP,
+                                rowY + TREATMENT_BUTTON_TOP
+                                        + treatmentIndex / buttonsPerRow * TREATMENT_BUTTON_STEP,
+                                patientEntityId,
+                                wound,
+                                type,
+                                anyTreatmentActive
+                        );
+                        treatmentIndex++;
+                    }
+                }
+                rowY += row.height();
             }
         }
 
         lastButtonRevision = state.revision();
         lastInventorySignature = inventorySignature();
         lastTreatmentActive = anyTreatmentActive;
+    }
+
+    private void addPanelModeButtons(Layout layout) {
+        int gap = 2;
+        int totalWidth = Math.max(60, layout.rightWidth - 6);
+        int tabWidth = Math.max(18, (totalWidth - gap * 2) / 3);
+        int startX = layout.rightX + 3;
+        int tabY = layout.innerY + 1;
+        int index = 0;
+        for (PanelMode mode : PanelMode.values()) {
+            int tabX = startX + index * (tabWidth + gap);
+            addRenderableWidget(new HealthPanelTabButton(
+                    tabX,
+                    tabY,
+                    tabWidth,
+                    Component.translatable(mode.translationKey()),
+                    panelMode == mode,
+                    () -> switchPanelMode(mode)
+            ));
+            index++;
+        }
+    }
+
+    private void switchPanelMode(PanelMode newMode) {
+        if (panelMode == newMode) {
+            return;
+        }
+        preparation = null;
+        panelMode = newMode;
+        rebuildTreatmentButtons();
     }
 
     private void addTreatmentButton(
@@ -852,11 +969,60 @@ public final class HealthScreen extends Screen {
         return sorted;
     }
 
-    private List<WoundInstance> visibleWounds(BodyState state, int availableHeight) {
+    private List<WoundRow> visibleWoundRows(
+            BodyState state,
+            int availableHeight,
+            int woundAvailableWidth,
+            int treatmentAvailableWidth
+    ) {
         List<WoundInstance> sorted = sortedWounds(state);
-        int maximumVisibleCards = Math.max(1, (availableHeight - 18) / WOUND_ROW_HEIGHT);
-        int count = Math.min(Math.min(5, maximumVisibleCards), sorted.size());
-        return new ArrayList<>(sorted.subList(0, count));
+        List<WoundRow> visible = new ArrayList<>();
+        int maximumRowsHeight = Math.max(0, availableHeight - 18);
+        int usedHeight = 0;
+        for (WoundInstance wound : sorted) {
+            if (visible.size() >= 5) {
+                break;
+            }
+            int rowHeight = woundRowHeight(wound, woundAvailableWidth, treatmentAvailableWidth);
+            if (!visible.isEmpty() && usedHeight + rowHeight > maximumRowsHeight) {
+                break;
+            }
+            visible.add(new WoundRow(wound, rowHeight));
+            usedHeight += rowHeight;
+        }
+        return visible;
+    }
+
+    private int woundRowHeight(
+            WoundInstance wound,
+            int woundAvailableWidth,
+            int treatmentAvailableWidth
+    ) {
+        String tagSummary = woundTagSummary(wound, displayedState().movementBleedingActive());
+        int tagLines = tagSummary.isEmpty() ? 0 : woundTagLines(tagSummary, woundAvailableWidth).size();
+        int woundContentHeight = MINIMUM_WOUND_ROW_HEIGHT + Math.max(0, tagLines - 1) * 11;
+        int treatmentContentHeight = TREATMENT_BUTTON_TOP
+                + treatmentButtonRows(treatmentAvailableWidth) * TREATMENT_BUTTON_STEP
+                + font.lineHeight;
+        return Math.max(woundContentHeight, treatmentContentHeight);
+    }
+
+    private List<FormattedCharSequence> woundTagLines(String tagSummary, int availableWidth) {
+        return font.split(Component.literal(tagSummary), Math.max(20, availableWidth - 8));
+    }
+
+    private int treatmentButtonsPerRow(int availableWidth) {
+        int buttonAreaWidth = Math.max(TREATMENT_BUTTON_SIZE, availableWidth - 8);
+        return Math.max(
+                1,
+                1 + Math.max(0, buttonAreaWidth - TREATMENT_BUTTON_SIZE) / TREATMENT_BUTTON_STEP
+        );
+    }
+
+    private int treatmentButtonRows(int availableWidth) {
+        int buttonCount = TreatmentType.values().length;
+        int buttonsPerRow = treatmentButtonsPerRow(availableWidth);
+        return Math.max(1, (buttonCount + buttonsPerRow - 1) / buttonsPerRow);
     }
 
     private int countItem(TreatmentType type) {
@@ -1072,6 +1238,25 @@ public final class HealthScreen extends Screen {
     ) {
         private boolean matches(int entityId, UUID candidateWoundId) {
             return patientEntityId == entityId && woundId.equals(candidateWoundId);
+        }
+    }
+
+    private record WoundRow(WoundInstance wound, int height) {
+    }
+
+    private enum PanelMode {
+        TREATMENT("screen.superficialtrauma.health.panel.treatment"),
+        MEDICATION("screen.superficialtrauma.health.panel.medication"),
+        EMERGENCY("screen.superficialtrauma.health.panel.emergency");
+
+        private final String translationKey;
+
+        PanelMode(String translationKey) {
+            this.translationKey = translationKey;
+        }
+
+        private String translationKey() {
+            return translationKey;
         }
     }
 }
