@@ -131,18 +131,31 @@ public final class BodyStateEvents {
                     traumaticMovement,
                     serverPlayer.getFoodData().getFoodLevel()
             );
+            InfusionProgression infusion = bodyState.advanceInfusion(gameTime);
+            if (infusion.healingAmount() > 0.0F && serverPlayer.isAlive()) {
+                serverPlayer.setHealth(Math.min(
+                        serverPlayer.getMaxHealth(),
+                        serverPlayer.getHealth() + infusion.healingAmount()
+                ));
+            }
+            if (result.bleedingDamage() > 0.0F && serverPlayer.isAlive()) {
+                BloodLossDamage.apply(serverPlayer, result.bleedingDamage());
+            }
+            AwakeningProgression awakening = bodyState.advanceAwakening(serverPlayer.getHealth(), gameTime);
             updateInfectionEffects(serverPlayer, bodyState, gameTime);
             updateNecrosisEffects(serverPlayer, bodyState, gameTime);
             boolean poseCaptured = !bodyState.canAct()
                     && bodyState.captureDownedPose(DownedPoseCapture.capture(serverPlayer, null, gameTime));
-            DownedHitbox.update(serverPlayer, bodyState);
-            if (result.bleedingDamage() > 0.0F && serverPlayer.isAlive()) {
-                BloodLossDamage.apply(serverPlayer, result.bleedingDamage());
+            if (awakening.completed()) {
+                DownedHitbox.restore(serverPlayer);
+            } else {
+                DownedHitbox.update(serverPlayer, bodyState);
             }
             notifyShockState(serverPlayer, bodyState, result, gameTime);
             notifyDownedState(serverPlayer, result);
+            notifyAwakeningState(serverPlayer, awakening);
             if (bodyState.lifeState() == BodyLifeState.BRAIN_DEAD) {
-                if (result.changed() || poseCaptured || shotgunVolleyResolved) {
+                if (result.changed() || infusion.changed() || awakening.changed() || poseCaptured || shotgunVolleyResolved) {
                     ModNetworking.syncBodyState(serverPlayer);
                 }
                 if (poseCaptured) {
@@ -152,10 +165,10 @@ public final class BodyStateEvents {
                 return;
             }
             enforceIncapacitation(serverPlayer, bodyState);
-            if (result.changed() || poseCaptured || shotgunVolleyResolved) {
+            if (result.changed() || infusion.changed() || awakening.changed() || poseCaptured || shotgunVolleyResolved) {
                 ModNetworking.syncBodyState(serverPlayer);
             }
-            if (poseCaptured) {
+            if (poseCaptured || awakening.completed()) {
                 ModNetworking.syncDownedPose(serverPlayer);
             }
         });
@@ -184,6 +197,20 @@ public final class BodyStateEvents {
         if (result.becameBrainDead()) {
             player.displayClientMessage(
                     Component.translatable("message.superficialtrauma.brain_death"),
+                    true
+            );
+        }
+    }
+
+    private static void notifyAwakeningState(ServerPlayer player, AwakeningProgression progression) {
+        if (progression.started()) {
+            player.displayClientMessage(
+                    Component.translatable("message.superficialtrauma.awakening_started"),
+                    true
+            );
+        } else if (progression.completed()) {
+            player.displayClientMessage(
+                    Component.translatable("message.superficialtrauma.awakening_completed"),
                     true
             );
         }

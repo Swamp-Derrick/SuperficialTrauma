@@ -1,8 +1,11 @@
 package com.swampd.superficialtrauma.client;
 
 import com.swampd.superficialtrauma.common.body.BodyState;
+import com.swampd.superficialtrauma.common.body.BodyLifeState;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
+import com.swampd.superficialtrauma.common.body.InfusionType;
 import com.swampd.superficialtrauma.common.damage.DamageWindow;
+import com.swampd.superficialtrauma.common.init.ModItems;
 import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentIngredient;
 import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
@@ -44,11 +47,13 @@ public final class HealthScreen extends Screen {
     private final boolean inspectingOtherPlayer;
     private final int inspectedEntityId;
     private final List<TreatmentItemButton> treatmentButtons = new ArrayList<>();
+    private final List<MedicalActionButton> medicalActionButtons = new ArrayList<>();
     private long lastButtonRevision = Long.MIN_VALUE;
     private long lastInventorySignature = Long.MIN_VALUE;
     private boolean lastTreatmentActive;
     private TreatmentPreparation preparation;
     private PanelMode panelMode = PanelMode.TREATMENT;
+    private boolean assistedBreathingHeld;
 
     public HealthScreen() {
         super(Component.translatable("screen.superficialtrauma.health.title"));
@@ -75,6 +80,9 @@ public final class HealthScreen extends Screen {
             return;
         }
         BodyState state = displayedState();
+        if (assistedBreathingHeld && !canAssistBreathing(state)) {
+            stopAssistedBreathing();
+        }
         boolean treatmentActive = ClientTreatmentState.isActive();
         if (preparation != null) {
             if (treatmentActive) {
@@ -164,6 +172,12 @@ public final class HealthScreen extends Screen {
 
         super.render(graphics, mouseX, mouseY, partialTick);
         for (TreatmentItemButton button : treatmentButtons) {
+            if (button.isHovered()) {
+                graphics.renderTooltip(font, button.tooltip(), mouseX, mouseY);
+                break;
+            }
+        }
+        for (MedicalActionButton button : medicalActionButtons) {
             if (button.isHovered()) {
                 graphics.renderTooltip(font, button.tooltip(), mouseX, mouseY);
                 break;
@@ -564,23 +578,46 @@ public final class HealthScreen extends Screen {
                     availableHeight,
                     middleAvailableWidth
             );
-            case MEDICATION -> drawPanelPlaceholder(
-                    graphics,
-                    "screen.superficialtrauma.health.panel.medication_description",
-                    x,
-                    y + 22,
-                    availableWidth,
-                    availableHeight
-            );
-            case EMERGENCY -> drawPanelPlaceholder(
-                    graphics,
-                    "screen.superficialtrauma.health.panel.emergency_description",
-                    x,
-                    y + 22,
-                    availableWidth,
-                    availableHeight
-            );
+            case MEDICATION -> drawMedicationColumn(graphics, state, x, y + 22, availableWidth, availableHeight);
+            case EMERGENCY -> drawEmergencyColumn(graphics, state, x, y + 22, availableWidth, availableHeight);
         }
+    }
+
+    private void drawMedicationColumn(
+            GuiGraphics graphics,
+            BodyState state,
+            int x,
+            int y,
+            int availableWidth,
+            int availableHeight
+    ) {
+        int textY = y + 30;
+        Component text = state.hasActiveInfusion()
+                ? Component.translatable(
+                        "screen.superficialtrauma.health.infusion_active",
+                        Component.translatable(state.infusionType().translationKey()),
+                        oneDecimal(state.infusionRemainingTicks(currentGameTime()) / 20.0F)
+                )
+                : Component.translatable("screen.superficialtrauma.health.infusion_available");
+        drawWrappedWithin(graphics, text, x + 4, textY, availableWidth - 8,
+                state.hasActiveInfusion() ? GOOD_COLOR : MUTED_COLOR, y + availableHeight - 18);
+    }
+
+    private void drawEmergencyColumn(
+            GuiGraphics graphics,
+            BodyState state,
+            int x,
+            int y,
+            int availableWidth,
+            int availableHeight
+    ) {
+        Component text = Component.translatable(
+                assistedBreathingHeld
+                        ? "screen.superficialtrauma.health.assisted_breathing_active"
+                        : "screen.superficialtrauma.health.assisted_breathing_available"
+        );
+        drawWrappedWithin(graphics, text, x + 4, y + 30, availableWidth - 8,
+                assistedBreathingHeld ? GOOD_COLOR : MUTED_COLOR, y + availableHeight - 18);
     }
 
     private void drawTreatmentColumn(
@@ -686,6 +723,7 @@ public final class HealthScreen extends Screen {
     private void rebuildTreatmentButtons() {
         clearWidgets();
         treatmentButtons.clear();
+        medicalActionButtons.clear();
         Layout layout = layout();
         addPanelModeButtons(layout);
         if (!hasSnapshot() || minecraft == null || minecraft.player == null) {
@@ -726,6 +764,10 @@ public final class HealthScreen extends Screen {
                 }
                 rowY += row.height();
             }
+        } else if (panelMode == PanelMode.MEDICATION) {
+            addInfusionButtons(layout, state);
+        } else if (panelMode == PanelMode.EMERGENCY) {
+            addAssistedBreathingButton(layout, state);
         }
 
         lastButtonRevision = state.revision();
@@ -758,9 +800,102 @@ public final class HealthScreen extends Screen {
         if (panelMode == newMode) {
             return;
         }
+        stopAssistedBreathing();
         preparation = null;
         panelMode = newMode;
         rebuildTreatmentButtons();
+    }
+
+    private void addInfusionButtons(Layout layout, BodyState state) {
+        int x = layout.rightX + 10;
+        int y = layout.innerY + 6 + 22;
+        addInfusionButton(x, y, state, InfusionType.BLOOD_BAG, ModItems.BLOOD_BAG.get());
+        addInfusionButton(
+                x + TREATMENT_BUTTON_STEP,
+                y,
+                state,
+                InfusionType.SALINE,
+                ModItems.SALINE_SOLUTION.get()
+        );
+    }
+
+    private void addInfusionButton(int x, int y, BodyState state, InfusionType type, Item item) {
+        boolean active = inspectingOtherPlayer
+                && actorCanAct()
+                && !state.canAct()
+                && state.lifeState() != BodyLifeState.BRAIN_DEAD
+                && !state.hasActiveInfusion()
+                && countItem(item) > 0;
+        Component tooltip = Component.translatable(
+                "screen.superficialtrauma.health.infusion_tooltip",
+                Component.translatable(type.translationKey()),
+                oneDecimal(type.healingPerPulse()),
+                BodyState.INFUSION_DURATION_TICKS / 20L
+        );
+        MedicalActionButton button = new MedicalActionButton(
+                x,
+                y,
+                item,
+                Component.translatable(type.translationKey()),
+                tooltip,
+                () -> ModNetworking.requestInfusion(displayedEntityId(), type)
+        );
+        button.active = active;
+        medicalActionButtons.add(addRenderableWidget(button));
+    }
+
+    private void addAssistedBreathingButton(Layout layout, BodyState state) {
+        MedicalActionButton button = new MedicalActionButton(
+                layout.rightX + 10,
+                layout.innerY + 6 + 22,
+                ModItems.MANUAL_RESUSCITATOR.get(),
+                Component.translatable("screen.superficialtrauma.health.assisted_breathing"),
+                Component.translatable("screen.superficialtrauma.health.assisted_breathing_tooltip"),
+                this::beginAssistedBreathing
+        );
+        button.active = canAssistBreathing(state);
+        medicalActionButtons.add(addRenderableWidget(button));
+    }
+
+    private boolean canAssistBreathing(BodyState state) {
+        return inspectingOtherPlayer
+                && actorCanAct()
+                && patientInAssistedBreathingRange()
+                && (state.lifeState() == BodyLifeState.INCAPACITATED
+                || state.lifeState() == BodyLifeState.AWAKENING)
+                && countItem(ModItems.MANUAL_RESUSCITATOR.get()) > 0;
+    }
+
+    private boolean patientInAssistedBreathingRange() {
+        if (minecraft == null || minecraft.player == null || minecraft.level == null) {
+            return false;
+        }
+        Entity patient = minecraft.level.getEntity(displayedEntityId());
+        return patient != null
+                && minecraft.player.distanceToSqr(patient) <= 2.5D * 2.5D
+                && minecraft.player.hasLineOfSight(patient);
+    }
+
+    private boolean actorCanAct() {
+        return ClientBodyState.hasReceivedSnapshot() && ClientBodyState.snapshot().canAct();
+    }
+
+    private void beginAssistedBreathing() {
+        if (assistedBreathingHeld) {
+            return;
+        }
+        assistedBreathingHeld = true;
+        ModNetworking.setAssistedBreathing(displayedEntityId(), true);
+    }
+
+    private void stopAssistedBreathing() {
+        if (!assistedBreathingHeld) {
+            return;
+        }
+        assistedBreathingHeld = false;
+        if (minecraft != null && minecraft.getConnection() != null) {
+            ModNetworking.setAssistedBreathing(displayedEntityId(), false);
+        }
     }
 
     private void addTreatmentButton(
@@ -1106,6 +1241,8 @@ public final class HealthScreen extends Screen {
         for (TreatmentType type : TreatmentType.values()) {
             signature = signature * 31L + countItem(type);
         }
+        signature = signature * 31L + countItem(ModItems.BLOOD_BAG.get());
+        signature = signature * 31L + countItem(ModItems.MANUAL_RESUSCITATOR.get());
         return signature;
     }
 
@@ -1326,6 +1463,7 @@ public final class HealthScreen extends Screen {
 
     @Override
     public void removed() {
+        stopAssistedBreathing();
         preparation = null;
         super.removed();
         if (inspectingOtherPlayer) {
@@ -1337,12 +1475,24 @@ public final class HealthScreen extends Screen {
     }
 
     @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == 0) {
+            stopAssistedBreathing();
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
     public boolean isPauseScreen() {
         return false;
     }
 
     private static String oneDecimal(float value) {
         return String.format(Locale.ROOT, "%.1f", value);
+    }
+
+    private long currentGameTime() {
+        return minecraft != null && minecraft.level != null ? minecraft.level.getGameTime() : 0L;
     }
 
     private static String compactIdentifier(String identifier) {

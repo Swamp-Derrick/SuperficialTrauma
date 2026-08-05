@@ -123,12 +123,12 @@ public final class DamageEvents {
                 event.setAmount(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
             }
             boolean becameDowned = lethalHit
-                    && bodyState.incapacitate(CollapseReason.LETHAL_DAMAGE, gameTime);
+                    && bodyState.incapacitate(CollapseReason.HEMORRHAGIC_SHOCK, gameTime);
             if (becameDowned) {
                 bodyState.captureDownedPose(DownedPoseCapture.capture(player, event.getSource(), gameTime));
                 DownedHitbox.update(player, bodyState);
                 player.displayClientMessage(
-                        Component.translatable("message.superficialtrauma.lethal_damage_incapacitated"),
+                        Component.translatable("message.superficialtrauma.hemorrhagic_shock_incapacitated"),
                         true
                 );
             }

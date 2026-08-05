@@ -48,6 +48,10 @@ public final class BodyStateRoundTripTest {
         verifyShockWarningCancellationAndNbt();
         verifyLethalDamageIncapacitation();
         verifyDownedDamageCountdowns();
+        verifyAssistedBreathing();
+        verifyInfusionProgression();
+        verifyTraumaticShockAwakeningAndRetryCooldown();
+        verifyHemorrhagicShockAwakeningRequirements();
         verifyDownedPostureClassification();
         verifyDownedGeometry();
         verifyDownedPoseSnapshotAndReset();
@@ -325,6 +329,68 @@ public final class BodyStateRoundTripTest {
         assertEquals(WoundUpdateResult.Status.CREATED, second.status(), "second hit must cross the 1.5 threshold");
         assertEquals(1, state.wounds().size(), "crossing the threshold must create one wound");
         assertFloatEquals(1.5F, state.wounds().get(0).accumulatedDamage(), "pending A must carry into the wound");
+    }
+
+    private static void verifyAssistedBreathing() {
+        BodyState state = new BodyState();
+        assertEquals(true, state.incapacitate(CollapseReason.HEMORRHAGIC_SHOCK, 0L), "test patient must become downed");
+        long initialDeadline = state.bloodOxygenDeadlineGameTime();
+        assertEquals(true, state.advanceAssistedBreathing(20L, 0, 20L, true), "assisted breathing must apply while incapacitated");
+        assertEquals(initialDeadline + 20L, state.bloodOxygenDeadlineGameTime(), "assisted breathing must pause natural oxygen loss");
+        assertEquals(true, state.advanceAssistedBreathing(40L, 1, 60L, true), "three held seconds must grant an oxygen pulse");
+        assertEquals(initialDeadline + 240L, state.bloodOxygenDeadlineGameTime(), "one oxygen point must add nine seconds after pausing three seconds");
+        assertFloatEquals(21.0F, state.bloodOxygen(), "one completed assisted-breathing pulse must restore one oxygen point");
+    }
+
+    private static void verifyInfusionProgression() {
+        BodyState blood = new BodyState();
+        blood.incapacitate(CollapseReason.HEMORRHAGIC_SHOCK, 0L);
+        assertEquals(true, blood.startInfusion(InfusionType.BLOOD_BAG, 0L), "blood infusion must start on a downed patient");
+        assertEquals(false, blood.startInfusion(InfusionType.SALINE, 1L), "a second infusion must be rejected while one is active");
+        assertFloatEquals(0.5F, blood.advanceInfusion(20L).healingAmount(), "blood must restore 0.5 health each second");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(blood.serializeNBT());
+        assertEquals(InfusionType.BLOOD_BAG, restored.infusionType(), "active infusion type must survive NBT round trip");
+        InfusionProgression remainder = restored.advanceInfusion(BodyState.INFUSION_DURATION_TICKS);
+        assertFloatEquals(14.5F, remainder.healingAmount(), "the remaining twenty-nine blood pulses must total 14.5 health");
+        assertEquals(true, remainder.completed(), "blood infusion must finish at thirty seconds");
+        assertEquals(false, restored.hasActiveInfusion(), "a completed infusion must clear itself");
+
+        BodyState saline = new BodyState();
+        saline.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 0L);
+        saline.startInfusion(InfusionType.SALINE, 0L);
+        assertFloatEquals(7.5F, saline.advanceInfusion(BodyState.INFUSION_DURATION_TICKS).healingAmount(), "thirty saline pulses must total 7.5 health");
+    }
+
+    private static void verifyTraumaticShockAwakeningAndRetryCooldown() {
+        BodyState state = new BodyState();
+        state.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 0L);
+        assertEquals(false, state.advanceAwakening(5.0F, 0L).changed(), "health equal to five must not begin awakening");
+        assertEquals(true, state.advanceAwakening(5.1F, 1L).started(), "pain below twenty and health above five must begin awakening");
+
+        state.applyDownedDamage(1.0F, 20L);
+        assertEquals(BodyLifeState.INCAPACITATED, state.lifeState(), "damage during awakening must return the patient to incapacitated");
+        assertEquals(BodyState.AWAKENING_DURATION_TICKS, state.awakeningRetryRemainingTicks(20L), "damage must impose a twenty-second awakening retry cooldown");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(state.serializeNBT());
+        assertEquals(1L, restored.awakeningRetryRemainingTicks(20L + BodyState.AWAKENING_DURATION_TICKS - 1L), "awakening retry cooldown must survive NBT");
+        assertEquals(false, restored.advanceAwakening(6.0F, 20L + BodyState.AWAKENING_DURATION_TICKS - 1L).changed(), "awakening must remain blocked until the cooldown ends");
+        long retryEnd = 20L + BodyState.AWAKENING_DURATION_TICKS;
+        assertEquals(true, restored.advanceAwakening(6.0F, retryEnd).started(), "awakening requirements must be checked again when cooldown ends");
+        assertEquals(true, restored.advanceAwakening(6.0F, retryEnd + BodyState.AWAKENING_DURATION_TICKS).completed(), "twenty uninterrupted seconds must restore action");
+        assertEquals(BodyLifeState.ACTIVE, restored.lifeState(), "completed awakening must restore the active state");
+        assertEquals(CollapseReason.NONE, restored.collapseReason(), "completed awakening must clear collapse reason");
+    }
+
+    private static void verifyHemorrhagicShockAwakeningRequirements() {
+        BodyState state = new BodyState();
+        WoundInstance wound = requireWound(state.applyDamage(WoundType.SHARP, 5.0F, 0L));
+        state.incapacitate(CollapseReason.HEMORRHAGIC_SHOCK, 1L);
+        assertEquals(false, state.advanceAwakening(11.0F, 2L).changed(), "an untreated bleeding wound must block hemorrhagic-shock awakening");
+        assertEquals(true, state.applyWoundPacking(wound.id(), 3L), "packing must control the test wound's bleeding");
+        assertEquals(true, state.advanceAwakening(11.0F, 4L).started(), "health above ten and all bleeding controlled must begin awakening");
     }
 
     private static void verifyIndependentDamageWindows() {

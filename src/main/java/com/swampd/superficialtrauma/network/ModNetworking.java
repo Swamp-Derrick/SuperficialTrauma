@@ -3,6 +3,7 @@ package com.swampd.superficialtrauma.network;
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.BodyState;
+import com.swampd.superficialtrauma.common.body.InfusionType;
 import com.swampd.superficialtrauma.common.treatment.TreatmentCancelReason;
 import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentSession;
@@ -18,6 +19,8 @@ import com.swampd.superficialtrauma.network.packet.InspectionSnapshotS2CPacket;
 import com.swampd.superficialtrauma.network.packet.RequestInspectionC2SPacket;
 import com.swampd.superficialtrauma.network.packet.StartTreatmentC2SPacket;
 import com.swampd.superficialtrauma.network.packet.TreatmentSessionS2CPacket;
+import com.swampd.superficialtrauma.network.packet.AirwayActionC2SPacket;
+import com.swampd.superficialtrauma.network.packet.StartInfusionC2SPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkDirection;
@@ -31,7 +34,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "12";
+    private static final String PROTOCOL_VERSION = "13";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -134,6 +137,22 @@ public final class ModNetworking {
                 TreatmentSessionS2CPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT)
         );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                AirwayActionC2SPacket.class,
+                AirwayActionC2SPacket::encode,
+                AirwayActionC2SPacket::decode,
+                AirwayActionC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                StartInfusionC2SPacket.class,
+                StartInfusionC2SPacket::encode,
+                StartInfusionC2SPacket::decode,
+                StartInfusionC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
     }
 
     public static void syncBodyState(ServerPlayer player) {
@@ -187,6 +206,14 @@ public final class ModNetworking {
             TreatmentAction action
     ) {
         CHANNEL.sendToServer(new StartTreatmentC2SPacket(patientEntityId, woundId, procedure, action));
+    }
+
+    public static void setAssistedBreathing(int patientEntityId, boolean active) {
+        CHANNEL.sendToServer(new AirwayActionC2SPacket(patientEntityId, active));
+    }
+
+    public static void requestInfusion(int patientEntityId, InfusionType type) {
+        CHANNEL.sendToServer(new StartInfusionC2SPacket(patientEntityId, type));
     }
 
     public static void sendInspectionSnapshot(

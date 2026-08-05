@@ -24,9 +24,10 @@ public final class TreatmentEvents {
     private TreatmentEvents() {
     }
 
-    @SubscribeEvent
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
         if (event.phase == TickEvent.Phase.END && event.player instanceof ServerPlayer player) {
+            AirwayService.tick(player);
             TreatmentService.tick(player);
             InspectionService.tick(player);
         }
@@ -36,6 +37,7 @@ public final class TreatmentEvents {
     public static void onDamage(LivingDamageEvent event) {
         if (event.getAmount() > 0.0F && event.getEntity() instanceof ServerPlayer player) {
             TreatmentService.cancelInvolving(player, TreatmentCancelReason.DAMAGE);
+            AirwayService.cancelInvolving(player);
         }
     }
 
@@ -86,6 +88,7 @@ public final class TreatmentEvents {
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             TreatmentService.cancelInvolving(player, TreatmentCancelReason.DISCONNECTED);
+            AirwayService.cancelInvolving(player);
             InspectionService.forgetPlayer(player);
         }
     }
@@ -93,12 +96,14 @@ public final class TreatmentEvents {
     @SubscribeEvent
     public static void onServerStopped(ServerStoppedEvent event) {
         TreatmentService.clearAll();
+        AirwayService.clearAll();
         InspectionService.clearAll();
     }
 
     private static void cancelAction(net.minecraft.world.entity.player.Player player) {
         if (player instanceof ServerPlayer serverPlayer) {
             TreatmentService.cancelInvolving(serverPlayer, TreatmentCancelReason.ACTION);
+            AirwayService.cancelInvolving(serverPlayer);
         }
     }
 }

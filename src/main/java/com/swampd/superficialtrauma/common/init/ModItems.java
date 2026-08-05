@@ -43,6 +43,14 @@ public final class ModItems {
             "saline_solution",
             () -> new Item(new Item.Properties().stacksTo(16))
     );
+    public static final RegistryObject<Item> BLOOD_BAG = ITEMS.register(
+            "blood_bag",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
+    public static final RegistryObject<Item> MANUAL_RESUSCITATOR = ITEMS.register(
+            "manual_resuscitator",
+            () -> new Item(new Item.Properties().stacksTo(1))
+    );
     public static final RegistryObject<Item> SURGICAL_KIT = ITEMS.register(
             "surgical_kit",
             () -> new Item(new Item.Properties().stacksTo(1))

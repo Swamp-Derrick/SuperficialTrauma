@@ -23,7 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 14;
+    public static final int CURRENT_DATA_VERSION = 15;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
@@ -38,6 +38,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     public static final long CARDIAC_ARREST_DURATION_TICKS = 180L * 20L;
     public static final long DOWNED_DAMAGE_TICKS_PER_POINT = 10L * 20L;
     public static final long INFECTION_SETTLEMENT_INTERVAL_TICKS = 60L * 20L;
+    public static final long AWAKENING_DURATION_TICKS = 20L * 20L;
+    public static final long INFUSION_DURATION_TICKS = 30L * 20L;
+    public static final long INFUSION_PULSE_INTERVAL_TICKS = 20L;
 
     private static final String TAG_DATA_VERSION = "DataVersion";
     private static final String TAG_REVISION = "Revision";
@@ -56,6 +59,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_BRAIN_DEATH_DEADLINE = "BrainDeathDeadlineGameTime";
     private static final String TAG_CARDIAC_ARREST_EVENT_ID = "CardiacArrestEventId";
     private static final String TAG_ACCUMULATED_CPR_SECONDS = "AccumulatedCprSeconds";
+    private static final String TAG_AWAKENING_END_GAME_TIME = "AwakeningEndGameTime";
+    private static final String TAG_AWAKENING_RETRY_GAME_TIME = "AwakeningRetryGameTime";
+    private static final String TAG_INFUSION_TYPE = "InfusionType";
+    private static final String TAG_INFUSION_END_GAME_TIME = "InfusionEndGameTime";
+    private static final String TAG_NEXT_INFUSION_PULSE_GAME_TIME = "NextInfusionPulseGameTime";
     private static final String TAG_DOWNED_GAME_TIME = "DownedGameTime";
     private static final String TAG_DOWNED_BODY_YAW = "DownedBodyYaw";
     private static final String TAG_DOWNED_POSTURE = "DownedPosture";
@@ -93,6 +101,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private long brainDeathDeadlineGameTime;
     private UUID cardiacArrestEventId;
     private int accumulatedCprSeconds;
+    private long awakeningEndGameTime;
+    private long awakeningRetryGameTime;
+    private InfusionType infusionType;
+    private long infusionEndGameTime;
+    private long nextInfusionPulseGameTime;
     private long downedGameTime;
     private float downedBodyYaw;
     private DownedPosture downedPosture;
@@ -276,6 +289,38 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return bloodOxygenDeadlineGameTime;
     }
 
+    public long awakeningEndGameTime() {
+        return awakeningEndGameTime;
+    }
+
+    public long awakeningRemainingTicks(long gameTime) {
+        return lifeState != BodyLifeState.AWAKENING || awakeningEndGameTime < 0L
+                ? 0L
+                : Math.max(0L, awakeningEndGameTime - gameTime);
+    }
+
+    public long awakeningRetryRemainingTicks(long gameTime) {
+        return awakeningRetryGameTime < 0L ? 0L : Math.max(0L, awakeningRetryGameTime - gameTime);
+    }
+
+    public InfusionType infusionType() {
+        return infusionType;
+    }
+
+    public long infusionEndGameTime() {
+        return infusionEndGameTime;
+    }
+
+    public long infusionRemainingTicks(long gameTime) {
+        return infusionType == InfusionType.NONE || infusionEndGameTime < 0L
+                ? 0L
+                : Math.max(0L, infusionEndGameTime - gameTime);
+    }
+
+    public boolean hasActiveInfusion() {
+        return infusionType != InfusionType.NONE;
+    }
+
     public long downedDangerRemainingTicks(long gameTime) {
         long deadline = switch (lifeState) {
             case INCAPACITATED, AWAKENING -> bloodOxygenDeadlineGameTime;
@@ -296,6 +341,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
         if (lifeState == BodyLifeState.AWAKENING) {
             lifeState = BodyLifeState.INCAPACITATED;
+            awakeningEndGameTime = -1L;
+            awakeningRetryGameTime = saturatingAdd(gameTime, AWAKENING_DURATION_TICKS);
         }
 
         long shortenedTicks = Math.max(
@@ -328,6 +375,131 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 previousState,
                 lifeState
         );
+    }
+
+    public boolean advanceAssistedBreathing(
+            long elapsedTicks,
+            int completedOxygenPulses,
+            long gameTime,
+            boolean publish
+    ) {
+        if ((lifeState != BodyLifeState.INCAPACITATED && lifeState != BodyLifeState.AWAKENING)
+                || elapsedTicks < 0L
+                || completedOxygenPulses < 0
+                || gameTime < 0L) {
+            return false;
+        }
+
+        ensureBloodOxygenDeadline(gameTime);
+        long extension = Math.max(0L, elapsedTicks)
+                + (long) completedOxygenPulses * BLOOD_OXYGEN_POINT_DURATION_TICKS;
+        long maximumDeadline = saturatingAdd(
+                gameTime,
+                Math.round((double) MAX_BLOOD_OXYGEN * BLOOD_OXYGEN_POINT_DURATION_TICKS)
+        );
+        bloodOxygenDeadlineGameTime = Math.min(
+                maximumDeadline,
+                saturatingAdd(Math.max(gameTime, bloodOxygenDeadlineGameTime), extension)
+        );
+        long remainingTicks = Math.max(0L, bloodOxygenDeadlineGameTime - gameTime);
+        bloodOxygen = clamp(
+                (float) Math.ceil(remainingTicks / (double) BLOOD_OXYGEN_POINT_DURATION_TICKS),
+                0.0F,
+                MAX_BLOOD_OXYGEN
+        );
+        if (publish) {
+            markChanged();
+        }
+        return true;
+    }
+
+    public boolean startInfusion(InfusionType type, long gameTime) {
+        if (type == null
+                || type == InfusionType.NONE
+                || gameTime < 0L
+                || canAct()
+                || lifeState == BodyLifeState.BRAIN_DEAD
+                || hasActiveInfusion()) {
+            return false;
+        }
+        infusionType = type;
+        infusionEndGameTime = saturatingAdd(gameTime, INFUSION_DURATION_TICKS);
+        nextInfusionPulseGameTime = saturatingAdd(gameTime, INFUSION_PULSE_INTERVAL_TICKS);
+        markChanged();
+        return true;
+    }
+
+    public InfusionProgression advanceInfusion(long gameTime) {
+        if (!hasActiveInfusion()) {
+            return InfusionProgression.unchanged();
+        }
+        if (canAct() || lifeState == BodyLifeState.BRAIN_DEAD) {
+            clearInfusion();
+            markChanged();
+            return new InfusionProgression(true, 0.0F, true);
+        }
+        if (gameTime < 0L || infusionEndGameTime < 0L || nextInfusionPulseGameTime < 0L) {
+            return InfusionProgression.unchanged();
+        }
+
+        float healingAmount = 0.0F;
+        long lastEligiblePulse = Math.min(gameTime, infusionEndGameTime);
+        if (nextInfusionPulseGameTime <= lastEligiblePulse) {
+            long completedPulses = 1L
+                    + (lastEligiblePulse - nextInfusionPulseGameTime) / INFUSION_PULSE_INTERVAL_TICKS;
+            healingAmount = completedPulses * infusionType.healingPerPulse();
+            nextInfusionPulseGameTime = saturatingAdd(
+                    nextInfusionPulseGameTime,
+                    completedPulses * INFUSION_PULSE_INTERVAL_TICKS
+            );
+        }
+
+        boolean completed = gameTime >= infusionEndGameTime
+                && nextInfusionPulseGameTime > infusionEndGameTime;
+        if (completed) {
+            clearInfusion();
+        }
+        if (healingAmount > 0.0F || completed) {
+            markChanged();
+            return new InfusionProgression(true, healingAmount, completed);
+        }
+        return InfusionProgression.unchanged();
+    }
+
+    public AwakeningProgression advanceAwakening(float vanillaHealth, long gameTime) {
+        if (gameTime < 0L) {
+            return AwakeningProgression.unchanged();
+        }
+        if (lifeState == BodyLifeState.AWAKENING) {
+            if (!meetsAwakeningRequirements(vanillaHealth)) {
+                lifeState = BodyLifeState.INCAPACITATED;
+                awakeningEndGameTime = -1L;
+                markChanged();
+                return AwakeningProgression.cancelledNow();
+            }
+            if (awakeningEndGameTime < 0L) {
+                awakeningEndGameTime = saturatingAdd(gameTime, AWAKENING_DURATION_TICKS);
+                markChanged();
+                return AwakeningProgression.startedNow();
+            }
+            if (gameTime >= awakeningEndGameTime) {
+                finishAwakening();
+                markChanged();
+                return AwakeningProgression.completedNow();
+            }
+            return AwakeningProgression.unchanged();
+        }
+        if (lifeState != BodyLifeState.INCAPACITATED
+                || gameTime < awakeningRetryGameTime
+                || !meetsAwakeningRequirements(vanillaHealth)) {
+            return AwakeningProgression.unchanged();
+        }
+
+        lifeState = BodyLifeState.AWAKENING;
+        awakeningEndGameTime = saturatingAdd(gameTime, AWAKENING_DURATION_TICKS);
+        awakeningRetryGameTime = -1L;
+        markChanged();
+        return AwakeningProgression.startedNow();
     }
 
     public Optional<UUID> cardiacArrestEventId() {
@@ -922,7 +1094,46 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         brainDeathDeadlineGameTime = -1L;
         cardiacArrestEventId = null;
         accumulatedCprSeconds = 0;
+        awakeningEndGameTime = -1L;
+        awakeningRetryGameTime = -1L;
         shockWarningEndGameTime = -1L;
+    }
+
+    private boolean meetsAwakeningRequirements(float vanillaHealth) {
+        if (!Float.isFinite(vanillaHealth) || infection >= 20.0F) {
+            return false;
+        }
+        return switch (collapseReason) {
+            case TRAUMATIC_SHOCK -> pain() < TRAUMATIC_SHOCK_PAIN_THRESHOLD && vanillaHealth > 5.0F;
+            case HEMORRHAGIC_SHOCK -> vanillaHealth > 10.0F && allBleedingWoundsControlled();
+            default -> false;
+        };
+    }
+
+    private boolean allBleedingWoundsControlled() {
+        return wounds.stream().allMatch(wound ->
+                wound.untreatedBleedingLevel(true) <= 0 || wound.bleedingLevel(true) <= 0
+        );
+    }
+
+    private void finishAwakening() {
+        lifeState = BodyLifeState.ACTIVE;
+        collapseReason = CollapseReason.NONE;
+        awakeningEndGameTime = -1L;
+        awakeningRetryGameTime = -1L;
+        bloodOxygen = MAX_BLOOD_OXYGEN;
+        bloodOxygenDeadlineGameTime = -1L;
+        brainDeathDeadlineGameTime = -1L;
+        cardiacArrestEventId = null;
+        accumulatedCprSeconds = 0;
+        clearDownedPoseSnapshot();
+        clearInfusion();
+    }
+
+    private void clearInfusion() {
+        infusionType = InfusionType.NONE;
+        infusionEndGameTime = -1L;
+        nextInfusionPulseGameTime = -1L;
     }
 
     private DownedProgression advanceDownedProgression(long gameTime) {
@@ -944,6 +1155,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             if (remainingTicks == 0L) {
                 long cardiacArrestStart = bloodOxygenDeadlineGameTime;
                 lifeState = BodyLifeState.CARDIAC_ARREST;
+                awakeningEndGameTime = -1L;
                 bloodOxygen = 0.0F;
                 bloodOxygenDeadlineGameTime = -1L;
                 brainDeathDeadlineGameTime = cardiacArrestStart + CARDIAC_ARREST_DURATION_TICKS;
@@ -996,6 +1208,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 || brainDeathDeadlineGameTime >= 0L
                 || cardiacArrestEventId != null
                 || accumulatedCprSeconds > 0
+                || awakeningEndGameTime >= 0L
+                || awakeningRetryGameTime >= 0L
+                || infusionType != InfusionType.NONE
                 || downedGameTime >= 0L;
         if (!changed) {
             return false;
@@ -1010,6 +1225,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         brainDeathDeadlineGameTime = -1L;
         cardiacArrestEventId = null;
         accumulatedCprSeconds = 0;
+        awakeningEndGameTime = -1L;
+        awakeningRetryGameTime = -1L;
+        clearInfusion();
         clearDownedPoseSnapshot();
         stressEndGameTime = -1L;
         nextPainRecoveryGameTime = -1L;
@@ -1073,6 +1291,13 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             return value;
         }
         return value < Long.MIN_VALUE + decrement ? Long.MIN_VALUE : value - decrement;
+    }
+
+    private static long saturatingAdd(long value, long increment) {
+        if (increment <= 0L) {
+            return value;
+        }
+        return value > Long.MAX_VALUE - increment ? Long.MAX_VALUE : value + increment;
     }
 
     public void copyFrom(BodyState other) {
@@ -1165,6 +1390,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         brainDeathDeadlineGameTime = -1L;
         cardiacArrestEventId = null;
         accumulatedCprSeconds = 0;
+        awakeningEndGameTime = -1L;
+        awakeningRetryGameTime = -1L;
+        clearInfusion();
         clearDownedPoseSnapshot();
         wounds.clear();
         damageWindows.clear();
@@ -1213,6 +1441,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             tag.putUUID(TAG_CARDIAC_ARREST_EVENT_ID, cardiacArrestEventId);
         }
         tag.putInt(TAG_ACCUMULATED_CPR_SECONDS, accumulatedCprSeconds);
+        tag.putLong(TAG_AWAKENING_END_GAME_TIME, awakeningEndGameTime);
+        tag.putLong(TAG_AWAKENING_RETRY_GAME_TIME, awakeningRetryGameTime);
+        tag.putString(TAG_INFUSION_TYPE, infusionType.serializedName());
+        tag.putLong(TAG_INFUSION_END_GAME_TIME, infusionEndGameTime);
+        tag.putLong(TAG_NEXT_INFUSION_PULSE_GAME_TIME, nextInfusionPulseGameTime);
         if (downedGameTime >= 0L && lifeState != BodyLifeState.ACTIVE) {
             tag.putLong(TAG_DOWNED_GAME_TIME, downedGameTime);
             tag.putFloat(TAG_DOWNED_BODY_YAW, downedBodyYaw);
@@ -1267,6 +1500,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         collapseReason = tag.contains(TAG_COLLAPSE_REASON, Tag.TAG_STRING)
                 ? CollapseReason.fromSerializedName(tag.getString(TAG_COLLAPSE_REASON))
                 : CollapseReason.NONE;
+        if (storedVersion < 15 && collapseReason == CollapseReason.LETHAL_DAMAGE) {
+            collapseReason = CollapseReason.HEMORRHAGIC_SHOCK;
+        }
         basePain = tag.contains(TAG_BASE_PAIN, Tag.TAG_ANY_NUMERIC)
                 ? clamp(tag.getFloat(TAG_BASE_PAIN), 0.0F, 30.0F)
                 : clamp(tag.getFloat(LEGACY_TAG_PAIN), 0.0F, 30.0F);
@@ -1291,6 +1527,24 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 ? tag.getUUID(TAG_CARDIAC_ARREST_EVENT_ID)
                 : null;
         accumulatedCprSeconds = Math.max(0, tag.getInt(TAG_ACCUMULATED_CPR_SECONDS));
+        awakeningEndGameTime = tag.contains(TAG_AWAKENING_END_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                ? tag.getLong(TAG_AWAKENING_END_GAME_TIME)
+                : -1L;
+        awakeningRetryGameTime = tag.contains(TAG_AWAKENING_RETRY_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                ? tag.getLong(TAG_AWAKENING_RETRY_GAME_TIME)
+                : -1L;
+        infusionType = tag.contains(TAG_INFUSION_TYPE, Tag.TAG_STRING)
+                ? InfusionType.fromSerializedName(tag.getString(TAG_INFUSION_TYPE))
+                : InfusionType.NONE;
+        infusionEndGameTime = tag.contains(TAG_INFUSION_END_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                ? tag.getLong(TAG_INFUSION_END_GAME_TIME)
+                : -1L;
+        nextInfusionPulseGameTime = tag.contains(TAG_NEXT_INFUSION_PULSE_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                ? tag.getLong(TAG_NEXT_INFUSION_PULSE_GAME_TIME)
+                : -1L;
+        if (infusionType == InfusionType.NONE) {
+            clearInfusion();
+        }
         if (lifeState != BodyLifeState.ACTIVE && tag.contains(TAG_DOWNED_GAME_TIME, Tag.TAG_ANY_NUMERIC)) {
             DownedPoseSnapshot snapshot = new DownedPoseSnapshot(
                     Math.max(0L, tag.getLong(TAG_DOWNED_GAME_TIME)),
