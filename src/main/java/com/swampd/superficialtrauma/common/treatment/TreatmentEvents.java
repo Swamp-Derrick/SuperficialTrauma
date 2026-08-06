@@ -38,6 +38,8 @@ public final class TreatmentEvents {
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
         if (event.phase == TickEvent.Phase.END && event.player instanceof ServerPlayer player) {
+            CprService.tick(player);
+            DefibrillationService.tick(player);
             AirwayService.tick(player);
             TreatmentService.tick(player);
             updateSelfTreatmentSpeed(player);
@@ -50,6 +52,8 @@ public final class TreatmentEvents {
         if (event.getAmount() > 0.0F && event.getEntity() instanceof ServerPlayer player) {
             TreatmentService.cancelInvolving(player, TreatmentCancelReason.DAMAGE);
             AirwayService.cancelInvolving(player);
+            CprService.cancelInvolving(player);
+            DefibrillationService.cancelInvolving(player);
         }
     }
 
@@ -101,6 +105,8 @@ public final class TreatmentEvents {
         if (event.getEntity() instanceof ServerPlayer player) {
             TreatmentService.cancelInvolving(player, TreatmentCancelReason.DISCONNECTED);
             AirwayService.cancelInvolving(player);
+            CprService.cancelInvolving(player);
+            DefibrillationService.cancelInvolving(player);
             InspectionService.forgetPlayer(player);
         }
     }
@@ -109,6 +115,8 @@ public final class TreatmentEvents {
     public static void onServerStopped(ServerStoppedEvent event) {
         TreatmentService.clearAll();
         AirwayService.clearAll();
+        CprService.clearAll();
+        DefibrillationService.clearAll();
         InspectionService.clearAll();
     }
 
@@ -116,6 +124,8 @@ public final class TreatmentEvents {
         if (player instanceof ServerPlayer serverPlayer) {
             TreatmentService.cancelInvolving(serverPlayer, TreatmentCancelReason.ACTION);
             AirwayService.cancelInvolving(serverPlayer);
+            CprService.cancelInvolving(serverPlayer);
+            DefibrillationService.cancelInvolving(serverPlayer);
         }
     }
 

@@ -4,6 +4,7 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.InfusionType;
+import com.swampd.superficialtrauma.common.body.DefibrillationEnergy;
 import com.swampd.superficialtrauma.common.treatment.TreatmentCancelReason;
 import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentSession;
@@ -21,6 +22,8 @@ import com.swampd.superficialtrauma.network.packet.StartTreatmentC2SPacket;
 import com.swampd.superficialtrauma.network.packet.TreatmentSessionS2CPacket;
 import com.swampd.superficialtrauma.network.packet.AirwayActionC2SPacket;
 import com.swampd.superficialtrauma.network.packet.StartInfusionC2SPacket;
+import com.swampd.superficialtrauma.network.packet.CprActionC2SPacket;
+import com.swampd.superficialtrauma.network.packet.StartDefibrillationC2SPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkDirection;
@@ -34,7 +37,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "13";
+    private static final String PROTOCOL_VERSION = "14";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -153,6 +156,22 @@ public final class ModNetworking {
                 StartInfusionC2SPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER)
         );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                CprActionC2SPacket.class,
+                CprActionC2SPacket::encode,
+                CprActionC2SPacket::decode,
+                CprActionC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                StartDefibrillationC2SPacket.class,
+                StartDefibrillationC2SPacket::encode,
+                StartDefibrillationC2SPacket::decode,
+                StartDefibrillationC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
     }
 
     public static void syncBodyState(ServerPlayer player) {
@@ -214,6 +233,14 @@ public final class ModNetworking {
 
     public static void requestInfusion(int patientEntityId, InfusionType type) {
         CHANNEL.sendToServer(new StartInfusionC2SPacket(patientEntityId, type));
+    }
+
+    public static void setCpr(int patientEntityId, boolean active) {
+        CHANNEL.sendToServer(new CprActionC2SPacket(patientEntityId, active));
+    }
+
+    public static void requestDefibrillation(int patientEntityId, DefibrillationEnergy energy) {
+        CHANNEL.sendToServer(new StartDefibrillationC2SPacket(patientEntityId, energy.joules()));
     }
 
     public static void sendInspectionSnapshot(

@@ -24,7 +24,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 17;
+    public static final int CURRENT_DATA_VERSION = 18;
     public static final int MAX_WOUNDS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
@@ -37,6 +37,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     public static final float MAX_BLOOD_OXYGEN = 30.0F;
     public static final long BLOOD_OXYGEN_POINT_DURATION_TICKS = 9L * 20L;
     public static final long CARDIAC_ARREST_DURATION_TICKS = 180L * 20L;
+    public static final long VENTRICULAR_FIBRILLATION_DURATION_TICKS = 60L * 20L;
+    public static final double CPR_SUCCESS_CHANCE_PER_SECOND = 0.001708D;
+    public static final double CPR_VENTRICULAR_FIBRILLATION_CHANCE = 0.70D;
+    public static final float POST_RESUSCITATION_BLOOD_OXYGEN = 10.0F;
     public static final long DOWNED_DAMAGE_TICKS_PER_POINT = 10L * 20L;
     public static final long INFECTION_SETTLEMENT_INTERVAL_TICKS = 60L * 20L;
     public static final long AWAKENING_DURATION_TICKS = 20L * 20L;
@@ -64,6 +68,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_BRAIN_DEATH_DEADLINE = "BrainDeathDeadlineGameTime";
     private static final String TAG_CARDIAC_ARREST_EVENT_ID = "CardiacArrestEventId";
     private static final String TAG_ACCUMULATED_CPR_SECONDS = "AccumulatedCprSeconds";
+    private static final String TAG_VENTRICULAR_FIBRILLATION_END_GAME_TIME =
+            "VentricularFibrillationEndGameTime";
+    private static final String TAG_DEFIBRILLATION_ATTEMPT_MASK = "DefibrillationAttemptMask";
     private static final String TAG_AWAKENING_END_GAME_TIME = "AwakeningEndGameTime";
     private static final String TAG_AWAKENING_RETRY_GAME_TIME = "AwakeningRetryGameTime";
     private static final String TAG_AWAKENING_RECOVERY_END_GAME_TIME = "AwakeningRecoveryEndGameTime";
@@ -110,6 +117,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private long brainDeathDeadlineGameTime;
     private UUID cardiacArrestEventId;
     private int accumulatedCprSeconds;
+    private long ventricularFibrillationEndGameTime;
+    private int defibrillationAttemptMask;
     private long awakeningEndGameTime;
     private long awakeningRetryGameTime;
     private long awakeningRecoveryEndGameTime;
@@ -425,11 +434,19 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             long gameTime,
             boolean publish
     ) {
-        if ((lifeState != BodyLifeState.INCAPACITATED && lifeState != BodyLifeState.AWAKENING)
+        boolean circulationStopped = lifeState == BodyLifeState.CARDIAC_ARREST
+                || lifeState == BodyLifeState.VENTRICULAR_FIBRILLATION;
+        if ((lifeState != BodyLifeState.INCAPACITATED
+                && lifeState != BodyLifeState.AWAKENING
+                && !circulationStopped)
                 || elapsedTicks < 0L
                 || completedOxygenPulses < 0
                 || gameTime < 0L) {
             return false;
+        }
+
+        if (circulationStopped) {
+            return true;
         }
 
         ensureBloodOxygenDeadline(gameTime);
@@ -550,6 +567,128 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public int accumulatedCprSeconds() {
         return accumulatedCprSeconds;
+    }
+
+    public double currentCprSuccessChance() {
+        return cprSuccessChance(accumulatedCprSeconds);
+    }
+
+    public static double cprSuccessChance(int accumulatedSeconds) {
+        return Math.min(1.0D, Math.max(0, accumulatedSeconds) * CPR_SUCCESS_CHANCE_PER_SECOND);
+    }
+
+    public long ventricularFibrillationEndGameTime() {
+        return ventricularFibrillationEndGameTime;
+    }
+
+    public long ventricularFibrillationRemainingTicks(long gameTime) {
+        return lifeState != BodyLifeState.VENTRICULAR_FIBRILLATION
+                || ventricularFibrillationEndGameTime < 0L
+                ? 0L
+                : Math.max(0L, ventricularFibrillationEndGameTime - gameTime);
+    }
+
+    public int defibrillationAttemptMask() {
+        return defibrillationAttemptMask;
+    }
+
+    public boolean hasAttemptedDefibrillation(DefibrillationEnergy energy) {
+        return energy != null && (defibrillationAttemptMask & energy.attemptBit()) != 0;
+    }
+
+    public CprResult applyCprSecond(double successRoll, double rhythmRoll, long gameTime) {
+        if (lifeState != BodyLifeState.CARDIAC_ARREST || gameTime < 0L) {
+            return CprResult.invalid(accumulatedCprSeconds, currentCprSuccessChance());
+        }
+
+        ensureBrainDeathDeadline(gameTime);
+        if (gameTime >= brainDeathDeadlineGameTime) {
+            enterBrainDeath();
+            markChanged();
+            return CprResult.invalid(0, 0.0D);
+        }
+
+        accumulatedCprSeconds = Math.min(Integer.MAX_VALUE, accumulatedCprSeconds + 1);
+        double successChance = currentCprSuccessChance();
+        if (clampRoll(successRoll) >= successChance) {
+            markChanged();
+            return new CprResult(CprResult.Status.CONTINUE, accumulatedCprSeconds, successChance);
+        }
+
+        accumulatedCprSeconds = 0;
+        if (clampRoll(rhythmRoll) < CPR_VENTRICULAR_FIBRILLATION_CHANCE) {
+            lifeState = BodyLifeState.VENTRICULAR_FIBRILLATION;
+            ventricularFibrillationEndGameTime = saturatingAdd(
+                    gameTime,
+                    VENTRICULAR_FIBRILLATION_DURATION_TICKS
+            );
+            markChanged();
+            return new CprResult(CprResult.Status.VENTRICULAR_FIBRILLATION, 0, successChance);
+        }
+
+        restoreCirculation(gameTime);
+        markChanged();
+        return new CprResult(CprResult.Status.RESTORED_CIRCULATION, 0, successChance);
+    }
+
+    public DefibrillationResult applyDefibrillation(
+            DefibrillationEnergy energy,
+            double successRoll,
+            long gameTime
+    ) {
+        if (energy == null
+                || lifeState != BodyLifeState.VENTRICULAR_FIBRILLATION
+                || gameTime < 0L) {
+            return new DefibrillationResult(
+                    DefibrillationResult.Status.INVALID,
+                    energy,
+                    defibrillationAttemptMask
+            );
+        }
+
+        ensureBrainDeathDeadline(gameTime);
+        if (gameTime >= brainDeathDeadlineGameTime
+                || (ventricularFibrillationEndGameTime >= 0L
+                && gameTime >= ventricularFibrillationEndGameTime)) {
+            advanceDownedProgression(gameTime);
+            markChanged();
+            return new DefibrillationResult(
+                    DefibrillationResult.Status.INVALID,
+                    energy,
+                    defibrillationAttemptMask
+            );
+        }
+
+        boolean completedLowEnergyEscalation = hasAttemptedDefibrillation(DefibrillationEnergy.J150)
+                && hasAttemptedDefibrillation(DefibrillationEnergy.J200);
+        defibrillationAttemptMask |= energy.attemptBit();
+
+        if (clampRoll(successRoll) < energy.successChance()) {
+            restoreCirculation(gameTime);
+            markChanged();
+            return new DefibrillationResult(
+                    DefibrillationResult.Status.RESTORED_CIRCULATION,
+                    energy,
+                    defibrillationAttemptMask
+            );
+        }
+
+        if (energy.isUnsafeWithoutEscalation() && !completedLowEnergyEscalation) {
+            enterBrainDeath();
+            markChanged();
+            return new DefibrillationResult(
+                    DefibrillationResult.Status.UNSAFE_FAILURE_BRAIN_DEATH,
+                    energy,
+                    defibrillationAttemptMask
+            );
+        }
+
+        markChanged();
+        return new DefibrillationResult(
+                DefibrillationResult.Status.FAILED,
+                energy,
+                defibrillationAttemptMask
+        );
     }
 
     public Optional<DownedPoseSnapshot> downedPoseSnapshot() {
@@ -832,6 +971,24 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         damageWindows.remove(type);
         markChanged();
         return new WoundUpdateResult(WoundUpdateResult.Status.CREATED, wound, wound.accumulatedDamage());
+    }
+
+    public WoundUpdateResult applyDefibrillatorShockBurn(long gameTime) {
+        final float shockDamage = 6.0F;
+        addTraumaticPain(shockDamage, gameTime);
+        if (wounds.size() >= MAX_WOUNDS) {
+            markChanged();
+            return new WoundUpdateResult(WoundUpdateResult.Status.LIMIT_REACHED, null, shockDamage);
+        }
+        WoundInstance wound = WoundInstance.create(
+                WoundType.BURN,
+                shockDamage,
+                gameTime,
+                gameTime + DAMAGE_WINDOW_TICKS
+        );
+        wounds.add(wound);
+        markChanged();
+        return new WoundUpdateResult(WoundUpdateResult.Status.CREATED, wound, shockDamage);
     }
 
     public WoundUpdateResult applyGunshotDamage(
@@ -1137,6 +1294,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         brainDeathDeadlineGameTime = -1L;
         cardiacArrestEventId = null;
         accumulatedCprSeconds = 0;
+        ventricularFibrillationEndGameTime = -1L;
+        defibrillationAttemptMask = 0;
         awakeningEndGameTime = -1L;
         awakeningRetryGameTime = -1L;
         awakeningRecoveryEndGameTime = -1L;
@@ -1171,7 +1330,37 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         brainDeathDeadlineGameTime = -1L;
         cardiacArrestEventId = null;
         accumulatedCprSeconds = 0;
+        ventricularFibrillationEndGameTime = -1L;
+        defibrillationAttemptMask = 0;
         clearDownedPoseSnapshot();
+        clearInfusion();
+    }
+
+    private void restoreCirculation(long gameTime) {
+        lifeState = BodyLifeState.INCAPACITATED;
+        bloodOxygen = POST_RESUSCITATION_BLOOD_OXYGEN;
+        bloodOxygenDeadlineGameTime = saturatingAdd(
+                gameTime,
+                Math.round(POST_RESUSCITATION_BLOOD_OXYGEN * BLOOD_OXYGEN_POINT_DURATION_TICKS)
+        );
+        brainDeathDeadlineGameTime = -1L;
+        cardiacArrestEventId = null;
+        accumulatedCprSeconds = 0;
+        ventricularFibrillationEndGameTime = -1L;
+        defibrillationAttemptMask = 0;
+        awakeningEndGameTime = -1L;
+        awakeningRetryGameTime = -1L;
+    }
+
+    private void enterBrainDeath() {
+        lifeState = BodyLifeState.BRAIN_DEAD;
+        bloodOxygen = 0.0F;
+        bloodOxygenDeadlineGameTime = -1L;
+        accumulatedCprSeconds = 0;
+        ventricularFibrillationEndGameTime = -1L;
+        defibrillationAttemptMask = 0;
+        awakeningEndGameTime = -1L;
+        awakeningRetryGameTime = -1L;
         clearInfusion();
     }
 
@@ -1206,6 +1395,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 brainDeathDeadlineGameTime = cardiacArrestStart + CARDIAC_ARREST_DURATION_TICKS;
                 cardiacArrestEventId = UUID.randomUUID();
                 accumulatedCprSeconds = 0;
+                ventricularFibrillationEndGameTime = -1L;
+                defibrillationAttemptMask = 0;
                 becameCardiacArrest = true;
             }
         }
@@ -1213,9 +1404,16 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         if (lifeState == BodyLifeState.CARDIAC_ARREST
                 || lifeState == BodyLifeState.VENTRICULAR_FIBRILLATION) {
             ensureBrainDeathDeadline(gameTime);
-            if (gameTime >= brainDeathDeadlineGameTime) {
-                lifeState = BodyLifeState.BRAIN_DEAD;
+            if (lifeState == BodyLifeState.VENTRICULAR_FIBRILLATION
+                    && ventricularFibrillationEndGameTime >= 0L
+                    && gameTime >= ventricularFibrillationEndGameTime) {
+                lifeState = BodyLifeState.CARDIAC_ARREST;
                 accumulatedCprSeconds = 0;
+                ventricularFibrillationEndGameTime = -1L;
+                becameCardiacArrest = true;
+            }
+            if (gameTime >= brainDeathDeadlineGameTime) {
+                enterBrainDeath();
                 becameBrainDead = true;
             }
         }
@@ -1253,6 +1451,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 || brainDeathDeadlineGameTime >= 0L
                 || cardiacArrestEventId != null
                 || accumulatedCprSeconds > 0
+                || ventricularFibrillationEndGameTime >= 0L
+                || defibrillationAttemptMask != 0
                 || awakeningEndGameTime >= 0L
                 || awakeningRetryGameTime >= 0L
                 || awakeningRecoveryEndGameTime >= 0L
@@ -1272,6 +1472,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         brainDeathDeadlineGameTime = -1L;
         cardiacArrestEventId = null;
         accumulatedCprSeconds = 0;
+        ventricularFibrillationEndGameTime = -1L;
+        defibrillationAttemptMask = 0;
         awakeningEndGameTime = -1L;
         awakeningRetryGameTime = -1L;
         awakeningRecoveryEndGameTime = -1L;
@@ -1280,6 +1482,33 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         clearDownedPoseSnapshot();
         stressEndGameTime = -1L;
         nextPainRecoveryGameTime = -1L;
+        markChanged();
+        return true;
+    }
+
+    public boolean forceCardiacRhythmForDebug(BodyLifeState rhythm, long gameTime) {
+        if (rhythm != BodyLifeState.CARDIAC_ARREST
+                && rhythm != BodyLifeState.VENTRICULAR_FIBRILLATION) {
+            return false;
+        }
+        clearDownedPoseSnapshot();
+        resuscitationContributors.clear();
+        lifeState = rhythm;
+        collapseReason = CollapseReason.HEMORRHAGIC_SHOCK;
+        bloodOxygen = 0.0F;
+        bloodOxygenDeadlineGameTime = -1L;
+        brainDeathDeadlineGameTime = saturatingAdd(gameTime, CARDIAC_ARREST_DURATION_TICKS);
+        cardiacArrestEventId = UUID.randomUUID();
+        accumulatedCprSeconds = 0;
+        ventricularFibrillationEndGameTime = rhythm == BodyLifeState.VENTRICULAR_FIBRILLATION
+                ? saturatingAdd(gameTime, VENTRICULAR_FIBRILLATION_DURATION_TICKS)
+                : -1L;
+        defibrillationAttemptMask = 0;
+        awakeningEndGameTime = -1L;
+        awakeningRetryGameTime = -1L;
+        awakeningRecoveryEndGameTime = -1L;
+        shockWarningEndGameTime = -1L;
+        clearInfusion();
         markChanged();
         return true;
     }
@@ -1439,6 +1668,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         brainDeathDeadlineGameTime = -1L;
         cardiacArrestEventId = null;
         accumulatedCprSeconds = 0;
+        ventricularFibrillationEndGameTime = -1L;
+        defibrillationAttemptMask = 0;
         awakeningEndGameTime = -1L;
         awakeningRetryGameTime = -1L;
         awakeningRecoveryEndGameTime = -1L;
@@ -1492,6 +1723,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             tag.putUUID(TAG_CARDIAC_ARREST_EVENT_ID, cardiacArrestEventId);
         }
         tag.putInt(TAG_ACCUMULATED_CPR_SECONDS, accumulatedCprSeconds);
+        tag.putLong(TAG_VENTRICULAR_FIBRILLATION_END_GAME_TIME, ventricularFibrillationEndGameTime);
+        tag.putInt(TAG_DEFIBRILLATION_ATTEMPT_MASK, defibrillationAttemptMask);
         tag.putLong(TAG_AWAKENING_END_GAME_TIME, awakeningEndGameTime);
         tag.putLong(TAG_AWAKENING_RETRY_GAME_TIME, awakeningRetryGameTime);
         tag.putLong(TAG_AWAKENING_RECOVERY_END_GAME_TIME, awakeningRecoveryEndGameTime);
@@ -1587,6 +1820,14 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 ? tag.getUUID(TAG_CARDIAC_ARREST_EVENT_ID)
                 : null;
         accumulatedCprSeconds = Math.max(0, tag.getInt(TAG_ACCUMULATED_CPR_SECONDS));
+        ventricularFibrillationEndGameTime = tag.contains(
+                TAG_VENTRICULAR_FIBRILLATION_END_GAME_TIME,
+                Tag.TAG_ANY_NUMERIC
+        ) ? tag.getLong(TAG_VENTRICULAR_FIBRILLATION_END_GAME_TIME) : -1L;
+        defibrillationAttemptMask = Math.max(0, tag.getInt(TAG_DEFIBRILLATION_ATTEMPT_MASK)) & 0xF;
+        if (lifeState != BodyLifeState.VENTRICULAR_FIBRILLATION) {
+            ventricularFibrillationEndGameTime = -1L;
+        }
         awakeningEndGameTime = tag.contains(TAG_AWAKENING_END_GAME_TIME, Tag.TAG_ANY_NUMERIC)
                 ? tag.getLong(TAG_AWAKENING_END_GAME_TIME)
                 : -1L;
@@ -1688,6 +1929,13 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     private static float clamp(float value, float minimum, float maximum) {
         return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    private static double clampRoll(double value) {
+        if (!Double.isFinite(value)) {
+            return 1.0D;
+        }
+        return Math.max(0.0D, Math.min(Math.nextDown(1.0D), value));
     }
 
     private record ShockProgression(

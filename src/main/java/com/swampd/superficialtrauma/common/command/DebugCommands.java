@@ -99,6 +99,29 @@ public final class DebugCommands {
                                                 EntityArgument.getPlayer(context, "player")
                                         ))))
                 )
+                .then(Commands.literal("cardiacarrest")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(context -> forceOwnRhythm(context, BodyLifeState.CARDIAC_ARREST))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .executes(context -> forceRhythm(
+                                        context,
+                                        EntityArgument.getPlayer(context, "player"),
+                                        BodyLifeState.CARDIAC_ARREST
+                                )))
+                )
+                .then(Commands.literal("vf")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(context -> forceOwnRhythm(
+                                context,
+                                BodyLifeState.VENTRICULAR_FIBRILLATION
+                        ))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .executes(context -> forceRhythm(
+                                        context,
+                                        EntityArgument.getPlayer(context, "player"),
+                                        BodyLifeState.VENTRICULAR_FIBRILLATION
+                                )))
+                )
         );
     }
 
@@ -135,6 +158,10 @@ public final class DebugCommands {
                             + " shockWarning=" + bodyState.shockWarningRemainingTicks(gameTime) + "t"
                             + " danger=" + bodyState.downedDangerRemainingTicks(gameTime) + "t"
                             + " oxygen=" + bodyState.bloodOxygen()
+                            + " cprSeconds=" + bodyState.accumulatedCprSeconds()
+                            + " cprChance=" + bodyState.currentCprSuccessChance()
+                            + " vf=" + bodyState.ventricularFibrillationRemainingTicks(gameTime) + "t"
+                            + " defibMask=" + bodyState.defibrillationAttemptMask()
                             + " downedPose=" + poseDescription
                             + " movementBleeding=" + bodyState.movementBleedingActive()
                             + " lastD=" + bodyState.lastFinalDamage()
@@ -210,6 +237,41 @@ public final class DebugCommands {
                     ),
                     true
             );
+            result.set(1);
+        });
+        return result.get();
+    }
+
+    private static int forceOwnRhythm(
+            CommandContext<CommandSourceStack> context,
+            BodyLifeState rhythm
+    ) throws CommandSyntaxException {
+        return forceRhythm(context, context.getSource().getPlayerOrException(), rhythm);
+    }
+
+    private static int forceRhythm(
+            CommandContext<CommandSourceStack> context,
+            ServerPlayer player,
+            BodyLifeState rhythm
+    ) {
+        AtomicInteger result = new AtomicInteger(0);
+        BodyStateCapability.get(player).ifPresent(bodyState -> {
+            long gameTime = player.serverLevel().getGameTime();
+            if (!bodyState.forceCardiacRhythmForDebug(rhythm, gameTime)) {
+                return;
+            }
+            bodyState.captureDownedPose(new DownedPoseSnapshot(
+                    gameTime,
+                    player.yBodyRot,
+                    DownedPosture.STANDING,
+                    DownedFallDirection.BACKWARD
+            ));
+            DownedHitbox.update(player, bodyState);
+            ModNetworking.syncBodyState(player);
+            ModNetworking.syncDownedPose(player);
+            context.getSource().sendSuccess(() -> Component.literal(
+                    player.getGameProfile().getName() + " rhythm=" + rhythm.serializedName()
+            ), true);
             result.set(1);
         });
         return result.get();

@@ -4,8 +4,10 @@ import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyLifeState;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.InfusionType;
+import com.swampd.superficialtrauma.common.body.DefibrillationEnergy;
 import com.swampd.superficialtrauma.common.damage.DamageWindow;
 import com.swampd.superficialtrauma.common.init.ModItems;
+import com.swampd.superficialtrauma.common.item.DefibrillatorItem;
 import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentIngredient;
 import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
@@ -21,6 +23,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -54,6 +57,8 @@ public final class HealthScreen extends Screen {
     private TreatmentPreparation preparation;
     private PanelMode panelMode = PanelMode.TREATMENT;
     private boolean assistedBreathingHeld;
+    private boolean cprHeld;
+    private long defibrillationChargingEndGameTime = -1L;
 
     public HealthScreen() {
         super(Component.translatable("screen.superficialtrauma.health.title"));
@@ -82,6 +87,15 @@ public final class HealthScreen extends Screen {
         BodyState state = displayedState();
         if (assistedBreathingHeld && !canAssistBreathing(state)) {
             stopAssistedBreathing();
+        }
+        if (cprHeld && !canPerformCpr(state)) {
+            stopCpr();
+        }
+        if (defibrillationChargingEndGameTime >= 0L
+                && (currentGameTime() >= defibrillationChargingEndGameTime
+                || state.lifeState() != BodyLifeState.VENTRICULAR_FIBRILLATION)) {
+            defibrillationChargingEndGameTime = -1L;
+            rebuildTreatmentButtons();
         }
         boolean treatmentActive = ClientTreatmentState.isActive();
         if (preparation != null) {
@@ -611,13 +625,38 @@ public final class HealthScreen extends Screen {
             int availableWidth,
             int availableHeight
     ) {
-        Component text = Component.translatable(
-                assistedBreathingHeld
-                        ? "screen.superficialtrauma.health.assisted_breathing_active"
-                        : "screen.superficialtrauma.health.assisted_breathing_available"
-        );
+        long gameTime = currentGameTime();
+        Component text;
+        int color;
+        if (state.lifeState() == BodyLifeState.CARDIAC_ARREST) {
+            text = Component.translatable(
+                    "screen.superficialtrauma.health.cpr_status",
+                    state.accumulatedCprSeconds(),
+                    oneDecimal((float) (state.currentCprSuccessChance() * 100.0D)),
+                    oneDecimal(state.downedDangerRemainingTicks(gameTime) / 20.0F)
+            );
+            color = cprHeld ? GOOD_COLOR : WARN_COLOR;
+        } else if (state.lifeState() == BodyLifeState.VENTRICULAR_FIBRILLATION) {
+            text = Component.translatable(
+                    defibrillationChargingEndGameTime >= 0L
+                            ? "screen.superficialtrauma.health.defibrillation_charging"
+                            : "screen.superficialtrauma.health.defibrillation_status",
+                    oneDecimal(state.ventricularFibrillationRemainingTicks(gameTime) / 20.0F),
+                    oneDecimal(state.downedDangerRemainingTicks(gameTime) / 20.0F),
+                    defibrillatorEnergy(),
+                    attemptedDefibrillationText(state)
+            );
+            color = DANGER_COLOR;
+        } else {
+            text = Component.translatable(
+                    assistedBreathingHeld
+                            ? "screen.superficialtrauma.health.assisted_breathing_active"
+                            : "screen.superficialtrauma.health.assisted_breathing_available"
+            );
+            color = assistedBreathingHeld ? GOOD_COLOR : MUTED_COLOR;
+        }
         drawWrappedWithin(graphics, text, x + 4, y + 30, availableWidth - 8,
-                assistedBreathingHeld ? GOOD_COLOR : MUTED_COLOR, y + availableHeight - 18);
+                color, y + availableHeight - 18);
     }
 
     private void drawTreatmentColumn(
@@ -771,7 +810,7 @@ public final class HealthScreen extends Screen {
         } else if (panelMode == PanelMode.MEDICATION) {
             addInfusionButtons(layout, state);
         } else if (panelMode == PanelMode.EMERGENCY) {
-            addAssistedBreathingButton(layout, state);
+            addEmergencyButtons(layout, state);
         }
 
         lastButtonRevision = state.revision();
@@ -805,6 +844,7 @@ public final class HealthScreen extends Screen {
             return;
         }
         stopAssistedBreathing();
+        stopCpr();
         preparation = null;
         panelMode = newMode;
         rebuildTreatmentButtons();
@@ -861,13 +901,95 @@ public final class HealthScreen extends Screen {
         medicalActionButtons.add(addRenderableWidget(button));
     }
 
+    private void addEmergencyButtons(Layout layout, BodyState state) {
+        addAssistedBreathingButton(layout, state);
+        int startX = layout.rightX + 10;
+        int startY = layout.innerY + 6 + 22;
+        int buttonsPerRow = Math.max(1, (layout.rightWidth - 16) / TREATMENT_BUTTON_STEP);
+        addCprButton(
+                startX + 1 % buttonsPerRow * TREATMENT_BUTTON_STEP,
+                startY + 1 / buttonsPerRow * TREATMENT_BUTTON_STEP,
+                state
+        );
+        int index = 2;
+        for (DefibrillationEnergy energy : DefibrillationEnergy.values()) {
+            addDefibrillationButton(
+                    startX + index % buttonsPerRow * TREATMENT_BUTTON_STEP,
+                    startY + index / buttonsPerRow * TREATMENT_BUTTON_STEP,
+                    state,
+                    energy
+            );
+            index++;
+        }
+    }
+
+    private void addCprButton(int x, int y, BodyState state) {
+        MedicalActionButton button = new MedicalActionButton(
+                x,
+                y,
+                net.minecraft.world.item.Items.RED_DYE,
+                Component.translatable("screen.superficialtrauma.health.cpr"),
+                Component.translatable("screen.superficialtrauma.health.cpr_tooltip"),
+                this::beginCpr
+        );
+        button.active = canPerformCpr(state);
+        medicalActionButtons.add(addRenderableWidget(button));
+    }
+
+    private void addDefibrillationButton(
+            int x,
+            int y,
+            BodyState state,
+            DefibrillationEnergy energy
+    ) {
+        boolean escalationComplete = state.hasAttemptedDefibrillation(DefibrillationEnergy.J150)
+                && state.hasAttemptedDefibrillation(DefibrillationEnergy.J200);
+        boolean unsafe = energy.isUnsafeWithoutEscalation() && !escalationComplete;
+        Component tooltip = Component.translatable(
+                unsafe
+                        ? "screen.superficialtrauma.health.defibrillation_unsafe_tooltip"
+                        : "screen.superficialtrauma.health.defibrillation_tooltip",
+                energy.joules(),
+                (int) Math.round(energy.successChance() * 100.0D)
+        );
+        MedicalActionButton button = new MedicalActionButton(
+                x,
+                y,
+                ModItems.DEFIBRILLATOR.get(),
+                Component.literal(energy.joules() + " J"),
+                tooltip,
+                () -> beginDefibrillation(energy)
+        );
+        button.active = canDefibrillate(state, energy);
+        medicalActionButtons.add(addRenderableWidget(button));
+    }
+
     private boolean canAssistBreathing(BodyState state) {
         return inspectingOtherPlayer
                 && actorCanAct()
                 && patientInAssistedBreathingRange()
                 && (state.lifeState() == BodyLifeState.INCAPACITATED
-                || state.lifeState() == BodyLifeState.AWAKENING)
+                || state.lifeState() == BodyLifeState.AWAKENING
+                || state.lifeState() == BodyLifeState.CARDIAC_ARREST
+                || state.lifeState() == BodyLifeState.VENTRICULAR_FIBRILLATION)
                 && countItem(ModItems.MANUAL_RESUSCITATOR.get()) > 0;
+    }
+
+    private boolean canPerformCpr(BodyState state) {
+        return inspectingOtherPlayer
+                && actorCanAct()
+                && patientInAssistedBreathingRange()
+                && state.lifeState() == BodyLifeState.CARDIAC_ARREST;
+    }
+
+    private boolean canDefibrillate(BodyState state, DefibrillationEnergy energy) {
+        return inspectingOtherPlayer
+                && actorCanAct()
+                && actorHasFirstAidSkill()
+                && patientInAssistedBreathingRange()
+                && state.lifeState() == BodyLifeState.VENTRICULAR_FIBRILLATION
+                && defibrillationChargingEndGameTime < 0L
+                && defibrillatorEnergy() >= energy.joules();
     }
 
     private boolean patientInAssistedBreathingRange() {
@@ -900,6 +1022,58 @@ public final class HealthScreen extends Screen {
         if (minecraft != null && minecraft.getConnection() != null) {
             ModNetworking.setAssistedBreathing(displayedEntityId(), false);
         }
+    }
+
+    private void beginCpr() {
+        if (cprHeld) {
+            return;
+        }
+        stopAssistedBreathing();
+        cprHeld = true;
+        ModNetworking.setCpr(displayedEntityId(), true);
+    }
+
+    private void stopCpr() {
+        if (!cprHeld) {
+            return;
+        }
+        cprHeld = false;
+        if (minecraft != null && minecraft.getConnection() != null) {
+            ModNetworking.setCpr(displayedEntityId(), false);
+        }
+    }
+
+    private void beginDefibrillation(DefibrillationEnergy energy) {
+        stopAssistedBreathing();
+        stopCpr();
+        defibrillationChargingEndGameTime = currentGameTime()
+                + com.swampd.superficialtrauma.common.treatment.DefibrillationService.CHARGE_DURATION_TICKS;
+        ModNetworking.requestDefibrillation(displayedEntityId(), energy);
+        rebuildTreatmentButtons();
+    }
+
+    private int defibrillatorEnergy() {
+        if (minecraft == null || minecraft.player == null) {
+            return 0;
+        }
+        int maximum = 0;
+        for (int slot = 0; slot < minecraft.player.getInventory().getContainerSize(); slot++) {
+            ItemStack stack = minecraft.player.getInventory().getItem(slot);
+            if (stack.is(ModItems.DEFIBRILLATOR.get())) {
+                maximum = Math.max(maximum, DefibrillatorItem.getEnergy(stack));
+            }
+        }
+        return maximum;
+    }
+
+    private static String attemptedDefibrillationText(BodyState state) {
+        List<String> attempted = new ArrayList<>();
+        for (DefibrillationEnergy energy : DefibrillationEnergy.values()) {
+            if (state.hasAttemptedDefibrillation(energy)) {
+                attempted.add(energy.joules() + " J");
+            }
+        }
+        return attempted.isEmpty() ? "-" : String.join(", ", attempted);
     }
 
     private void addTreatmentButton(
@@ -1248,6 +1422,7 @@ public final class HealthScreen extends Screen {
         }
         signature = signature * 31L + countItem(ModItems.BLOOD_BAG.get());
         signature = signature * 31L + countItem(ModItems.MANUAL_RESUSCITATOR.get());
+        signature = signature * 31L + defibrillatorEnergy();
         return signature;
     }
 
@@ -1474,6 +1649,7 @@ public final class HealthScreen extends Screen {
     @Override
     public void removed() {
         stopAssistedBreathing();
+        stopCpr();
         preparation = null;
         super.removed();
         if (inspectingOtherPlayer) {
@@ -1488,6 +1664,7 @@ public final class HealthScreen extends Screen {
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (button == 0) {
             stopAssistedBreathing();
+            stopCpr();
         }
         return super.mouseReleased(mouseX, mouseY, button);
     }

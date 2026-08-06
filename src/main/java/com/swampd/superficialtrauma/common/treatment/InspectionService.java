@@ -21,6 +21,8 @@ public final class InspectionService {
     public static boolean open(ServerPlayer inspector, int targetEntityId) {
         TreatmentService.cancelInvolving(inspector, TreatmentCancelReason.ACTION);
         AirwayService.cancelInvolving(inspector);
+        CprService.cancelInvolving(inspector);
+        DefibrillationService.cancelInvolving(inspector);
         if (!(inspector.serverLevel().getEntity(targetEntityId) instanceof ServerPlayer patient)
                 || !canInspect(inspector, patient, MAX_OPEN_DISTANCE_SQUARED, true)) {
             return false;
@@ -34,6 +36,8 @@ public final class InspectionService {
 
     public static void close(ServerPlayer inspector, int targetEntityId) {
         AirwayService.cancelInvolving(inspector);
+        CprService.cancelInvolving(inspector);
+        DefibrillationService.cancelInvolving(inspector);
         InspectionSession session = SESSIONS_BY_INSPECTOR.get(inspector.getUUID());
         if (session != null && session.patientEntityId == targetEntityId) {
             SESSIONS_BY_INSPECTOR.remove(inspector.getUUID());

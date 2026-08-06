@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.common.init;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
+import com.swampd.superficialtrauma.common.item.DefibrillatorItem;
 import com.swampd.superficialtrauma.common.item.FirstAidSkillBookItem;
 import com.swampd.superficialtrauma.common.item.SurgerySkillBookItem;
 import net.minecraft.world.item.Item;
@@ -50,6 +51,10 @@ public final class ModItems {
     public static final RegistryObject<Item> MANUAL_RESUSCITATOR = ITEMS.register(
             "manual_resuscitator",
             () -> new Item(new Item.Properties().stacksTo(1))
+    );
+    public static final RegistryObject<Item> DEFIBRILLATOR = ITEMS.register(
+            "defibrillator",
+            () -> new DefibrillatorItem(new Item.Properties().stacksTo(1))
     );
     public static final RegistryObject<Item> SURGICAL_KIT = ITEMS.register(
             "surgical_kit",

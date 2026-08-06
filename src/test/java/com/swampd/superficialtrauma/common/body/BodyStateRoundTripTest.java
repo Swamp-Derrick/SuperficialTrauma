@@ -53,6 +53,7 @@ public final class BodyStateRoundTripTest {
         verifyLethalDamageIncapacitation();
         verifyDownedDamageCountdowns();
         verifyAssistedBreathing();
+        verifyCprAndDefibrillation();
         verifyInfusionProgression();
         verifyTraumaticShockAwakeningAndRetryCooldown();
         verifyHemorrhagicShockAwakeningRequirements();
@@ -1629,6 +1630,120 @@ public final class BodyStateRoundTripTest {
         WoundUpdateResult rejected = state.applyBluntDamage(1.5F, gameTime);
         assertEquals(WoundUpdateResult.Status.LIMIT_REACHED, rejected.status(), "a ninth wound must be rejected");
         assertEquals(BodyState.MAX_WOUNDS, state.wounds().size(), "rejecting the ninth wound must not change the list size");
+    }
+
+    private static void verifyCprAndDefibrillation() {
+        double survival = 1.0D;
+        double expectedSeconds = 0.0D;
+        for (int second = 1; second <= 1_000 && survival > 0.0D; second++) {
+            expectedSeconds += survival;
+            survival *= 1.0D - BodyState.cprSuccessChance(second);
+        }
+        assertEquals(
+                true,
+                expectedSeconds > 29.9D && expectedSeconds < 30.1D,
+                "the reviewed CPR curve must average about thirty seconds"
+        );
+
+        BodyState cprState = new BodyState();
+        assertEquals(
+                true,
+                cprState.forceCardiacRhythmForDebug(BodyLifeState.CARDIAC_ARREST, 0L),
+                "debug setup must enter cardiac arrest"
+        );
+        CprResult firstSecond = cprState.applyCprSecond(0.999D, 0.0D, 20L);
+        assertEquals(CprResult.Status.CONTINUE, firstSecond.status(), "a failed CPR roll must continue");
+        assertEquals(1, cprState.accumulatedCprSeconds(), "a completed CPR second must accumulate");
+        BodyState persistedCpr = new BodyState();
+        persistedCpr.deserializeNBT(cprState.serializeNBT());
+        assertEquals(1, persistedCpr.accumulatedCprSeconds(), "CPR progress must survive save and reload");
+
+        CprResult vfResult = persistedCpr.applyCprSecond(0.0D, 0.0D, 40L);
+        assertEquals(
+                CprResult.Status.VENTRICULAR_FIBRILLATION,
+                vfResult.status(),
+                "seventy-percent rhythm branch must enter ventricular fibrillation"
+        );
+        assertEquals(
+                40L + BodyState.VENTRICULAR_FIBRILLATION_DURATION_TICKS,
+                persistedCpr.ventricularFibrillationEndGameTime(),
+                "VF must have its own sixty-second deadline"
+        );
+
+        DefibrillationResult unsafe = persistedCpr.applyDefibrillation(
+                DefibrillationEnergy.J250,
+                0.999D,
+                60L
+        );
+        assertEquals(
+                DefibrillationResult.Status.UNSAFE_FAILURE_BRAIN_DEATH,
+                unsafe.status(),
+                "failed high-energy shock without 150/200 escalation must cause brain death"
+        );
+
+        BodyState safeState = new BodyState();
+        safeState.forceCardiacRhythmForDebug(BodyLifeState.VENTRICULAR_FIBRILLATION, 0L);
+        assertEquals(
+                DefibrillationResult.Status.FAILED,
+                safeState.applyDefibrillation(DefibrillationEnergy.J150, 0.999D, 20L).status(),
+                "failed 150 J must leave VF active"
+        );
+        assertEquals(
+                DefibrillationResult.Status.FAILED,
+                safeState.applyDefibrillation(DefibrillationEnergy.J200, 0.999D, 40L).status(),
+                "failed 200 J must leave VF active"
+        );
+        assertEquals(
+                DefibrillationResult.Status.FAILED,
+                safeState.applyDefibrillation(DefibrillationEnergy.J250, 0.999D, 60L).status(),
+                "high-energy failure must be safe after both escalation attempts"
+        );
+        assertEquals(
+                DefibrillationResult.Status.RESTORED_CIRCULATION,
+                safeState.applyDefibrillation(DefibrillationEnergy.J300, 0.0D, 80L).status(),
+                "a successful shock must restore circulation"
+        );
+        assertEquals(BodyLifeState.INCAPACITATED, safeState.lifeState(), "shock success returns to downed care");
+        assertFloatEquals(
+                BodyState.POST_RESUSCITATION_BLOOD_OXYGEN,
+                safeState.bloodOxygen(),
+                "successful resuscitation must restore ten oxygen points"
+        );
+
+        BodyState vfTimeout = new BodyState();
+        vfTimeout.forceCardiacRhythmForDebug(BodyLifeState.VENTRICULAR_FIBRILLATION, 0L);
+        vfTimeout.applyDefibrillation(DefibrillationEnergy.J150, 0.999D, 20L);
+        long originalBrainDeadline = vfTimeout.brainDeathDeadlineGameTime();
+        vfTimeout.advanceBodyProgression(BodyState.VENTRICULAR_FIBRILLATION_DURATION_TICKS, false, 20);
+        assertEquals(
+                BodyLifeState.CARDIAC_ARREST,
+                vfTimeout.lifeState(),
+                "untreated VF must return to cardiac arrest after sixty seconds"
+        );
+        assertEquals(
+                originalBrainDeadline,
+                vfTimeout.brainDeathDeadlineGameTime(),
+                "VF timeout must not restart the original brain-death deadline"
+        );
+        assertEquals(
+                true,
+                vfTimeout.hasAttemptedDefibrillation(DefibrillationEnergy.J150),
+                "defibrillation history must persist for the same cardiac-arrest event"
+        );
+
+        BodyState stableCpr = new BodyState();
+        stableCpr.forceCardiacRhythmForDebug(BodyLifeState.CARDIAC_ARREST, 0L);
+        assertEquals(
+                CprResult.Status.RESTORED_CIRCULATION,
+                stableCpr.applyCprSecond(0.0D, 0.9D, 20L).status(),
+                "the thirty-percent CPR branch must restore stable circulation"
+        );
+
+        BodyState bystanderBurn = new BodyState();
+        bystanderBurn.applyDamage(WoundType.BURN, 15.0F, 0L);
+        WoundInstance shockBurn = requireWound(bystanderBurn.applyDefibrillatorShockBurn(1L));
+        assertEquals(2, shockBurn.severity(), "defibrillator contact must create an isolated severity-two burn");
+        assertEquals(2, bystanderBurn.wounds().size(), "contact burn must not merge into an older burn wound");
     }
 
     private static WoundInstance requireWound(WoundUpdateResult result) {
