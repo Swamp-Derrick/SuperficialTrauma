@@ -14,16 +14,17 @@ import java.util.List;
 
 public final class ClientAwakeningRecovery {
     private static final ResourceLocation BLUR_EFFECT = ResourceLocation.fromNamespaceAndPath(
-            SuperficialTrauma.MOD_ID,
-            "shaders/post/awakening_blur.json"
+            "minecraft",
+            "shaders/post/blur.json"
     );
     private static final float BLACK_FADE_PORTION = 0.35F;
-    private static final float MAX_BLUR_RADIUS = 18.0F;
-    private static final int MAX_HAZE_ALPHA = 34;
+    private static final float MAX_BLUR_RADIUS = 20.0F;
 
     private static long recoveryEndGameTime = -1L;
     private static PostChain ownedBlurEffect;
+    private static ResourceLocation previousEffectLocation;
     private static List<PostPass> blurPasses = List.of();
+    private static boolean borrowedBlurEffect;
     private static boolean warnedAboutShaderAccess;
 
     private ClientAwakeningRecovery() {
@@ -82,12 +83,6 @@ public final class ClientAwakeningRecovery {
         }
 
         float progress = visualProgress(remainingTicks);
-        float blurFade = 1.0F - smootherStep(Mth.clamp(
-                (progress - BLACK_FADE_PORTION) / (1.0F - BLACK_FADE_PORTION),
-                0.0F,
-                1.0F
-        ));
-        int hazeAlpha = Mth.clamp(Math.round(MAX_HAZE_ALPHA * blurFade), 0, MAX_HAZE_ALPHA);
         float blackFade = 1.0F - smootherStep(Mth.clamp(
                 progress / BLACK_FADE_PORTION,
                 0.0F,
@@ -97,9 +92,6 @@ public final class ClientAwakeningRecovery {
 
         graphics.pose().pushPose();
         graphics.pose().translate(0.0F, 0.0F, 1000.0F);
-        if (hazeAlpha > 0) {
-            graphics.fill(0, 0, width, height, hazeAlpha << 24 | 0x00C4CBD1);
-        }
         if (blackAlpha > 0) {
             graphics.fill(0, 0, width, height, blackAlpha << 24);
         }
@@ -126,13 +118,23 @@ public final class ClientAwakeningRecovery {
         if (ownedBlurEffect != null) {
             if (current != ownedBlurEffect) {
                 ownedBlurEffect = null;
+                previousEffectLocation = null;
                 blurPasses = List.of();
+                borrowedBlurEffect = false;
             }
             return;
         }
-        if (current != null) {
+
+        if (current != null && BLUR_EFFECT.toString().equals(current.getName())) {
+            ownedBlurEffect = current;
+            borrowedBlurEffect = true;
+            captureBlurPasses(current);
             return;
         }
+
+        previousEffectLocation = current == null
+                ? null
+                : ResourceLocation.tryParse(current.getName());
 
         minecraft.gameRenderer.loadEffect(BLUR_EFFECT);
         PostChain loaded = minecraft.gameRenderer.currentEffect();
@@ -140,6 +142,11 @@ public final class ClientAwakeningRecovery {
             return;
         }
         ownedBlurEffect = loaded;
+        borrowedBlurEffect = false;
+        captureBlurPasses(loaded);
+    }
+
+    private static void captureBlurPasses(PostChain loaded) {
         try {
             List<PostPass> passes = ObfuscationReflectionHelper.getPrivateValue(
                     PostChain.class,
@@ -177,10 +184,21 @@ public final class ClientAwakeningRecovery {
     private static void releaseBlurEffect() {
         Minecraft minecraft = Minecraft.getInstance();
         if (ownedBlurEffect != null && minecraft.gameRenderer.currentEffect() == ownedBlurEffect) {
-            minecraft.gameRenderer.shutdownEffect();
+            if (borrowedBlurEffect) {
+                for (PostPass pass : blurPasses) {
+                    pass.getEffect().safeGetUniform("Radius").set(MAX_BLUR_RADIUS);
+                }
+            } else if (previousEffectLocation != null
+                    && !BLUR_EFFECT.equals(previousEffectLocation)) {
+                minecraft.gameRenderer.loadEffect(previousEffectLocation);
+            } else {
+                minecraft.gameRenderer.shutdownEffect();
+            }
         }
         ownedBlurEffect = null;
+        previousEffectLocation = null;
         blurPasses = List.of();
+        borrowedBlurEffect = false;
     }
 
     private static float smootherStep(float value) {
