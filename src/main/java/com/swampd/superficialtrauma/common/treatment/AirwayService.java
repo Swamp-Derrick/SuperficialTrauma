@@ -89,6 +89,12 @@ public final class AirwayService {
             stopActor(actor.getUUID());
             return;
         }
+        if (completedOxygenPulses > 0) {
+            bodyState.recordResuscitationContributor(
+                    actor.getUUID(),
+                    actor.getGameProfile().getName()
+            );
+        }
         if (publish) {
             session.lastPublishedGameTime = gameTime;
             ModNetworking.syncBodyState(patient);

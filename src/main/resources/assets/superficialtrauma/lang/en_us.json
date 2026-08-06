@@ -286,5 +286,7 @@
   "message.superficialtrauma.infusion.already_active": "This patient already has an active infusion",
   "message.superficialtrauma.infusion.started": "%s started and cannot be cancelled",
   "message.superficialtrauma.awakening_started": "Your consciousness is beginning to return...",
-  "message.superficialtrauma.awakening_completed": "You have regained the ability to act"
+  "message.superficialtrauma.awakening_completed": "You have regained the ability to act",
+  "screen.superficialtrauma.awakening_recovered": "You regain consciousness",
+  "screen.superficialtrauma.awakening_rescuers": "Resuscitated by: %s"
 }

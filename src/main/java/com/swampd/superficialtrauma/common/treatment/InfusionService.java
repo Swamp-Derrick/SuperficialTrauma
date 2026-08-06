@@ -55,6 +55,10 @@ public final class InfusionService {
         }
 
         consumeOne(actor, requiredItem);
+        state.recordResuscitationContributor(
+                actor.getUUID(),
+                actor.getGameProfile().getName()
+        );
         ModNetworking.syncBodyState(patient);
         InspectionService.syncPatient(patient);
         actor.displayClientMessage(

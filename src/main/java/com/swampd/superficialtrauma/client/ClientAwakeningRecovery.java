@@ -1,52 +1,28 @@
 package com.swampd.superficialtrauma.client;
 
-import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.pipeline.TextureTarget;
-import com.mojang.blaze3d.platform.GlStateManager;
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.vertex.BufferBuilder;
-import com.mojang.blaze3d.vertex.BufferUploader;
-import com.mojang.blaze3d.vertex.DefaultVertexFormat;
-import com.mojang.blaze3d.vertex.Tesselator;
-import com.mojang.blaze3d.vertex.VertexFormat;
-import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.renderer.ShaderInstance;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
-import net.minecraftforge.client.event.RegisterShadersEvent;
-import org.joml.Matrix4f;
-import org.lwjgl.opengl.GL11;
-import org.lwjgl.opengl.GL30;
 
-import java.io.IOException;
+import java.util.List;
 
 public final class ClientAwakeningRecovery {
-    private static final ResourceLocation BLUR_SHADER = ResourceLocation.fromNamespaceAndPath(
-            SuperficialTrauma.MOD_ID,
-            "awakening_blur"
-    );
-    private static final float BLACK_FADE_PORTION = 0.35F;
-    private static final float MAX_BLUR_RADIUS = 14.0F;
+    private static final float FULL_BLACK_END_PORTION = 0.10F;
+    private static final float EYES_FULLY_OPEN_PORTION = 0.82F;
+    private static final float TEXT_FADE_IN_START_PORTION = 0.12F;
+    private static final float TEXT_FULLY_VISIBLE_PORTION = 0.20F;
+    private static final float TEXT_FADE_OUT_START_PORTION = 0.68F;
+    private static final float TEXT_HIDDEN_PORTION = 0.90F;
+    private static final int EYELID_EDGE_DEPTH = 8;
 
     private static long recoveryEndGameTime = -1L;
-    private static ShaderInstance blurShader;
-    private static TextureTarget sceneCopy;
+    private static List<String> contributorNames = List.of();
 
     private ClientAwakeningRecovery() {
-    }
-
-    public static void registerShader(RegisterShadersEvent event) throws IOException {
-        event.registerShader(
-                new ShaderInstance(
-                        event.getResourceProvider(),
-                        BLUR_SHADER,
-                        DefaultVertexFormat.POSITION_TEX
-                ),
-                shader -> blurShader = shader
-        );
     }
 
     public static void synchronize(BodyState updated) {
@@ -61,6 +37,7 @@ public final class ClientAwakeningRecovery {
             return;
         }
         recoveryEndGameTime = updated.awakeningRecoveryEndGameTime();
+        contributorNames = List.copyOf(updated.resuscitationContributorNames());
     }
 
     public static void tick() {
@@ -76,78 +53,6 @@ public final class ClientAwakeningRecovery {
         }
     }
 
-    public static void renderWorldBlur(
-            GuiGraphics graphics,
-            int guiWidth,
-            int guiHeight,
-            float partialTick
-    ) {
-        Minecraft minecraft = Minecraft.getInstance();
-        float remainingTicks = remainingTicks(minecraft, partialTick);
-        if (remainingTicks <= BodyState.AWAKENING_RECOVERY_SLOWDOWN_GRACE_TICKS
-                || blurShader == null) {
-            return;
-        }
-
-        float progress = visualProgress(remainingTicks);
-        float clearProgress = smootherStep(Mth.clamp(
-                (progress - BLACK_FADE_PORTION) / (1.0F - BLACK_FADE_PORTION),
-                0.0F,
-                1.0F
-        ));
-        float radius = MAX_BLUR_RADIUS * (1.0F - clearProgress);
-        if (radius < 0.05F) {
-            return;
-        }
-
-        RenderTarget mainTarget = minecraft.getMainRenderTarget();
-        ensureSceneCopy(mainTarget.width, mainTarget.height);
-        if (sceneCopy == null) {
-            return;
-        }
-
-        GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, mainTarget.frameBufferId);
-        GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, sceneCopy.frameBufferId);
-        GlStateManager._glBlitFrameBuffer(
-                0,
-                0,
-                mainTarget.width,
-                mainTarget.height,
-                0,
-                0,
-                sceneCopy.width,
-                sceneCopy.height,
-                GL11.GL_COLOR_BUFFER_BIT,
-                GL11.GL_NEAREST
-        );
-        mainTarget.bindWrite(true);
-
-        RenderSystem.disableDepthTest();
-        RenderSystem.depthMask(false);
-        RenderSystem.disableBlend();
-        RenderSystem.setShader(() -> blurShader);
-        RenderSystem.setShaderTexture(0, sceneCopy.getColorTextureId());
-        blurShader.safeGetUniform("InSize").set(
-                (float) sceneCopy.width,
-                (float) sceneCopy.height
-        );
-        blurShader.safeGetUniform("Radius").set(radius);
-
-        Matrix4f pose = graphics.pose().last().pose();
-        BufferBuilder buffer = Tesselator.getInstance().getBuilder();
-        buffer.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
-        buffer.vertex(pose, 0.0F, guiHeight, 0.0F).uv(0.0F, 0.0F).endVertex();
-        buffer.vertex(pose, guiWidth, guiHeight, 0.0F).uv(1.0F, 0.0F).endVertex();
-        buffer.vertex(pose, guiWidth, 0.0F, 0.0F).uv(1.0F, 1.0F).endVertex();
-        buffer.vertex(pose, 0.0F, 0.0F, 0.0F).uv(0.0F, 1.0F).endVertex();
-        BufferUploader.drawWithShader(buffer.end());
-
-        RenderSystem.depthMask(true);
-        RenderSystem.enableDepthTest();
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-    }
-
     public static void render(GuiGraphics graphics, int width, int height, float partialTick) {
         Minecraft minecraft = Minecraft.getInstance();
         float remainingTicks = remainingTicks(minecraft, partialTick);
@@ -156,23 +61,106 @@ public final class ClientAwakeningRecovery {
         }
 
         float progress = visualProgress(remainingTicks);
-        float blackFade = 1.0F - smootherStep(Mth.clamp(
-                progress / BLACK_FADE_PORTION,
+        float openingProgress = smootherStep(Mth.clamp(
+                (progress - FULL_BLACK_END_PORTION)
+                        / (EYES_FULLY_OPEN_PORTION - FULL_BLACK_END_PORTION),
                 0.0F,
                 1.0F
         ));
-        int blackAlpha = Mth.clamp(Math.round(255.0F * blackFade), 0, 255);
+        int centerY = height / 2;
+        int halfOpening = Math.round((height / 2.0F + 1.0F) * openingProgress);
+        int upperEdge = Math.max(0, centerY - halfOpening);
+        int lowerEdge = Math.min(height, centerY + halfOpening);
 
         graphics.pose().pushPose();
         graphics.pose().translate(0.0F, 0.0F, 1000.0F);
-        if (blackAlpha > 0) {
-            graphics.fill(0, 0, width, height, blackAlpha << 24);
+        if (upperEdge > 0) {
+            graphics.fill(0, 0, width, upperEdge, 0xFF000000);
+            drawUpperEyelidEdge(graphics, width, upperEdge, lowerEdge);
         }
+        if (lowerEdge < height) {
+            graphics.fill(0, lowerEdge, width, height, 0xFF000000);
+            drawLowerEyelidEdge(graphics, width, upperEdge, lowerEdge);
+        }
+        renderRecoveryText(graphics, minecraft.font, width, height, progress);
         graphics.pose().popPose();
     }
 
     public static void clear() {
         recoveryEndGameTime = -1L;
+        contributorNames = List.of();
+    }
+
+    private static void drawUpperEyelidEdge(
+            GuiGraphics graphics,
+            int width,
+            int upperEdge,
+            int lowerEdge
+    ) {
+        int available = Math.max(0, lowerEdge - upperEdge);
+        int depth = Math.min(EYELID_EDGE_DEPTH, available / 2);
+        for (int offset = 0; offset < depth; offset++) {
+            int alpha = Math.round(130.0F * (1.0F - offset / (float) depth));
+            graphics.fill(0, upperEdge + offset, width, upperEdge + offset + 1, alpha << 24);
+        }
+    }
+
+    private static void drawLowerEyelidEdge(
+            GuiGraphics graphics,
+            int width,
+            int upperEdge,
+            int lowerEdge
+    ) {
+        int available = Math.max(0, lowerEdge - upperEdge);
+        int depth = Math.min(EYELID_EDGE_DEPTH, available / 2);
+        for (int offset = 0; offset < depth; offset++) {
+            int alpha = Math.round(130.0F * (1.0F - offset / (float) depth));
+            graphics.fill(0, lowerEdge - offset - 1, width, lowerEdge - offset, alpha << 24);
+        }
+    }
+
+    private static void renderRecoveryText(
+            GuiGraphics graphics,
+            Font font,
+            int width,
+            int height,
+            float progress
+    ) {
+        float fadeIn = smootherStep(Mth.clamp(
+                (progress - TEXT_FADE_IN_START_PORTION)
+                        / (TEXT_FULLY_VISIBLE_PORTION - TEXT_FADE_IN_START_PORTION),
+                0.0F,
+                1.0F
+        ));
+        float fadeOut = 1.0F - smootherStep(Mth.clamp(
+                (progress - TEXT_FADE_OUT_START_PORTION)
+                        / (TEXT_HIDDEN_PORTION - TEXT_FADE_OUT_START_PORTION),
+                0.0F,
+                1.0F
+        ));
+        int alpha = Mth.clamp(Math.round(255.0F * fadeIn * fadeOut), 0, 255);
+        if (alpha <= 3) {
+            return;
+        }
+
+        int color = alpha << 24 | 0xFFFFFF;
+        Component title = Component.translatable("screen.superficialtrauma.awakening_recovered");
+        int titleY = contributorNames.isEmpty() ? height / 2 - 4 : height / 2 - 12;
+        graphics.drawCenteredString(font, title, width / 2, titleY, color);
+        if (contributorNames.isEmpty()) {
+            return;
+        }
+
+        Component rescuers = Component.translatable(
+                "screen.superficialtrauma.awakening_rescuers",
+                String.join("、", contributorNames)
+        );
+        List<FormattedCharSequence> lines = font.split(rescuers, Math.max(80, width - 40));
+        int y = height / 2 + 3;
+        for (FormattedCharSequence line : lines) {
+            graphics.drawString(font, line, (width - font.width(line)) / 2, y, color, false);
+            y += font.lineHeight + 1;
+        }
     }
 
     private static float remainingTicks(Minecraft minecraft, float partialTick) {
@@ -181,19 +169,6 @@ public final class ClientAwakeningRecovery {
         }
         return recoveryEndGameTime
                 - (minecraft.level.getGameTime() + Mth.clamp(partialTick, 0.0F, 1.0F));
-    }
-
-    private static void ensureSceneCopy(int width, int height) {
-        int safeWidth = Math.max(1, width);
-        int safeHeight = Math.max(1, height);
-        if (sceneCopy != null && sceneCopy.width == safeWidth && sceneCopy.height == safeHeight) {
-            return;
-        }
-        if (sceneCopy != null) {
-            sceneCopy.destroyBuffers();
-        }
-        sceneCopy = new TextureTarget(safeWidth, safeHeight, false, Minecraft.ON_OSX);
-        sceneCopy.setFilterMode(GL11.GL_LINEAR);
     }
 
     private static float visualProgress(float remainingTicks) {

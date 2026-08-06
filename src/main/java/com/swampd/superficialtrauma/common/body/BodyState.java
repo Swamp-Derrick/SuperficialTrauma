@@ -17,14 +17,16 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 16;
+    public static final int CURRENT_DATA_VERSION = 17;
     public static final int MAX_WOUNDS = 8;
+    public static final int MAX_RESUSCITATION_CONTRIBUTORS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
     public static final long STRESS_DURATION_TICKS = 20L * 20L;
@@ -66,6 +68,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_AWAKENING_END_GAME_TIME = "AwakeningEndGameTime";
     private static final String TAG_AWAKENING_RETRY_GAME_TIME = "AwakeningRetryGameTime";
     private static final String TAG_AWAKENING_RECOVERY_END_GAME_TIME = "AwakeningRecoveryEndGameTime";
+    private static final String TAG_RESUSCITATION_CONTRIBUTORS = "ResuscitationContributors";
+    private static final String TAG_CONTRIBUTOR_PLAYER_ID = "PlayerId";
+    private static final String TAG_CONTRIBUTOR_PLAYER_NAME = "PlayerName";
     private static final String TAG_INFUSION_TYPE = "InfusionType";
     private static final String TAG_INFUSION_END_GAME_TIME = "InfusionEndGameTime";
     private static final String TAG_NEXT_INFUSION_PULSE_GAME_TIME = "NextInfusionPulseGameTime";
@@ -109,6 +114,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private long awakeningEndGameTime;
     private long awakeningRetryGameTime;
     private long awakeningRecoveryEndGameTime;
+    private final LinkedHashMap<UUID, String> resuscitationContributors = new LinkedHashMap<>();
     private InfusionType infusionType;
     private long infusionEndGameTime;
     private long nextInfusionPulseGameTime;
@@ -321,6 +327,24 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public boolean isAwakeningRecoveryActive(long gameTime) {
         return awakeningRecoveryRemainingTicks(gameTime) > 0L;
+    }
+
+    public List<String> resuscitationContributorNames() {
+        return List.copyOf(resuscitationContributors.values());
+    }
+
+    public boolean recordResuscitationContributor(UUID playerId, String playerName) {
+        if (lifeState == BodyLifeState.ACTIVE
+                || playerId == null
+                || playerName == null
+                || playerName.isBlank()
+                || resuscitationContributors.containsKey(playerId)
+                || resuscitationContributors.size() >= MAX_RESUSCITATION_CONTRIBUTORS) {
+            return false;
+        }
+        resuscitationContributors.put(playerId, playerName.strip());
+        markChanged();
+        return true;
     }
 
     public InfusionType infusionType() {
@@ -1104,6 +1128,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     private void enterIncapacitated(CollapseReason reason, long gameTime) {
         clearDownedPoseSnapshot();
+        resuscitationContributors.clear();
         lifeState = BodyLifeState.INCAPACITATED;
         collapseReason = reason == null || reason == CollapseReason.NONE
                 ? CollapseReason.LETHAL_DAMAGE
@@ -1232,6 +1257,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 || accumulatedCprSeconds > 0
                 || awakeningEndGameTime >= 0L
                 || awakeningRetryGameTime >= 0L
+                || awakeningRecoveryEndGameTime >= 0L
+                || !resuscitationContributors.isEmpty()
                 || infusionType != InfusionType.NONE
                 || downedGameTime >= 0L;
         if (!changed) {
@@ -1250,6 +1277,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         awakeningEndGameTime = -1L;
         awakeningRetryGameTime = -1L;
         awakeningRecoveryEndGameTime = -1L;
+        resuscitationContributors.clear();
         clearInfusion();
         clearDownedPoseSnapshot();
         stressEndGameTime = -1L;
@@ -1415,6 +1443,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         accumulatedCprSeconds = 0;
         awakeningEndGameTime = -1L;
         awakeningRetryGameTime = -1L;
+        awakeningRecoveryEndGameTime = -1L;
+        resuscitationContributors.clear();
         clearInfusion();
         clearDownedPoseSnapshot();
         wounds.clear();
@@ -1467,6 +1497,14 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         tag.putLong(TAG_AWAKENING_END_GAME_TIME, awakeningEndGameTime);
         tag.putLong(TAG_AWAKENING_RETRY_GAME_TIME, awakeningRetryGameTime);
         tag.putLong(TAG_AWAKENING_RECOVERY_END_GAME_TIME, awakeningRecoveryEndGameTime);
+        ListTag contributorList = new ListTag();
+        for (Map.Entry<UUID, String> contributor : resuscitationContributors.entrySet()) {
+            CompoundTag contributorTag = new CompoundTag();
+            contributorTag.putUUID(TAG_CONTRIBUTOR_PLAYER_ID, contributor.getKey());
+            contributorTag.putString(TAG_CONTRIBUTOR_PLAYER_NAME, contributor.getValue());
+            contributorList.add(contributorTag);
+        }
+        tag.put(TAG_RESUSCITATION_CONTRIBUTORS, contributorList);
         tag.putString(TAG_INFUSION_TYPE, infusionType.serializedName());
         tag.putLong(TAG_INFUSION_END_GAME_TIME, infusionEndGameTime);
         tag.putLong(TAG_NEXT_INFUSION_PULSE_GAME_TIME, nextInfusionPulseGameTime);
@@ -1560,6 +1598,23 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         awakeningRecoveryEndGameTime = tag.contains(TAG_AWAKENING_RECOVERY_END_GAME_TIME, Tag.TAG_ANY_NUMERIC)
                 ? tag.getLong(TAG_AWAKENING_RECOVERY_END_GAME_TIME)
                 : -1L;
+        ListTag contributorList = tag.getList(TAG_RESUSCITATION_CONTRIBUTORS, Tag.TAG_COMPOUND);
+        for (int i = 0;
+             i < contributorList.size() && resuscitationContributors.size() < MAX_RESUSCITATION_CONTRIBUTORS;
+             i++) {
+            CompoundTag contributorTag = contributorList.getCompound(i);
+            if (!contributorTag.hasUUID(TAG_CONTRIBUTOR_PLAYER_ID)
+                    || !contributorTag.contains(TAG_CONTRIBUTOR_PLAYER_NAME, Tag.TAG_STRING)) {
+                continue;
+            }
+            String playerName = contributorTag.getString(TAG_CONTRIBUTOR_PLAYER_NAME).strip();
+            if (!playerName.isEmpty()) {
+                resuscitationContributors.putIfAbsent(
+                        contributorTag.getUUID(TAG_CONTRIBUTOR_PLAYER_ID),
+                        playerName
+                );
+            }
+        }
         infusionType = tag.contains(TAG_INFUSION_TYPE, Tag.TAG_STRING)
                 ? InfusionType.fromSerializedName(tag.getString(TAG_INFUSION_TYPE))
                 : InfusionType.NONE;

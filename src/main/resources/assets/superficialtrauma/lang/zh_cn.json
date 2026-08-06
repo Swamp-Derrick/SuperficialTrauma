@@ -286,5 +286,7 @@
   "message.superficialtrauma.infusion.already_active": "该患者已经在进行一种输液",
   "message.superficialtrauma.infusion.started": "%s已开始，无法取消",
   "message.superficialtrauma.awakening_started": "你的意识正在逐渐恢复……",
-  "message.superficialtrauma.awakening_completed": "你已经恢复行动能力"
+  "message.superficialtrauma.awakening_completed": "你已经恢复行动能力",
+  "screen.superficialtrauma.awakening_recovered": "你恢复了意识",
+  "screen.superficialtrauma.awakening_rescuers": "复苏者：%s"
 }

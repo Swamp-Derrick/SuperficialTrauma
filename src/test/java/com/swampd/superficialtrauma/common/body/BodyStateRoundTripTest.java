@@ -17,6 +17,7 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.List;
 import java.util.UUID;
 
 public final class BodyStateRoundTripTest {
@@ -375,9 +376,15 @@ public final class BodyStateRoundTripTest {
         state.applyDownedDamage(1.0F, 20L);
         assertEquals(BodyLifeState.INCAPACITATED, state.lifeState(), "damage during awakening must return the patient to incapacitated");
         assertEquals(BodyState.AWAKENING_DURATION_TICKS, state.awakeningRetryRemainingTicks(20L), "damage must impose a twenty-second awakening retry cooldown");
+        UUID firstMedic = UUID.randomUUID();
+        UUID secondMedic = UUID.randomUUID();
+        assertEquals(true, state.recordResuscitationContributor(firstMedic, "MedicOne"), "the first successful medic must be recorded");
+        assertEquals(false, state.recordResuscitationContributor(firstMedic, "RenamedMedic"), "one medic must only appear once per downing event");
+        assertEquals(true, state.recordResuscitationContributor(secondMedic, "MedicTwo"), "a second successful medic must be recorded");
 
         BodyState restored = new BodyState();
         restored.deserializeNBT(state.serializeNBT());
+        assertEquals(List.of("MedicOne", "MedicTwo"), restored.resuscitationContributorNames(), "medic order and names must survive NBT");
         assertEquals(1L, restored.awakeningRetryRemainingTicks(20L + BodyState.AWAKENING_DURATION_TICKS - 1L), "awakening retry cooldown must survive NBT");
         assertEquals(false, restored.advanceAwakening(6.0F, 20L + BodyState.AWAKENING_DURATION_TICKS - 1L).changed(), "awakening must remain blocked until the cooldown ends");
         long retryEnd = 20L + BodyState.AWAKENING_DURATION_TICKS;
@@ -386,6 +393,7 @@ public final class BodyStateRoundTripTest {
         assertEquals(true, restored.advanceAwakening(6.0F, completedAt).completed(), "twenty uninterrupted seconds must restore action");
         assertEquals(BodyLifeState.ACTIVE, restored.lifeState(), "completed awakening must restore the active state");
         assertEquals(CollapseReason.NONE, restored.collapseReason(), "completed awakening must clear collapse reason");
+        assertEquals(List.of("MedicOne", "MedicTwo"), restored.resuscitationContributorNames(), "contributors must remain available for the recovery overlay");
         assertEquals(
                 BodyState.AWAKENING_RECOVERY_DURATION_TICKS,
                 restored.awakeningRecoveryRemainingTicks(completedAt),
@@ -399,6 +407,7 @@ public final class BodyStateRoundTripTest {
         assertEquals(false, recoveryRestored.isAwakeningRecoveryActive(recoveryEnd), "recovery slowdown must end at its deadline");
         assertEquals(true, recoveryRestored.incapacitate(CollapseReason.TRAUMATIC_SHOCK, completedAt + 1L), "an active recovering player may be downed again");
         assertEquals(0L, recoveryRestored.awakeningRecoveryRemainingTicks(completedAt + 1L), "being downed again must clear post-awakening recovery");
+        assertEquals(List.of(), recoveryRestored.resuscitationContributorNames(), "a new downing event must start with an empty contributor list");
     }
 
     private static void verifyHemorrhagicShockAwakeningRequirements() {

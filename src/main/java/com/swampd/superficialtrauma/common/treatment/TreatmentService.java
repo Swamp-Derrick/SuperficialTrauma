@@ -211,6 +211,12 @@ public final class TreatmentService {
             cancelActor(actor.getUUID(), TreatmentCancelReason.WOUND_CHANGED);
             return;
         }
+        if (session.action() == TreatmentAction.APPLY && actor != patient && !state.get().canAct()) {
+            state.get().recordResuscitationContributor(
+                    actor.getUUID(),
+                    actor.getGameProfile().getName()
+            );
+        }
         if (session.action().consumesItem()) {
             consumeRequiredItems(actor, session.procedure());
         }
