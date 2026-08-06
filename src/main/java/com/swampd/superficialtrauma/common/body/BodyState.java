@@ -26,7 +26,6 @@ import java.util.UUID;
 public final class BodyState implements INBTSerializable<CompoundTag> {
     public static final int CURRENT_DATA_VERSION = 17;
     public static final int MAX_WOUNDS = 8;
-    public static final int MAX_RESUSCITATION_CONTRIBUTORS = 8;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
     public static final long STRESS_DURATION_TICKS = 20L * 20L;
@@ -338,8 +337,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 || playerId == null
                 || playerName == null
                 || playerName.isBlank()
-                || resuscitationContributors.containsKey(playerId)
-                || resuscitationContributors.size() >= MAX_RESUSCITATION_CONTRIBUTORS) {
+                || resuscitationContributors.containsKey(playerId)) {
             return false;
         }
         resuscitationContributors.put(playerId, playerName.strip());
@@ -1599,9 +1597,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 ? tag.getLong(TAG_AWAKENING_RECOVERY_END_GAME_TIME)
                 : -1L;
         ListTag contributorList = tag.getList(TAG_RESUSCITATION_CONTRIBUTORS, Tag.TAG_COMPOUND);
-        for (int i = 0;
-             i < contributorList.size() && resuscitationContributors.size() < MAX_RESUSCITATION_CONTRIBUTORS;
-             i++) {
+        for (int i = 0; i < contributorList.size(); i++) {
             CompoundTag contributorTag = contributorList.getCompound(i);
             if (!contributorTag.hasUUID(TAG_CONTRIBUTOR_PLAYER_ID)
                     || !contributorTag.contains(TAG_CONTRIBUTOR_PLAYER_NAME, Tag.TAG_STRING)) {
