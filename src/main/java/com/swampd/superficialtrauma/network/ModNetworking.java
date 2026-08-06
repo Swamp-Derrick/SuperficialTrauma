@@ -25,6 +25,7 @@ import com.swampd.superficialtrauma.network.packet.AirwayActionC2SPacket;
 import com.swampd.superficialtrauma.network.packet.StartInfusionC2SPacket;
 import com.swampd.superficialtrauma.network.packet.CprActionC2SPacket;
 import com.swampd.superficialtrauma.network.packet.StartDefibrillationC2SPacket;
+import com.swampd.superficialtrauma.network.packet.DefibrillatorChargingSoundS2CPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkDirection;
@@ -38,7 +39,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "15";
+    private static final String PROTOCOL_VERSION = "16";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -173,6 +174,14 @@ public final class ModNetworking {
                 StartDefibrillationC2SPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER)
         );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                DefibrillatorChargingSoundS2CPacket.class,
+                DefibrillatorChargingSoundS2CPacket::encode,
+                DefibrillatorChargingSoundS2CPacket::decode,
+                DefibrillatorChargingSoundS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
     }
 
     public static void syncBodyState(ServerPlayer player) {
@@ -200,6 +209,24 @@ public final class ModNetworking {
         CHANNEL.send(
                 PacketDistributor.PLAYER.with(() -> receiver),
                 DownedPoseSyncS2CPacket.active(subjectEntityId)
+        );
+    }
+
+    public static void syncDefibrillatorCharging(ServerPlayer actor, boolean charging) {
+        CHANNEL.send(
+                PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> actor),
+                new DefibrillatorChargingSoundS2CPacket(actor.getId(), charging)
+        );
+    }
+
+    public static void syncDefibrillatorChargingTo(
+            ServerPlayer actor,
+            ServerPlayer receiver,
+            boolean charging
+    ) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> receiver),
+                new DefibrillatorChargingSoundS2CPacket(actor.getId(), charging)
         );
     }
 

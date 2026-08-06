@@ -4,6 +4,7 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.damage.BloodLossDamage;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAggregator;
 import com.swampd.superficialtrauma.common.loot.LootingService;
+import com.swampd.superficialtrauma.common.treatment.DefibrillationService;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.chat.Component;
@@ -105,6 +106,9 @@ public final class BodyStateEvents {
                 && event.getTarget() instanceof ServerPlayer subject) {
             ensureDownedPoseSnapshot(subject);
             ModNetworking.syncDownedPoseTo(subject, receiver);
+            if (DefibrillationService.isCharging(subject.getUUID())) {
+                ModNetworking.syncDefibrillatorChargingTo(subject, receiver, true);
+            }
         }
     }
 
@@ -113,6 +117,7 @@ public final class BodyStateEvents {
         if (event.getEntity() instanceof ServerPlayer receiver
                 && event.getTarget() instanceof ServerPlayer subject) {
             ModNetworking.clearDownedPoseFor(receiver, subject.getId());
+            ModNetworking.syncDefibrillatorChargingTo(subject, receiver, false);
         }
     }
 

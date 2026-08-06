@@ -5,6 +5,7 @@ import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.init.ModCreativeTabs;
 import com.swampd.superficialtrauma.common.init.ModMenus;
 import com.swampd.superficialtrauma.common.init.ModItems;
+import com.swampd.superficialtrauma.common.init.ModSounds;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.common.capabilities.RegisterCapabilitiesEvent;
@@ -21,6 +22,7 @@ public final class SuperficialTrauma {
     public SuperficialTrauma(FMLJavaModLoadingContext loadingContext) {
         IEventBus modEventBus = loadingContext.getModEventBus();
         ModItems.register(modEventBus);
+        ModSounds.register(modEventBus);
         ModCreativeTabs.register(modEventBus);
         ModMenus.register(modEventBus);
         modEventBus.addListener(this::onCommonSetup);

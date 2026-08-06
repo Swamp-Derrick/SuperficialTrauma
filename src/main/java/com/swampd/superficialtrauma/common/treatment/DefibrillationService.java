@@ -10,12 +10,12 @@ import com.swampd.superficialtrauma.common.body.DownedHitbox;
 import com.swampd.superficialtrauma.common.body.DownedPoseCapture;
 import com.swampd.superficialtrauma.common.damage.DamageDowning;
 import com.swampd.superficialtrauma.common.init.ModItems;
+import com.swampd.superficialtrauma.common.init.ModSounds;
 import com.swampd.superficialtrauma.common.item.DefibrillatorItem;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
@@ -93,6 +93,7 @@ public final class DefibrillationService {
         );
         SESSION_BY_ACTOR.put(actor.getUUID(), session);
         ACTOR_BY_PATIENT.put(patient.getUUID(), actor.getUUID());
+        ModNetworking.syncDefibrillatorCharging(actor, true);
         actor.displayClientMessage(Component.translatable(
                 "message.superficialtrauma.defibrillation.charging",
                 energy.joules()
@@ -201,6 +202,10 @@ public final class DefibrillationService {
         ACTOR_BY_PATIENT.clear();
     }
 
+    public static boolean isCharging(UUID actorId) {
+        return SESSION_BY_ACTOR.containsKey(actorId);
+    }
+
     private static void discharge(
             ServerPlayer actor,
             ServerPlayer patient,
@@ -227,14 +232,15 @@ public final class DefibrillationService {
             return;
         }
 
+        release(actor, session);
         shockBystanders(actor, patient, gameTime);
         actor.serverLevel().playSound(
                 null,
                 patient.blockPosition(),
-                SoundEvents.LIGHTNING_BOLT_IMPACT,
+                ModSounds.DEFIBRILLATOR_DISCHARGE.get(),
                 SoundSource.PLAYERS,
-                0.55F,
-                1.8F
+                1.0F,
+                1.0F
         );
         actor.serverLevel().sendParticles(
                 ParticleTypes.ELECTRIC_SPARK,
@@ -255,7 +261,6 @@ public final class DefibrillationService {
             case INVALID -> "message.superficialtrauma.defibrillation.invalid_target";
         };
         actor.displayClientMessage(Component.translatable(messageKey), true);
-        release(actor, session);
         ModNetworking.syncBodyState(patient);
         InspectionService.syncPatient(patient);
     }
@@ -360,6 +365,7 @@ public final class DefibrillationService {
     private static void release(ServerPlayer actor, DefibrillationSession session) {
         SESSION_BY_ACTOR.remove(session.actorId);
         ACTOR_BY_PATIENT.remove(session.patientId, session.actorId);
+        ModNetworking.syncDefibrillatorCharging(actor, false);
         restoreEquipment(actor, session);
     }
 

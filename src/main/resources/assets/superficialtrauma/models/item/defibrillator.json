@@ -1,4 +1,6 @@
 {
-  "parent": "superficialtrauma:item/defibrillator_unit",
-  "overrides": []
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "superficialtrauma:item/defibrillator"
+  }
 }

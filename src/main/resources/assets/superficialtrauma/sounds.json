@@ -1,0 +1,12 @@
+{
+  "defibrillator_charging": {
+    "sounds": [
+      "superficialtrauma:defibrillator_charging"
+    ]
+  },
+  "defibrillator_discharge": {
+    "sounds": [
+      "superficialtrauma:defibrillator_discharge"
+    ]
+  }
+}
