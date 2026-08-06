@@ -5,6 +5,8 @@ import com.swampd.superficialtrauma.common.damage.DamageDowning;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAccumulator;
 import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
+import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
+import com.swampd.superficialtrauma.common.treatment.TreatmentType;
 import com.swampd.superficialtrauma.common.wound.WoundCovering;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
@@ -34,6 +36,7 @@ public final class BodyStateRoundTripTest {
         verifyTemporaryDressing();
         verifyCoveringVariants();
         verifyWoundPacking();
+        verifyContextualTreatmentVisibility();
         verifyIcePackTreatment();
         verifyTourniquetAndNecrosis();
         verifyInfectionAndDebridement();
@@ -656,6 +659,42 @@ public final class BodyStateRoundTripTest {
         assertFloatEquals(5.0F, nearlyHealed.healingProgress(), "test setup must leave five H");
         assertEquals(true, nearlyHealedState.applyIcePack(nearlyHealed.id()), "an ice pack may finish a nearly healed eligible wound");
         assertEquals(true, nearlyHealedState.wounds().isEmpty(), "an ice pack that reaches zero H must remove the wound immediately");
+    }
+
+    private static void verifyContextualTreatmentVisibility() {
+        WoundInstance lowVelocity = WoundInstance.createGunshot(
+                WoundType.GUNSHOT_LOW_VELOCITY,
+                4.0F,
+                false,
+                false,
+                false,
+                0L,
+                400L
+        );
+        assertEquals(true, TreatmentProcedure.supportsType(lowVelocity, TreatmentType.BANDAGE), "a bleeding gunshot must offer bandaging");
+        assertEquals(true, TreatmentProcedure.supportsType(lowVelocity, TreatmentType.MEDICAL_GAUZE), "a bleeding gunshot must offer wound packing");
+        assertEquals(false, TreatmentProcedure.supportsType(lowVelocity, TreatmentType.ICE_PACK), "a low-velocity gunshot must hide ice packs");
+        assertEquals(false, TreatmentProcedure.supportsType(lowVelocity, TreatmentType.TOURNIQUET), "a severity-one gunshot must hide tourniquets");
+        assertEquals(false, TreatmentProcedure.supportsType(lowVelocity, TreatmentType.SURGICAL_KIT), "a clean gunshot must hide surgical tools");
+        assertEquals(false, TreatmentProcedure.supportsType(lowVelocity, TreatmentType.SALINE_SOLUTION), "a clean gunshot must hide debridement saline");
+
+        WoundInstance bluntTwo = WoundInstance.create(WoundType.BLUNT, 4.0F, 0L, 400L);
+        for (TreatmentType type : TreatmentType.values()) {
+            assertEquals(
+                    type == TreatmentType.ICE_PACK,
+                    TreatmentProcedure.supportsType(bluntTwo, type),
+                    "severity-two blunt trauma must expose only the ice pack"
+            );
+        }
+
+        WoundInstance explosionOne = WoundInstance.create(WoundType.EXPLOSION, 4.0F, 0L, 400L);
+        assertEquals(true, TreatmentProcedure.supportsType(explosionOne, TreatmentType.TEMPORARY_DRESSING), "explosion dressings must stay visible because they accelerate healing");
+        assertEquals(true, TreatmentProcedure.supportsType(explosionOne, TreatmentType.BANDAGE), "explosion bandages must stay visible because they accelerate healing");
+        assertEquals(true, TreatmentProcedure.supportsType(explosionOne, TreatmentType.SURGICAL_KIT), "a debridement wound must offer the surgical kit");
+        assertEquals(true, TreatmentProcedure.supportsType(explosionOne, TreatmentType.SALINE_SOLUTION), "a debridement wound must offer saline");
+        assertEquals(false, TreatmentProcedure.supportsType(explosionOne, TreatmentType.MEDICAL_GAUZE), "a non-bleeding explosion wound must hide packing");
+        assertEquals(false, TreatmentProcedure.supportsType(explosionOne, TreatmentType.ICE_PACK), "an explosion wound must hide ice packs");
+        assertEquals(false, TreatmentProcedure.supportsType(explosionOne, TreatmentType.TOURNIQUET), "a non-bleeding explosion wound must hide tourniquets");
     }
 
     private static void verifyTourniquetAndNecrosis() {

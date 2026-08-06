@@ -206,6 +206,24 @@ public enum TreatmentProcedure {
         };
     }
 
+    public static boolean supportsType(WoundInstance wound, TreatmentType type) {
+        if (wound == null || type == null) {
+            return false;
+        }
+        return switch (type) {
+            case TEMPORARY_DRESSING -> TEMPORARY_DRESSING.supports(wound);
+            case BANDAGE -> BANDAGE_WITH_MEDICAL_TAPE.supports(wound)
+                    || BANDAGE_WITH_SELF_ADHESIVE_BANDAGE.supports(wound);
+            case MEDICAL_TAPE -> BANDAGE_WITH_MEDICAL_TAPE.supports(wound);
+            case SELF_ADHESIVE_BANDAGE -> SELF_ADHESIVE_BANDAGE.supports(wound)
+                    || BANDAGE_WITH_SELF_ADHESIVE_BANDAGE.supports(wound);
+            case MEDICAL_GAUZE -> WOUND_PACKING.supports(wound);
+            case ICE_PACK -> ICE_PACK.supports(wound);
+            case TOURNIQUET -> TOURNIQUET.supports(wound);
+            case SALINE_SOLUTION, SURGICAL_KIT -> DEBRIDEMENT.supports(wound);
+        };
+    }
+
     public static TreatmentProcedure fromSerializedName(String name) {
         for (TreatmentProcedure procedure : values()) {
             if (procedure.serializedName().equals(name)) {

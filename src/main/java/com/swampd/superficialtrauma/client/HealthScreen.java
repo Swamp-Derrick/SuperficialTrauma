@@ -636,12 +636,15 @@ public final class HealthScreen extends Screen {
                 availableWidth
         );
         int rowY = y + 16;
-        int buttonRows = treatmentButtonRows(availableWidth);
         for (WoundRow row : visibleRows) {
             WoundInstance wound = row.wound();
             if (wound.covering().isApplied()
                     || wound.woundPackingApplied()
                     || wound.tourniquetApplied()) {
+                int buttonRows = treatmentButtonRows(
+                        availableWidth,
+                        visibleTreatmentTypes(wound).size()
+                );
                 int statusY = rowY + TREATMENT_BUTTON_TOP + buttonRows * TREATMENT_BUTTON_STEP;
                 List<String> statusParts = new ArrayList<>();
                 if (wound.covering().isApplied()) {
@@ -747,9 +750,10 @@ public final class HealthScreen extends Screen {
 
             for (WoundRow row : visibleRows) {
                 WoundInstance wound = row.wound();
-                if (hasSupportedTreatment(wound)) {
+                List<TreatmentType> visibleTypes = visibleTreatmentTypes(wound);
+                if (!visibleTypes.isEmpty()) {
                     int treatmentIndex = 0;
-                    for (TreatmentType type : TreatmentType.values()) {
+                    for (TreatmentType type : visibleTypes) {
                         addTreatmentButton(
                                 layout.rightX + 10 + treatmentIndex % buttonsPerRow * TREATMENT_BUTTON_STEP,
                                 rowY + TREATMENT_BUTTON_TOP
@@ -1158,13 +1162,14 @@ public final class HealthScreen extends Screen {
         return String.format(Locale.ROOT, "%d:%02d", totalSeconds / 60L, totalSeconds % 60L);
     }
 
-    private static boolean hasSupportedTreatment(WoundInstance wound) {
-        for (TreatmentProcedure procedure : TreatmentProcedure.values()) {
-            if (procedure.supports(wound)) {
-                return true;
+    private static List<TreatmentType> visibleTreatmentTypes(WoundInstance wound) {
+        List<TreatmentType> visible = new ArrayList<>();
+        for (TreatmentType type : TreatmentType.values()) {
+            if (TreatmentProcedure.supportsType(wound, type)) {
+                visible.add(type);
             }
         }
-        return false;
+        return visible;
     }
 
     private void beginPreparation(
@@ -1287,7 +1292,10 @@ public final class HealthScreen extends Screen {
         int tagLines = tagSummary.isEmpty() ? 0 : woundTagLines(tagSummary, woundAvailableWidth).size();
         int woundContentHeight = MINIMUM_WOUND_ROW_HEIGHT + Math.max(0, tagLines - 1) * 11;
         int treatmentContentHeight = TREATMENT_BUTTON_TOP
-                + treatmentButtonRows(treatmentAvailableWidth) * TREATMENT_BUTTON_STEP
+                + treatmentButtonRows(
+                        treatmentAvailableWidth,
+                        visibleTreatmentTypes(wound).size()
+                ) * TREATMENT_BUTTON_STEP
                 + font.lineHeight;
         return Math.max(woundContentHeight, treatmentContentHeight);
     }
@@ -1304,10 +1312,12 @@ public final class HealthScreen extends Screen {
         );
     }
 
-    private int treatmentButtonRows(int availableWidth) {
-        int buttonCount = TreatmentType.values().length;
+    private int treatmentButtonRows(int availableWidth, int buttonCount) {
+        if (buttonCount <= 0) {
+            return 0;
+        }
         int buttonsPerRow = treatmentButtonsPerRow(availableWidth);
-        return Math.max(1, (buttonCount + buttonsPerRow - 1) / buttonsPerRow);
+        return (buttonCount + buttonsPerRow - 1) / buttonsPerRow;
     }
 
     private int countItem(TreatmentType type) {

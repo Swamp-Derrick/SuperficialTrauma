@@ -9,14 +9,14 @@ import java.util.function.Supplier;
 
 public enum TreatmentType {
     TEMPORARY_DRESSING(() -> Items.LEATHER),
-    BANDAGE(ModItems.BANDAGE::get),
-    MEDICAL_TAPE(ModItems.MEDICAL_TAPE::get),
-    SELF_ADHESIVE_BANDAGE(ModItems.SELF_ADHESIVE_BANDAGE::get),
-    MEDICAL_GAUZE(ModItems.MEDICAL_GAUZE::get),
-    ICE_PACK(ModItems.ICE_PACK::get),
-    TOURNIQUET(ModItems.TOURNIQUET::get),
-    SALINE_SOLUTION(ModItems.SALINE_SOLUTION::get),
-    SURGICAL_KIT(ModItems.SURGICAL_KIT::get);
+    BANDAGE(() -> ModItems.BANDAGE.get()),
+    MEDICAL_TAPE(() -> ModItems.MEDICAL_TAPE.get()),
+    SELF_ADHESIVE_BANDAGE(() -> ModItems.SELF_ADHESIVE_BANDAGE.get()),
+    MEDICAL_GAUZE(() -> ModItems.MEDICAL_GAUZE.get()),
+    ICE_PACK(() -> ModItems.ICE_PACK.get()),
+    TOURNIQUET(() -> ModItems.TOURNIQUET.get()),
+    SALINE_SOLUTION(() -> ModItems.SALINE_SOLUTION.get()),
+    SURGICAL_KIT(() -> ModItems.SURGICAL_KIT.get());
 
     private final Supplier<Item> requiredItem;
 
