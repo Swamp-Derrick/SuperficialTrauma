@@ -1,33 +1,52 @@
 package com.swampd.superficialtrauma.client;
 
+import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.pipeline.TextureTarget;
+import com.mojang.blaze3d.platform.GlStateManager;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.BufferUploader;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat;
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.renderer.PostChain;
-import net.minecraft.client.renderer.PostPass;
+import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
-import net.minecraftforge.fml.util.ObfuscationReflectionHelper;
+import net.minecraftforge.client.event.RegisterShadersEvent;
+import org.joml.Matrix4f;
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL30;
 
-import java.util.List;
+import java.io.IOException;
 
 public final class ClientAwakeningRecovery {
-    private static final ResourceLocation BLUR_EFFECT = ResourceLocation.fromNamespaceAndPath(
-            "minecraft",
-            "shaders/post/blur.json"
+    private static final ResourceLocation BLUR_SHADER = ResourceLocation.fromNamespaceAndPath(
+            SuperficialTrauma.MOD_ID,
+            "awakening_blur"
     );
     private static final float BLACK_FADE_PORTION = 0.35F;
-    private static final float MAX_BLUR_RADIUS = 20.0F;
+    private static final float MAX_BLUR_RADIUS = 14.0F;
 
     private static long recoveryEndGameTime = -1L;
-    private static PostChain ownedBlurEffect;
-    private static ResourceLocation previousEffectLocation;
-    private static List<PostPass> blurPasses = List.of();
-    private static boolean borrowedBlurEffect;
-    private static boolean warnedAboutShaderAccess;
+    private static ShaderInstance blurShader;
+    private static TextureTarget sceneCopy;
 
     private ClientAwakeningRecovery() {
+    }
+
+    public static void registerShader(RegisterShadersEvent event) throws IOException {
+        event.registerShader(
+                new ShaderInstance(
+                        event.getResourceProvider(),
+                        BLUR_SHADER,
+                        DefaultVertexFormat.POSITION_TEX
+                ),
+                shader -> blurShader = shader
+        );
     }
 
     public static void synchronize(BodyState updated) {
@@ -37,15 +56,11 @@ public final class ClientAwakeningRecovery {
             return;
         }
         long gameTime = minecraft.level.getGameTime();
-        long newEndGameTime = updated.awakeningRecoveryEndGameTime();
         if (!updated.isAwakeningRecoveryActive(gameTime)) {
             clear();
             return;
         }
-        if (recoveryEndGameTime != newEndGameTime) {
-            releaseBlurEffect();
-            recoveryEndGameTime = newEndGameTime;
-        }
+        recoveryEndGameTime = updated.awakeningRecoveryEndGameTime();
     }
 
     public static void tick() {
@@ -56,28 +71,86 @@ public final class ClientAwakeningRecovery {
             }
             return;
         }
-
-        float remainingTicks = recoveryEndGameTime - minecraft.level.getGameTime();
-        if (remainingTicks <= 0.0F) {
+        if (recoveryEndGameTime <= minecraft.level.getGameTime()) {
             clear();
-            return;
         }
-        if (remainingTicks <= BodyState.AWAKENING_RECOVERY_SLOWDOWN_GRACE_TICKS) {
-            releaseBlurEffect();
+    }
+
+    public static void renderWorldBlur(
+            GuiGraphics graphics,
+            int guiWidth,
+            int guiHeight,
+            float partialTick
+    ) {
+        Minecraft minecraft = Minecraft.getInstance();
+        float remainingTicks = remainingTicks(minecraft, partialTick);
+        if (remainingTicks <= BodyState.AWAKENING_RECOVERY_SLOWDOWN_GRACE_TICKS
+                || blurShader == null) {
             return;
         }
 
-        ensureBlurEffect();
-        updateBlurRadius(visualProgress(remainingTicks));
+        float progress = visualProgress(remainingTicks);
+        float clearProgress = smootherStep(Mth.clamp(
+                (progress - BLACK_FADE_PORTION) / (1.0F - BLACK_FADE_PORTION),
+                0.0F,
+                1.0F
+        ));
+        float radius = MAX_BLUR_RADIUS * (1.0F - clearProgress);
+        if (radius < 0.05F) {
+            return;
+        }
+
+        RenderTarget mainTarget = minecraft.getMainRenderTarget();
+        ensureSceneCopy(mainTarget.width, mainTarget.height);
+        if (sceneCopy == null) {
+            return;
+        }
+
+        GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, mainTarget.frameBufferId);
+        GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, sceneCopy.frameBufferId);
+        GlStateManager._glBlitFrameBuffer(
+                0,
+                0,
+                mainTarget.width,
+                mainTarget.height,
+                0,
+                0,
+                sceneCopy.width,
+                sceneCopy.height,
+                GL11.GL_COLOR_BUFFER_BIT,
+                GL11.GL_NEAREST
+        );
+        mainTarget.bindWrite(true);
+
+        RenderSystem.disableDepthTest();
+        RenderSystem.depthMask(false);
+        RenderSystem.disableBlend();
+        RenderSystem.setShader(() -> blurShader);
+        RenderSystem.setShaderTexture(0, sceneCopy.getColorTextureId());
+        blurShader.safeGetUniform("InSize").set(
+                (float) sceneCopy.width,
+                (float) sceneCopy.height
+        );
+        blurShader.safeGetUniform("Radius").set(radius);
+
+        Matrix4f pose = graphics.pose().last().pose();
+        BufferBuilder buffer = Tesselator.getInstance().getBuilder();
+        buffer.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
+        buffer.vertex(pose, 0.0F, guiHeight, 0.0F).uv(0.0F, 0.0F).endVertex();
+        buffer.vertex(pose, guiWidth, guiHeight, 0.0F).uv(1.0F, 0.0F).endVertex();
+        buffer.vertex(pose, guiWidth, 0.0F, 0.0F).uv(1.0F, 1.0F).endVertex();
+        buffer.vertex(pose, 0.0F, 0.0F, 0.0F).uv(0.0F, 1.0F).endVertex();
+        BufferUploader.drawWithShader(buffer.end());
+
+        RenderSystem.depthMask(true);
+        RenderSystem.enableDepthTest();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
     }
 
     public static void render(GuiGraphics graphics, int width, int height, float partialTick) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.level == null || recoveryEndGameTime < 0L) {
-            return;
-        }
-        float remainingTicks = recoveryEndGameTime
-                - (minecraft.level.getGameTime() + Mth.clamp(partialTick, 0.0F, 1.0F));
+        float remainingTicks = remainingTicks(minecraft, partialTick);
         if (remainingTicks <= BodyState.AWAKENING_RECOVERY_SLOWDOWN_GRACE_TICKS) {
             return;
         }
@@ -100,7 +173,27 @@ public final class ClientAwakeningRecovery {
 
     public static void clear() {
         recoveryEndGameTime = -1L;
-        releaseBlurEffect();
+    }
+
+    private static float remainingTicks(Minecraft minecraft, float partialTick) {
+        if (minecraft.level == null || recoveryEndGameTime < 0L) {
+            return -1.0F;
+        }
+        return recoveryEndGameTime
+                - (minecraft.level.getGameTime() + Mth.clamp(partialTick, 0.0F, 1.0F));
+    }
+
+    private static void ensureSceneCopy(int width, int height) {
+        int safeWidth = Math.max(1, width);
+        int safeHeight = Math.max(1, height);
+        if (sceneCopy != null && sceneCopy.width == safeWidth && sceneCopy.height == safeHeight) {
+            return;
+        }
+        if (sceneCopy != null) {
+            sceneCopy.destroyBuffers();
+        }
+        sceneCopy = new TextureTarget(safeWidth, safeHeight, false, Minecraft.ON_OSX);
+        sceneCopy.setFilterMode(GL11.GL_LINEAR);
     }
 
     private static float visualProgress(float remainingTicks) {
@@ -110,95 +203,6 @@ public final class ClientAwakeningRecovery {
                 0.0F,
                 1.0F
         );
-    }
-
-    private static void ensureBlurEffect() {
-        Minecraft minecraft = Minecraft.getInstance();
-        PostChain current = minecraft.gameRenderer.currentEffect();
-        if (ownedBlurEffect != null) {
-            if (current != ownedBlurEffect) {
-                ownedBlurEffect = null;
-                previousEffectLocation = null;
-                blurPasses = List.of();
-                borrowedBlurEffect = false;
-            }
-            return;
-        }
-
-        if (current != null && BLUR_EFFECT.toString().equals(current.getName())) {
-            ownedBlurEffect = current;
-            borrowedBlurEffect = true;
-            captureBlurPasses(current);
-            return;
-        }
-
-        previousEffectLocation = current == null
-                ? null
-                : ResourceLocation.tryParse(current.getName());
-
-        minecraft.gameRenderer.loadEffect(BLUR_EFFECT);
-        PostChain loaded = minecraft.gameRenderer.currentEffect();
-        if (loaded == null || !BLUR_EFFECT.toString().equals(loaded.getName())) {
-            return;
-        }
-        ownedBlurEffect = loaded;
-        borrowedBlurEffect = false;
-        captureBlurPasses(loaded);
-    }
-
-    private static void captureBlurPasses(PostChain loaded) {
-        try {
-            List<PostPass> passes = ObfuscationReflectionHelper.getPrivateValue(
-                    PostChain.class,
-                    loaded,
-                    "f_110009_"
-            );
-            blurPasses = passes == null ? List.of() : List.copyOf(passes);
-        } catch (RuntimeException exception) {
-            blurPasses = List.of();
-            if (!warnedAboutShaderAccess) {
-                warnedAboutShaderAccess = true;
-                SuperficialTrauma.LOGGER.warn(
-                        "Could not adjust awakening blur radius; the black-to-clear overlay will still render",
-                        exception
-                );
-            }
-        }
-    }
-
-    private static void updateBlurRadius(float progress) {
-        if (blurPasses.isEmpty()) {
-            return;
-        }
-        float clearProgress = smootherStep(Mth.clamp(
-                (progress - BLACK_FADE_PORTION) / (1.0F - BLACK_FADE_PORTION),
-                0.0F,
-                1.0F
-        ));
-        float radius = Math.max(1.0F, MAX_BLUR_RADIUS * (1.0F - clearProgress));
-        for (PostPass pass : blurPasses) {
-            pass.getEffect().safeGetUniform("Radius").set(radius);
-        }
-    }
-
-    private static void releaseBlurEffect() {
-        Minecraft minecraft = Minecraft.getInstance();
-        if (ownedBlurEffect != null && minecraft.gameRenderer.currentEffect() == ownedBlurEffect) {
-            if (borrowedBlurEffect) {
-                for (PostPass pass : blurPasses) {
-                    pass.getEffect().safeGetUniform("Radius").set(MAX_BLUR_RADIUS);
-                }
-            } else if (previousEffectLocation != null
-                    && !BLUR_EFFECT.equals(previousEffectLocation)) {
-                minecraft.gameRenderer.loadEffect(previousEffectLocation);
-            } else {
-                minecraft.gameRenderer.shutdownEffect();
-            }
-        }
-        ownedBlurEffect = null;
-        previousEffectLocation = null;
-        blurPasses = List.of();
-        borrowedBlurEffect = false;
     }
 
     private static float smootherStep(float value) {

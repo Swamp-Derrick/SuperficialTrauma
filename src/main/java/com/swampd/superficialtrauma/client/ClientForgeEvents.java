@@ -72,6 +72,16 @@ public final class ClientForgeEvents {
     }
 
     @SubscribeEvent
+    public static void onRenderGuiPre(RenderGuiEvent.Pre event) {
+        ClientAwakeningRecovery.renderWorldBlur(
+                event.getGuiGraphics(),
+                event.getWindow().getGuiScaledWidth(),
+                event.getWindow().getGuiScaledHeight(),
+                event.getPartialTick()
+        );
+    }
+
+    @SubscribeEvent
     public static void onRenderGui(RenderGuiEvent.Post event) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null) {
