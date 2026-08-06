@@ -100,23 +100,25 @@ public final class DefibrillationService {
         return true;
     }
 
-    public static void tick(ServerPlayer actor) {
+    public static void release(ServerPlayer actor, int patientEntityId) {
         DefibrillationSession session = SESSION_BY_ACTOR.get(actor.getUUID());
         if (session == null) {
             return;
         }
         ServerPlayer patient = player(actor, session.patientId);
-        if (patient == null
-                || !canTreat(actor, patient)
-                || actor.getInventory().selected != session.selectedSlot
-                || TreatmentMovementRules.interrupts(
-                false,
-                false,
-                session.actorStart,
-                actor.position(),
-                session.patientStart,
-                patient.position()
-        )) {
+        if (patient == null || patient.getId() != patientEntityId) {
+            cancelActor(actor.getUUID());
+            return;
+        }
+        long gameTime = actor.serverLevel().getGameTime();
+        if (gameTime < session.readyGameTime) {
+            cancelActor(actor.getUUID());
+            actor.displayClientMessage(Component.translatable(
+                    "message.superficialtrauma.defibrillation.charge_incomplete"
+            ), true);
+            return;
+        }
+        if (!isSessionValid(actor, patient, session)) {
             cancelActor(actor.getUUID());
             actor.displayClientMessage(Component.translatable(
                     "message.superficialtrauma.defibrillation.cancelled"
@@ -134,8 +136,49 @@ public final class DefibrillationService {
             ), true);
             return;
         }
-        if (actor.serverLevel().getGameTime() >= session.endsGameTime) {
-            discharge(actor, patient, session, defibrillator);
+        discharge(actor, patient, session, defibrillator);
+    }
+
+    public static void cancel(ServerPlayer actor, int patientEntityId) {
+        DefibrillationSession session = SESSION_BY_ACTOR.get(actor.getUUID());
+        if (session == null) {
+            return;
+        }
+        ServerPlayer patient = player(actor, session.patientId);
+        if (patient == null || patient.getId() == patientEntityId) {
+            cancelActor(actor.getUUID());
+        }
+    }
+
+    public static void tick(ServerPlayer actor) {
+        DefibrillationSession session = SESSION_BY_ACTOR.get(actor.getUUID());
+        if (session == null) {
+            return;
+        }
+        ServerPlayer patient = player(actor, session.patientId);
+        if (patient == null || !isSessionValid(actor, patient, session)) {
+            cancelActor(actor.getUUID());
+            actor.displayClientMessage(Component.translatable(
+                    "message.superficialtrauma.defibrillation.cancelled"
+            ), true);
+            return;
+        }
+
+        ItemStack defibrillator = actor.getInventory().getItem(session.selectedSlot);
+        if (!defibrillator.is(ModItems.DEFIBRILLATOR.get())
+                || DefibrillatorItem.getEnergy(defibrillator) < session.energy.joules()) {
+            cancelActor(actor.getUUID());
+            actor.displayClientMessage(Component.translatable(
+                    "message.superficialtrauma.defibrillation.energy_missing",
+                    session.energy.joules()
+            ), true);
+            return;
+        }
+        if (actor.serverLevel().getGameTime() >= session.readyGameTime && !session.readyNotified) {
+            session.readyNotified = true;
+            actor.displayClientMessage(Component.translatable(
+                    "message.superficialtrauma.defibrillation.ready"
+            ), true);
         }
     }
 
@@ -271,6 +314,23 @@ public final class DefibrillationService {
                 .orElse(BodyLifeState.ACTIVE) == BodyLifeState.VENTRICULAR_FIBRILLATION;
     }
 
+    private static boolean isSessionValid(
+            ServerPlayer actor,
+            ServerPlayer patient,
+            DefibrillationSession session
+    ) {
+        return canTreat(actor, patient)
+                && actor.getInventory().selected == session.selectedSlot
+                && !TreatmentMovementRules.interrupts(
+                false,
+                false,
+                session.actorStart,
+                actor.position(),
+                session.patientStart,
+                patient.position()
+        );
+    }
+
     private static int findChargedDefibrillator(ServerPlayer actor, int requiredEnergy) {
         Inventory inventory = actor.getInventory();
         for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
@@ -327,15 +387,35 @@ public final class DefibrillationService {
                 .getPlayerList().getPlayer(playerId);
     }
 
-    private record DefibrillationSession(
-            UUID actorId,
-            UUID patientId,
-            DefibrillationEnergy energy,
-            long endsGameTime,
-            Vec3 actorStart,
-            Vec3 patientStart,
-            int selectedSlot,
-            int defibrillatorSourceSlot
-    ) {
+    private static final class DefibrillationSession {
+        private final UUID actorId;
+        private final UUID patientId;
+        private final DefibrillationEnergy energy;
+        private final long readyGameTime;
+        private final Vec3 actorStart;
+        private final Vec3 patientStart;
+        private final int selectedSlot;
+        private final int defibrillatorSourceSlot;
+        private boolean readyNotified;
+
+        private DefibrillationSession(
+                UUID actorId,
+                UUID patientId,
+                DefibrillationEnergy energy,
+                long readyGameTime,
+                Vec3 actorStart,
+                Vec3 patientStart,
+                int selectedSlot,
+                int defibrillatorSourceSlot
+        ) {
+            this.actorId = actorId;
+            this.patientId = patientId;
+            this.energy = energy;
+            this.readyGameTime = readyGameTime;
+            this.actorStart = actorStart;
+            this.patientStart = patientStart;
+            this.selectedSlot = selectedSlot;
+            this.defibrillatorSourceSlot = defibrillatorSourceSlot;
+        }
     }
 }

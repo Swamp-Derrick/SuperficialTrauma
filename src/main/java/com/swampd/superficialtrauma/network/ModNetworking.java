@@ -5,6 +5,7 @@ import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.InfusionType;
 import com.swampd.superficialtrauma.common.body.DefibrillationEnergy;
+import com.swampd.superficialtrauma.common.treatment.DefibrillationAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentCancelReason;
 import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentSession;
@@ -37,7 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "14";
+    private static final String PROTOCOL_VERSION = "15";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -239,8 +240,28 @@ public final class ModNetworking {
         CHANNEL.sendToServer(new CprActionC2SPacket(patientEntityId, active));
     }
 
-    public static void requestDefibrillation(int patientEntityId, DefibrillationEnergy energy) {
-        CHANNEL.sendToServer(new StartDefibrillationC2SPacket(patientEntityId, energy.joules()));
+    public static void startDefibrillation(int patientEntityId, DefibrillationEnergy energy) {
+        sendDefibrillationAction(patientEntityId, energy, DefibrillationAction.START);
+    }
+
+    public static void releaseDefibrillation(int patientEntityId, DefibrillationEnergy energy) {
+        sendDefibrillationAction(patientEntityId, energy, DefibrillationAction.RELEASE);
+    }
+
+    public static void cancelDefibrillation(int patientEntityId, DefibrillationEnergy energy) {
+        sendDefibrillationAction(patientEntityId, energy, DefibrillationAction.CANCEL);
+    }
+
+    private static void sendDefibrillationAction(
+            int patientEntityId,
+            DefibrillationEnergy energy,
+            DefibrillationAction action
+    ) {
+        CHANNEL.sendToServer(new StartDefibrillationC2SPacket(
+                patientEntityId,
+                energy.joules(),
+                action
+        ));
     }
 
     public static void sendInspectionSnapshot(
