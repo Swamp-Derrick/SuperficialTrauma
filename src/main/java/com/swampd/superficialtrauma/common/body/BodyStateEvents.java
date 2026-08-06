@@ -32,6 +32,12 @@ public final class BodyStateEvents {
             "fbd950e2-518e-4a48-a23e-ef19b1973d6c"
     );
     private static final String NECROSIS_MAX_HEALTH_MODIFIER_NAME = "Superficial Trauma necrosis";
+    private static final UUID AWAKENING_RECOVERY_SPEED_MODIFIER_ID = UUID.fromString(
+            "af5dd27f-a30b-43c4-9867-a02820f431dd"
+    );
+    private static final String AWAKENING_RECOVERY_SPEED_MODIFIER_NAME =
+            "Superficial Trauma awakening recovery";
+    private static final double AWAKENING_RECOVERY_SPEED_MULTIPLIER = -0.75D;
 
     private BodyStateEvents() {
     }
@@ -142,6 +148,7 @@ public final class BodyStateEvents {
                 BloodLossDamage.apply(serverPlayer, result.bleedingDamage());
             }
             AwakeningProgression awakening = bodyState.advanceAwakening(serverPlayer.getHealth(), gameTime);
+            updateAwakeningRecoverySpeed(serverPlayer, bodyState, gameTime);
             updateInfectionEffects(serverPlayer, bodyState, gameTime);
             updateNecrosisEffects(serverPlayer, bodyState, gameTime);
             boolean poseCaptured = !bodyState.canAct()
@@ -304,6 +311,32 @@ public final class BodyStateEvents {
                     false,
                     false,
                     true
+            ));
+        }
+    }
+
+    private static void updateAwakeningRecoverySpeed(
+            ServerPlayer player,
+            BodyState bodyState,
+            long gameTime
+    ) {
+        AttributeInstance movementSpeed = player.getAttribute(Attributes.MOVEMENT_SPEED);
+        if (movementSpeed == null) {
+            return;
+        }
+        AttributeModifier existing = movementSpeed.getModifier(AWAKENING_RECOVERY_SPEED_MODIFIER_ID);
+        if (!bodyState.isAwakeningRecoveryActive(gameTime)) {
+            if (existing != null) {
+                movementSpeed.removeModifier(AWAKENING_RECOVERY_SPEED_MODIFIER_ID);
+            }
+            return;
+        }
+        if (existing == null) {
+            movementSpeed.addTransientModifier(new AttributeModifier(
+                    AWAKENING_RECOVERY_SPEED_MODIFIER_ID,
+                    AWAKENING_RECOVERY_SPEED_MODIFIER_NAME,
+                    AWAKENING_RECOVERY_SPEED_MULTIPLIER,
+                    AttributeModifier.Operation.MULTIPLY_TOTAL
             ));
         }
     }

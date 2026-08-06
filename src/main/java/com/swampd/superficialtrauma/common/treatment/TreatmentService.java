@@ -156,6 +156,11 @@ public final class TreatmentService {
         return SESSION_BY_ACTOR.containsKey(actorId);
     }
 
+    public static boolean isSelfTreating(UUID actorId) {
+        TreatmentSession session = SESSION_BY_ACTOR.get(actorId);
+        return session != null && session.isSelfTreatment();
+    }
+
     public static void cancelInvolving(ServerPlayer player, TreatmentCancelReason reason) {
         cancelActor(player.getUUID(), reason);
         UUID actorId = ACTOR_BY_PATIENT.get(player.getUUID());

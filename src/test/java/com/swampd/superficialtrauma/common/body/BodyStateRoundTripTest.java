@@ -382,9 +382,23 @@ public final class BodyStateRoundTripTest {
         assertEquals(false, restored.advanceAwakening(6.0F, 20L + BodyState.AWAKENING_DURATION_TICKS - 1L).changed(), "awakening must remain blocked until the cooldown ends");
         long retryEnd = 20L + BodyState.AWAKENING_DURATION_TICKS;
         assertEquals(true, restored.advanceAwakening(6.0F, retryEnd).started(), "awakening requirements must be checked again when cooldown ends");
-        assertEquals(true, restored.advanceAwakening(6.0F, retryEnd + BodyState.AWAKENING_DURATION_TICKS).completed(), "twenty uninterrupted seconds must restore action");
+        long completedAt = retryEnd + BodyState.AWAKENING_DURATION_TICKS;
+        assertEquals(true, restored.advanceAwakening(6.0F, completedAt).completed(), "twenty uninterrupted seconds must restore action");
         assertEquals(BodyLifeState.ACTIVE, restored.lifeState(), "completed awakening must restore the active state");
         assertEquals(CollapseReason.NONE, restored.collapseReason(), "completed awakening must clear collapse reason");
+        assertEquals(
+                BodyState.AWAKENING_RECOVERY_DURATION_TICKS,
+                restored.awakeningRecoveryRemainingTicks(completedAt),
+                "successful awakening must begin the visual recovery plus one-second slowdown grace period"
+        );
+
+        BodyState recoveryRestored = new BodyState();
+        recoveryRestored.deserializeNBT(restored.serializeNBT());
+        long recoveryEnd = completedAt + BodyState.AWAKENING_RECOVERY_DURATION_TICKS;
+        assertEquals(true, recoveryRestored.isAwakeningRecoveryActive(recoveryEnd - 1L), "recovery slowdown must survive NBT until its final tick");
+        assertEquals(false, recoveryRestored.isAwakeningRecoveryActive(recoveryEnd), "recovery slowdown must end at its deadline");
+        assertEquals(true, recoveryRestored.incapacitate(CollapseReason.TRAUMATIC_SHOCK, completedAt + 1L), "an active recovering player may be downed again");
+        assertEquals(0L, recoveryRestored.awakeningRecoveryRemainingTicks(completedAt + 1L), "being downed again must clear post-awakening recovery");
     }
 
     private static void verifyHemorrhagicShockAwakeningRequirements() {

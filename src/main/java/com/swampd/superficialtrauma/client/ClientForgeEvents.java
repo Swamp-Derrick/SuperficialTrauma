@@ -38,6 +38,7 @@ public final class ClientForgeEvents {
 
         Minecraft minecraft = Minecraft.getInstance();
         ClientBloodLossOverlay.tick();
+        ClientAwakeningRecovery.tick();
         ClientDownedInput.enforceMovementLock();
         ClientDownedHitbox.tick();
         while (ClientModEvents.OPEN_HEALTH_HUD.consumeClick()) {

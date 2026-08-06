@@ -2,6 +2,9 @@ package com.swampd.superficialtrauma.common.treatment;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.item.ItemTossEvent;
 import net.minecraftforge.event.entity.living.LivingDamageEvent;
@@ -16,10 +19,18 @@ import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import java.util.UUID;
+
 @Mod.EventBusSubscriber(modid = SuperficialTrauma.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public final class TreatmentEvents {
     private static final String CGM_FIRE_PRE = "com.mrcrayfish.guns.event.GunFireEvent$Pre";
     private static final String CGM_RELOAD_PRE = "com.mrcrayfish.guns.event.GunReloadEvent$Pre";
+    private static final UUID SELF_TREATMENT_SPEED_MODIFIER_ID = UUID.fromString(
+            "a4ad1c38-c243-420e-a029-604cb71e3a2d"
+    );
+    private static final String SELF_TREATMENT_SPEED_MODIFIER_NAME =
+            "Superficial Trauma self treatment";
+    private static final double SELF_TREATMENT_SPEED_MULTIPLIER = -0.5D;
 
     private TreatmentEvents() {
     }
@@ -29,6 +40,7 @@ public final class TreatmentEvents {
         if (event.phase == TickEvent.Phase.END && event.player instanceof ServerPlayer player) {
             AirwayService.tick(player);
             TreatmentService.tick(player);
+            updateSelfTreatmentSpeed(player);
             InspectionService.tick(player);
         }
     }
@@ -104,6 +116,28 @@ public final class TreatmentEvents {
         if (player instanceof ServerPlayer serverPlayer) {
             TreatmentService.cancelInvolving(serverPlayer, TreatmentCancelReason.ACTION);
             AirwayService.cancelInvolving(serverPlayer);
+        }
+    }
+
+    private static void updateSelfTreatmentSpeed(ServerPlayer player) {
+        AttributeInstance movementSpeed = player.getAttribute(Attributes.MOVEMENT_SPEED);
+        if (movementSpeed == null) {
+            return;
+        }
+        AttributeModifier existing = movementSpeed.getModifier(SELF_TREATMENT_SPEED_MODIFIER_ID);
+        if (!TreatmentService.isSelfTreating(player.getUUID())) {
+            if (existing != null) {
+                movementSpeed.removeModifier(SELF_TREATMENT_SPEED_MODIFIER_ID);
+            }
+            return;
+        }
+        if (existing == null) {
+            movementSpeed.addTransientModifier(new AttributeModifier(
+                    SELF_TREATMENT_SPEED_MODIFIER_ID,
+                    SELF_TREATMENT_SPEED_MODIFIER_NAME,
+                    SELF_TREATMENT_SPEED_MULTIPLIER,
+                    AttributeModifier.Operation.MULTIPLY_TOTAL
+            ));
         }
     }
 }

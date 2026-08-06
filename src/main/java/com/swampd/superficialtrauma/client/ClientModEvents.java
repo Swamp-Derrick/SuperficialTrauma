@@ -45,5 +45,10 @@ public final class ClientModEvents {
                 "downed_overlay",
                 (gui, graphics, partialTick, width, height) -> ClientDownedOverlay.render(graphics, width, height)
         );
+        event.registerAboveAll(
+                "awakening_recovery_overlay",
+                (gui, graphics, partialTick, width, height) ->
+                        ClientAwakeningRecovery.render(graphics, width, height, partialTick)
+        );
     }
 }

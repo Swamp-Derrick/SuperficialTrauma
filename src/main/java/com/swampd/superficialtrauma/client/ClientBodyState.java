@@ -23,10 +23,12 @@ public final class ClientBodyState {
         updated.deserializeNBT(tag);
         snapshot = updated;
         received = true;
+        ClientAwakeningRecovery.synchronize(updated);
     }
 
     public static void clear() {
         snapshot = new BodyState();
         received = false;
+        ClientAwakeningRecovery.clear();
     }
 }
