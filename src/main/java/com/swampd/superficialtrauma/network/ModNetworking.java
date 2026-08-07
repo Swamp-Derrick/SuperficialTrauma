@@ -12,6 +12,9 @@ import com.swampd.superficialtrauma.common.treatment.TreatmentSession;
 import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
 import com.swampd.superficialtrauma.common.forensics.AutopsyAction;
 import com.swampd.superficialtrauma.common.forensics.AutopsyReport;
+import com.swampd.superficialtrauma.common.medication.MedicationCancelReason;
+import com.swampd.superficialtrauma.common.medication.MedicationSession;
+import com.swampd.superficialtrauma.common.medication.MedicationType;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSound;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSoundChannel;
 import com.swampd.superficialtrauma.common.treatment.TreatmentPreparationType;
@@ -38,6 +41,9 @@ import com.swampd.superficialtrauma.network.packet.AutopsyReportS2CPacket;
 import com.swampd.superficialtrauma.network.packet.CloseAutopsyS2CPacket;
 import com.swampd.superficialtrauma.network.packet.MedicalActionSoundS2CPacket;
 import com.swampd.superficialtrauma.network.packet.TreatmentPreparationSoundC2SPacket;
+import com.swampd.superficialtrauma.network.packet.StartMedicationC2SPacket;
+import com.swampd.superficialtrauma.network.packet.MedicationPreparationC2SPacket;
+import com.swampd.superficialtrauma.network.packet.MedicationSessionS2CPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkDirection;
@@ -51,7 +57,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "19";
+    private static final String PROTOCOL_VERSION = "20";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -168,6 +174,30 @@ public final class ModNetworking {
                 MedicalActionSoundS2CPacket::encode,
                 MedicalActionSoundS2CPacket::decode,
                 MedicalActionSoundS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                StartMedicationC2SPacket.class,
+                StartMedicationC2SPacket::encode,
+                StartMedicationC2SPacket::decode,
+                StartMedicationC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                MedicationPreparationC2SPacket.class,
+                MedicationPreparationC2SPacket::encode,
+                MedicationPreparationC2SPacket::decode,
+                MedicationPreparationC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                MedicationSessionS2CPacket.class,
+                MedicationSessionS2CPacket::encode,
+                MedicationSessionS2CPacket::decode,
+                MedicationSessionS2CPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT)
         );
         CHANNEL.registerMessage(
@@ -349,6 +379,14 @@ public final class ModNetworking {
         ));
     }
 
+    public static void requestMedication(int patientEntityId, MedicationType type) {
+        CHANNEL.sendToServer(new StartMedicationC2SPacket(patientEntityId, type));
+    }
+
+    public static void setMedicationPreparation(int patientEntityId, boolean active) {
+        CHANNEL.sendToServer(new MedicationPreparationC2SPacket(patientEntityId, active));
+    }
+
     public static void setAssistedBreathing(int patientEntityId, boolean active) {
         CHANNEL.sendToServer(new AirwayActionC2SPacket(patientEntityId, active));
     }
@@ -464,6 +502,43 @@ public final class ModNetworking {
                         session.procedure(),
                         session.action()
                 )
+        );
+    }
+
+    public static void sendMedicationStarted(
+            ServerPlayer actor,
+            int patientEntityId,
+            MedicationSession session
+    ) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> actor),
+                MedicationSessionS2CPacket.started(
+                        patientEntityId,
+                        session.type(),
+                        session.endsGameTime()
+                )
+        );
+    }
+
+    public static void sendMedicationCancelled(
+            ServerPlayer actor,
+            MedicationSession session,
+            MedicationCancelReason reason
+    ) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> actor),
+                MedicationSessionS2CPacket.cancelled(session.type(), reason)
+        );
+    }
+
+    public static void sendMedicationCompleted(
+            ServerPlayer actor,
+            int patientEntityId,
+            MedicationSession session
+    ) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> actor),
+                MedicationSessionS2CPacket.completed(patientEntityId, session.type())
         );
     }
 

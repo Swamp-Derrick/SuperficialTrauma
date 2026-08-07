@@ -29,6 +29,9 @@ public final class ModCreativeTabs {
                         output.accept(ModItems.TOURNIQUET.get());
                         output.accept(ModItems.SALINE_SOLUTION.get());
                         output.accept(ModItems.BLOOD_BAG.get());
+                        output.accept(ModItems.SYRINGE.get());
+                        output.accept(ModItems.PARACETAMOL.get());
+                        output.accept(ModItems.MORPHINE_VIAL.get());
                         output.accept(ModItems.MANUAL_RESUSCITATOR.get());
                         output.accept(ModItems.DEFIBRILLATOR.get());
                         output.accept(ModItems.SURGICAL_KIT.get());

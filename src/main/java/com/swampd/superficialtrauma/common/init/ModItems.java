@@ -49,6 +49,18 @@ public final class ModItems {
             "blood_bag",
             () -> new Item(new Item.Properties().stacksTo(16))
     );
+    public static final RegistryObject<Item> SYRINGE = ITEMS.register(
+            "syringe",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
+    public static final RegistryObject<Item> PARACETAMOL = ITEMS.register(
+            "paracetamol",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
+    public static final RegistryObject<Item> MORPHINE_VIAL = ITEMS.register(
+            "morphine_vial",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
     public static final RegistryObject<Item> MANUAL_RESUSCITATOR = ITEMS.register(
             "manual_resuscitator",
             () -> new Item(new Item.Properties().stacksTo(1))

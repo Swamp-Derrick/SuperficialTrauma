@@ -2,6 +2,7 @@ package com.swampd.superficialtrauma.common.treatment;
 
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
+import com.swampd.superficialtrauma.common.medication.MedicationService;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSound;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSoundChannel;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSoundService;
@@ -44,7 +45,8 @@ public final class TreatmentService {
             return false;
         }
 
-        if (SESSION_BY_ACTOR.containsKey(actor.getUUID())) {
+        if (SESSION_BY_ACTOR.containsKey(actor.getUUID())
+                || MedicationService.isActorAdministering(actor.getUUID())) {
             actor.displayClientMessage(
                     Component.translatable("message.superficialtrauma.treatment.actor_busy"),
                     true
@@ -53,7 +55,7 @@ public final class TreatmentService {
         }
 
         UUID existingActor = ACTOR_BY_PATIENT.get(patient.getUUID());
-        if (existingActor != null) {
+        if (existingActor != null || MedicationService.isPatientReceiving(patient.getUUID())) {
             actor.displayClientMessage(
                     Component.translatable("message.superficialtrauma.treatment.patient_busy"),
                     true
@@ -167,6 +169,10 @@ public final class TreatmentService {
 
     public static boolean isActorTreating(UUID actorId) {
         return SESSION_BY_ACTOR.containsKey(actorId);
+    }
+
+    public static boolean isPatientBeingTreated(UUID patientId) {
+        return ACTOR_BY_PATIENT.containsKey(patientId);
     }
 
     public static boolean isSelfTreating(UUID actorId) {

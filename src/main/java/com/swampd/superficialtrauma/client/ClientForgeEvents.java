@@ -121,6 +121,7 @@ public final class ClientForgeEvents {
         ClientInspectionState.clear();
         ClientAutopsyState.clear();
         ClientTreatmentState.clear();
+        ClientMedicationState.clear();
         ClientDownedPoses.clear();
         ClientBloodLossOverlay.clear();
     }

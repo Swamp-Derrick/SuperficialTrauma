@@ -8,6 +8,7 @@ import com.swampd.superficialtrauma.common.body.DefibrillationEnergy;
 import com.swampd.superficialtrauma.common.damage.DamageWindow;
 import com.swampd.superficialtrauma.common.init.ModItems;
 import com.swampd.superficialtrauma.common.item.DefibrillatorItem;
+import com.swampd.superficialtrauma.common.medication.MedicationType;
 import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentIngredient;
 import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
@@ -55,7 +56,9 @@ public final class HealthScreen extends Screen {
     private long lastButtonRevision = Long.MIN_VALUE;
     private long lastInventorySignature = Long.MIN_VALUE;
     private boolean lastTreatmentActive;
+    private boolean lastMedicationActive;
     private TreatmentPreparation preparation;
+    private MedicationPreparation medicationPreparation;
     private PanelMode panelMode = PanelMode.TREATMENT;
     private boolean assistedBreathingHeld;
     private boolean cprHeld;
@@ -108,6 +111,7 @@ public final class HealthScreen extends Screen {
                     || canDefibrillate(state, selectedDefibrillationEnergy);
         }
         boolean treatmentActive = ClientTreatmentState.isActive();
+        boolean medicationActive = ClientMedicationState.isActive();
         if (preparation != null) {
             if (treatmentActive) {
                 clearPreparation();
@@ -122,10 +126,25 @@ public final class HealthScreen extends Screen {
                 rebuildTreatmentButtons();
             }
         }
+        if (medicationPreparation != null) {
+            if (medicationActive || treatmentActive) {
+                clearMedicationPreparation();
+            } else if (patientMovedSinceMedicationPreparation()) {
+                clearMedicationPreparation();
+                if (minecraft != null) {
+                    minecraft.setScreen(null);
+                }
+                return;
+            } else if (!medicationPreparationStillValid(state)) {
+                clearMedicationPreparation();
+                rebuildTreatmentButtons();
+            }
+        }
         long inventorySignature = inventorySignature();
         if (state.revision() != lastButtonRevision
                 || inventorySignature != lastInventorySignature
-                || treatmentActive != lastTreatmentActive) {
+                || treatmentActive != lastTreatmentActive
+                || medicationActive != lastMedicationActive) {
             rebuildTreatmentButtons();
         }
     }
@@ -190,7 +209,7 @@ public final class HealthScreen extends Screen {
                 contentHeight,
                 layout.middleWidth - 12
         );
-        if (preparation != null) {
+        if (preparation != null || medicationPreparation != null) {
             drawPreparationShade(graphics, layout);
         }
 
@@ -620,16 +639,42 @@ public final class HealthScreen extends Screen {
             int availableWidth,
             int availableHeight
     ) {
-        int textY = y + 30;
-        Component text = state.hasActiveInfusion()
-                ? Component.translatable(
+        int buttonsPerRow = treatmentButtonsPerRow(availableWidth);
+        int buttonRows = (3 + buttonsPerRow - 1) / buttonsPerRow;
+        if (!state.canAct()) {
+            buttonRows += (2 + buttonsPerRow - 1) / buttonsPerRow;
+        }
+        int textY = y + buttonRows * TREATMENT_BUTTON_STEP + 6;
+        Component text;
+        int color;
+        if (ClientMedicationState.isActive()) {
+            text = Component.translatable(
+                    "screen.superficialtrauma.health.medication_action_active",
+                    Component.translatable(ClientMedicationState.activeMedication().type().translationKey()),
+                    oneDecimal(ClientMedicationState.remainingSeconds())
+            );
+            color = WARN_COLOR;
+        } else if (state.hasActiveInfusion()) {
+            text = Component.translatable(
                         "screen.superficialtrauma.health.infusion_active",
                         Component.translatable(state.infusionType().translationKey()),
                         oneDecimal(state.infusionRemainingTicks(currentGameTime()) / 20.0F)
-                )
-                : Component.translatable("screen.superficialtrauma.health.infusion_available");
+                );
+            color = GOOD_COLOR;
+        } else {
+            int paracetamolDoses = state.activeDoseCount(MedicationType.PARACETAMOL);
+            int morphineDoses = state.activeDoseCount(MedicationType.MORPHINE);
+            text = paracetamolDoses > 0 || morphineDoses > 0
+                    ? Component.translatable(
+                            "screen.superficialtrauma.health.medication_doses",
+                            paracetamolDoses,
+                            morphineDoses
+                    )
+                    : Component.translatable("screen.superficialtrauma.health.medication_available");
+            color = paracetamolDoses > 0 || morphineDoses > 0 ? GOOD_COLOR : MUTED_COLOR;
+        }
         drawWrappedWithin(graphics, text, x + 4, textY, availableWidth - 8,
-                state.hasActiveInfusion() ? GOOD_COLOR : MUTED_COLOR, y + availableHeight - 18);
+                color, y + availableHeight - 18);
     }
 
     private void drawEmergencyColumn(
@@ -793,7 +838,7 @@ public final class HealthScreen extends Screen {
         }
 
         BodyState state = displayedState();
-        boolean anyTreatmentActive = ClientTreatmentState.isActive();
+        boolean anyTreatmentActive = ClientTreatmentState.isActive() || ClientMedicationState.isActive();
         if (panelMode == PanelMode.TREATMENT) {
             int availableHeight = layout.innerHeight - 12;
             int treatmentAvailableWidth = layout.rightWidth - 12;
@@ -828,14 +873,15 @@ public final class HealthScreen extends Screen {
                 rowY += row.height();
             }
         } else if (panelMode == PanelMode.MEDICATION) {
-            addInfusionButtons(layout, state);
+            addMedicationButtons(layout, state, anyTreatmentActive);
         } else if (panelMode == PanelMode.EMERGENCY) {
             addEmergencyButtons(layout, state);
         }
 
         lastButtonRevision = state.revision();
         lastInventorySignature = inventorySignature();
-        lastTreatmentActive = anyTreatmentActive;
+        lastTreatmentActive = ClientTreatmentState.isActive();
+        lastMedicationActive = ClientMedicationState.isActive();
     }
 
     private void addPanelModeButtons(Layout layout) {
@@ -867,26 +913,130 @@ public final class HealthScreen extends Screen {
         stopCpr();
         cancelDefibrillation();
         clearPreparation();
+        clearMedicationPreparation();
         panelMode = newMode;
         rebuildTreatmentButtons();
     }
 
-    private void addInfusionButtons(Layout layout, BodyState state) {
-        int x = layout.rightX + 10;
-        int y = layout.innerY + 6 + 22;
-        addInfusionButton(x, y, state, InfusionType.BLOOD_BAG, ModItems.BLOOD_BAG.get());
-        addInfusionButton(
-                x + TREATMENT_BUTTON_STEP,
-                y,
+    private void addMedicationButtons(Layout layout, BodyState state, boolean anyMedicalActionActive) {
+        int startX = layout.rightX + 10;
+        int startY = layout.innerY + 6 + 22;
+        int availableWidth = layout.rightWidth - 12;
+        int buttonsPerRow = treatmentButtonsPerRow(availableWidth);
+        int rowOffset = 0;
+
+        if (!state.canAct()) {
+            addInfusionButton(
+                    startX,
+                    startY,
+                    state,
+                    InfusionType.BLOOD_BAG,
+                    ModItems.BLOOD_BAG.get()
+            );
+            addInfusionButton(
+                    startX + (1 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                    startY + (1 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                    state,
+                    InfusionType.SALINE,
+                    ModItems.SALINE_SOLUTION.get()
+            );
+            rowOffset = (2 + buttonsPerRow - 1) / buttonsPerRow;
+        }
+
+        int drugY = startY + rowOffset * TREATMENT_BUTTON_STEP;
+        addMedicationItemButton(
+                startX,
+                drugY,
                 state,
-                InfusionType.SALINE,
-                ModItems.SALINE_SOLUTION.get()
+                ModItems.SYRINGE.get(),
+                MedicationButtonType.SYRINGE,
+                anyMedicalActionActive
         );
+        addMedicationItemButton(
+                startX + 1 % buttonsPerRow * TREATMENT_BUTTON_STEP,
+                drugY + 1 / buttonsPerRow * TREATMENT_BUTTON_STEP,
+                state,
+                ModItems.PARACETAMOL.get(),
+                MedicationButtonType.PARACETAMOL,
+                anyMedicalActionActive
+        );
+        addMedicationItemButton(
+                startX + 2 % buttonsPerRow * TREATMENT_BUTTON_STEP,
+                drugY + 2 / buttonsPerRow * TREATMENT_BUTTON_STEP,
+                state,
+                ModItems.MORPHINE_VIAL.get(),
+                MedicationButtonType.MORPHINE,
+                anyMedicalActionActive
+        );
+    }
+
+    private void addMedicationItemButton(
+            int x,
+            int y,
+            BodyState state,
+            Item item,
+            MedicationButtonType buttonType,
+            boolean anyMedicalActionActive
+    ) {
+        boolean active = false;
+        Component tooltip;
+        Runnable onPress = () -> {
+        };
+
+        if (anyMedicalActionActive) {
+            tooltip = Component.translatable("screen.superficialtrauma.health.medication_busy_tooltip");
+        } else if (medicationPreparation != null) {
+            if (buttonType == MedicationButtonType.MORPHINE
+                    && medicationPreparation.patientEntityId() == displayedEntityId()) {
+                active = medicationPreparationStillValid(state);
+                tooltip = Component.translatable("screen.superficialtrauma.health.morphine_finish_tooltip");
+                onPress = this::submitPreparedMorphine;
+            } else {
+                tooltip = Component.translatable("screen.superficialtrauma.health.medication_preparation_locked");
+            }
+        } else {
+            switch (buttonType) {
+                case SYRINGE -> {
+                    active = canPrepareMorphine(state);
+                    tooltip = Component.translatable("screen.superficialtrauma.health.syringe_tooltip");
+                    onPress = this::beginMedicationPreparation;
+                }
+                case PARACETAMOL -> {
+                    active = actorCanAct()
+                            && state.canAct()
+                            && countItem(ModItems.PARACETAMOL.get()) > 0;
+                    tooltip = state.canAct()
+                            ? Component.translatable("screen.superficialtrauma.health.paracetamol_tooltip")
+                            : Component.translatable("screen.superficialtrauma.health.oral_medication_blocked");
+                    onPress = () -> ModNetworking.requestMedication(
+                            displayedEntityId(),
+                            MedicationType.PARACETAMOL
+                    );
+                }
+                case MORPHINE -> tooltip = Component.translatable(
+                        "screen.superficialtrauma.health.morphine_requires_syringe"
+                );
+                default -> tooltip = Component.empty();
+            }
+        }
+
+        MedicalActionButton button = new MedicalActionButton(
+                x,
+                y,
+                item,
+                item.getDescription(),
+                tooltip,
+                onPress
+        );
+        button.active = active;
+        medicalActionButtons.add(addRenderableWidget(button));
     }
 
     private void addInfusionButton(int x, int y, BodyState state, InfusionType type, Item item) {
         boolean active = inspectingOtherPlayer
                 && actorCanAct()
+                && !ClientTreatmentState.isActive()
+                && !ClientMedicationState.isActive()
                 && !state.canAct()
                 && state.lifeState() != BodyLifeState.BRAIN_DEAD
                 && !state.hasActiveInfusion()
@@ -1506,6 +1656,62 @@ public final class HealthScreen extends Screen {
         preparation = null;
     }
 
+    private void beginMedicationPreparation() {
+        BodyState state = displayedState();
+        Vec3 patientPosition = displayedPatientPosition();
+        if (patientPosition == null || !canPrepareMorphine(state)) {
+            return;
+        }
+        clearPreparation();
+        clearMedicationPreparation();
+        medicationPreparation = new MedicationPreparation(displayedEntityId(), patientPosition);
+        ModNetworking.setMedicationPreparation(displayedEntityId(), true);
+        rebuildTreatmentButtons();
+    }
+
+    private void submitPreparedMorphine() {
+        int patientEntityId = displayedEntityId();
+        // Keep the server-side first-step token until the ordered start packet consumes it.
+        // Sending a separate cancellation here would let the second packet arrive without
+        // proof that the syringe step was completed.
+        medicationPreparation = null;
+        ModNetworking.requestMedication(patientEntityId, MedicationType.MORPHINE);
+        rebuildTreatmentButtons();
+    }
+
+    private boolean canPrepareMorphine(BodyState state) {
+        return actorCanAct()
+                && state.lifeState() != BodyLifeState.BRAIN_DEAD
+                && countItem(ModItems.SYRINGE.get()) > 0
+                && countItem(ModItems.MORPHINE_VIAL.get()) > 0;
+    }
+
+    private boolean medicationPreparationStillValid(BodyState state) {
+        return medicationPreparation != null
+                && medicationPreparation.patientEntityId() == displayedEntityId()
+                && canPrepareMorphine(state);
+    }
+
+    private boolean patientMovedSinceMedicationPreparation() {
+        if (medicationPreparation == null) {
+            return false;
+        }
+        Vec3 current = displayedPatientPosition();
+        return current == null
+                || current.distanceToSqr(medicationPreparation.patientStartPosition())
+                > TreatmentMovementRules.MOVEMENT_TOLERANCE_SQUARED;
+    }
+
+    private void clearMedicationPreparation() {
+        if (medicationPreparation == null) {
+            return;
+        }
+        if (minecraft != null && minecraft.getConnection() != null) {
+            ModNetworking.setMedicationPreparation(medicationPreparation.patientEntityId(), false);
+        }
+        medicationPreparation = null;
+    }
+
     private boolean preparationStillValid(BodyState state) {
         if (preparation == null || preparation.patientEntityId != displayedEntityId()) {
             return false;
@@ -1664,9 +1870,14 @@ public final class HealthScreen extends Screen {
                 layout.innerY + layout.innerHeight,
                 0xB8101217
         );
-        String promptKey = preparation.kind() == PreparationKind.DEBRIDEMENT
-                ? "screen.superficialtrauma.health.debridement_preparation_prompt"
-                : "screen.superficialtrauma.health.treatment_preparation_prompt";
+        String promptKey;
+        if (medicationPreparation != null) {
+            promptKey = "screen.superficialtrauma.health.morphine_preparation_prompt";
+        } else if (preparation != null && preparation.kind() == PreparationKind.DEBRIDEMENT) {
+            promptKey = "screen.superficialtrauma.health.debridement_preparation_prompt";
+        } else {
+            promptKey = "screen.superficialtrauma.health.treatment_preparation_prompt";
+        }
         Component prompt = Component.translatable(promptKey);
         int combinedStart = layout.innerX;
         int combinedEnd = layout.middleX + layout.middleWidth;
@@ -1789,6 +2000,7 @@ public final class HealthScreen extends Screen {
         stopCpr();
         cancelDefibrillation();
         clearPreparation();
+        clearMedicationPreparation();
         super.removed();
         if (inspectingOtherPlayer) {
             if (minecraft != null && minecraft.getConnection() != null) {
@@ -1870,9 +2082,18 @@ public final class HealthScreen extends Screen {
     private record WoundRow(WoundInstance wound, int height) {
     }
 
+    private record MedicationPreparation(int patientEntityId, Vec3 patientStartPosition) {
+    }
+
     private enum PreparationKind {
         BANDAGE,
         DEBRIDEMENT
+    }
+
+    private enum MedicationButtonType {
+        SYRINGE,
+        PARACETAMOL,
+        MORPHINE
     }
 
     private enum PanelMode {

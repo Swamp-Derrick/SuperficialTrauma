@@ -53,5 +53,20 @@
     "sounds": [
       "superficialtrauma:ice_bag"
     ]
+  },
+  "tablets": {
+    "sounds": [
+      "superficialtrauma:tablets"
+    ]
+  },
+  "vial": {
+    "sounds": [
+      "superficialtrauma:vial"
+    ]
+  },
+  "syringe_start": {
+    "sounds": [
+      "superficialtrauma:syringe_start"
+    ]
   }
 }

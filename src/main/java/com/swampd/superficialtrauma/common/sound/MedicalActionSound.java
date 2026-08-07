@@ -11,7 +11,10 @@ public enum MedicalActionSound {
     FLASHLIGHT_CLICK(7),
     PAPER_WORK(80),
     TOURNIQUET(40),
-    ICE_BAG(20);
+    ICE_BAG(20),
+    TABLETS(8),
+    VIAL(20),
+    SYRINGE_START(20);
 
     private final int durationTicks;
 

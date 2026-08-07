@@ -275,7 +275,7 @@ public final class BodyStateEvents {
     }
 
     private static void updateInfectionEffects(ServerPlayer player, BodyState bodyState, long gameTime) {
-        if (bodyState.hasInfectionNausea() && gameTime % 20L == 0L) {
+        if ((bodyState.hasInfectionNausea() || bodyState.hasDrugNausea()) && gameTime % 20L == 0L) {
             player.addEffect(new MobEffectInstance(
                     MobEffects.CONFUSION,
                     INFECTION_NAUSEA_REFRESH_DURATION_TICKS,

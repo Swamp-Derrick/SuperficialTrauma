@@ -10,6 +10,7 @@ import com.swampd.superficialtrauma.common.forensics.AutopsyAction;
 import com.swampd.superficialtrauma.common.forensics.AutopsyReport;
 import com.swampd.superficialtrauma.common.config.CorpseServerConfig;
 import com.swampd.superficialtrauma.common.loot.CorpseEquipmentTransfer;
+import com.swampd.superficialtrauma.common.medication.MedicationType;
 import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
 import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
 import com.swampd.superficialtrauma.common.treatment.TreatmentType;
@@ -61,6 +62,7 @@ public final class BodyStateRoundTripTest {
         verifyAssistedBreathing();
         verifyCprAndDefibrillation();
         verifyInfusionProgression();
+        verifyMedicationLayersAndOverdose();
         verifyTraumaticShockAwakeningAndRetryCooldown();
         verifyHemorrhagicShockAwakeningRequirements();
         verifyDownedPostureClassification();
@@ -378,6 +380,48 @@ public final class BodyStateRoundTripTest {
         saline.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 0L);
         saline.startInfusion(InfusionType.SALINE, 0L);
         assertFloatEquals(7.5F, saline.advanceInfusion(BodyState.INFUSION_DURATION_TICKS).healingAmount(), "thirty saline pulses must total 7.5 health");
+    }
+
+    private static void verifyMedicationLayersAndOverdose() {
+        BodyState state = new BodyState();
+        state.applyDamage(WoundType.SHARP, 5.0F, 0L);
+        float untreatedPain = state.pain();
+
+        assertEquals(true, state.applyMedication(MedicationType.PARACETAMOL, 100L), "paracetamol must create an active drug layer");
+        assertFloatEquals(4.0F, state.bloodDrugConcentration(), "one paracetamol layer must add four concentration");
+        assertFloatEquals(1.0F, state.medicationPainReduction(), "one paracetamol layer must reduce pain by one");
+        assertFloatEquals(untreatedPain - 1.0F, state.pain(), "paracetamol must immediately reduce effective pain");
+
+        assertEquals(true, state.applyMedication(MedicationType.MORPHINE, 101L), "morphine must create an independent active layer");
+        assertFloatEquals(10.0F, state.bloodDrugConcentration(), "paracetamol and morphine concentration must stack");
+        assertFloatEquals(3.0F, state.medicationPainReduction(), "paracetamol and morphine analgesia must stack");
+        assertEquals(false, state.hasDrugNausea(), "concentration ten must stay below drug nausea threshold");
+
+        state.applyMedication(MedicationType.MORPHINE, 102L);
+        assertFloatEquals(16.0F, state.bloodDrugConcentration(), "a second morphine layer must stack independently");
+        assertEquals(true, state.hasDrugNausea(), "concentration above fourteen must cause drug nausea");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(state.serializeNBT());
+        assertEquals(1, restored.activeDoseCount(MedicationType.PARACETAMOL), "NBT must preserve the paracetamol layer");
+        assertEquals(2, restored.activeDoseCount(MedicationType.MORPHINE), "NBT must preserve both morphine layers");
+        assertFloatEquals(16.0F, restored.bloodDrugConcentration(), "NBT must restore concentration from active layers");
+
+        restored.advanceBodyProgression(3_700L);
+        assertEquals(0, restored.activeDoseCount(MedicationType.PARACETAMOL), "paracetamol must expire after three minutes");
+        assertEquals(2, restored.activeDoseCount(MedicationType.MORPHINE), "later morphine doses must keep their independent deadlines");
+        assertFloatEquals(12.0F, restored.bloodDrugConcentration(), "expired layers must remove their concentration");
+        restored.advanceBodyProgression(3_702L);
+        assertEquals(0, restored.activeDrugDoses().size(), "all drug layers must disappear at their own deadlines");
+        assertFloatEquals(0.0F, restored.bloodDrugConcentration(), "all concentration must clear after the final dose expires");
+
+        BodyState overdose = new BodyState();
+        for (int index = 0; index < 5; index++) {
+            overdose.applyMedication(MedicationType.PARACETAMOL, index);
+        }
+        assertFloatEquals(20.0F, overdose.bloodDrugConcentration(), "five paracetamol layers must reach the overdose threshold");
+        assertEquals(BodyLifeState.INCAPACITATED, overdose.lifeState(), "concentration twenty must incapacitate an active patient");
+        assertEquals(CollapseReason.OVERDOSE, overdose.collapseReason(), "drug collapse must retain the overdose reason");
     }
 
     private static void verifyTraumaticShockAwakeningAndRetryCooldown() {

@@ -4,6 +4,8 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.damage.DamageClassification;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.DamageWindow;
+import com.swampd.superficialtrauma.common.medication.DrugDose;
+import com.swampd.superficialtrauma.common.medication.MedicationType;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundCovering;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
@@ -25,7 +27,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 20;
+    public static final int CURRENT_DATA_VERSION = 21;
     public static final int MAX_WOUNDS = 8;
     public static final int MAX_WOUND_HISTORY = 6;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
@@ -52,6 +54,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             AWAKENING_RECOVERY_VISUAL_DURATION_TICKS + AWAKENING_RECOVERY_SLOWDOWN_GRACE_TICKS;
     public static final long INFUSION_DURATION_TICKS = 30L * 20L;
     public static final long INFUSION_PULSE_INTERVAL_TICKS = 20L;
+    public static final float DRUG_NAUSEA_THRESHOLD = 14.0F;
+    public static final float OVERDOSE_THRESHOLD = 20.0F;
+    public static final int MAX_ACTIVE_DRUG_DOSES = 64;
 
     private static final String TAG_DATA_VERSION = "DataVersion";
     private static final String TAG_REVISION = "Revision";
@@ -65,6 +70,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_SURGERY_SKILL = "SurgerySkill";
     private static final String TAG_FORENSIC_SKILL = "ForensicSkill";
     private static final String TAG_BLOOD_DRUG_CONCENTRATION = "BloodDrugConcentration";
+    private static final String TAG_ACTIVE_DRUG_DOSES = "ActiveDrugDoses";
     private static final String TAG_ADRENALINE_LEVEL = "AdrenalineLevel";
     private static final String TAG_BLOOD_OXYGEN = "BloodOxygen";
     private static final String TAG_BLOOD_OXYGEN_DEADLINE = "BloodOxygenDeadlineGameTime";
@@ -118,6 +124,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private boolean surgerySkill;
     private boolean forensicSkill;
     private float bloodDrugConcentration;
+    private final List<DrugDose> activeDrugDoses = new ArrayList<>();
     private int adrenalineLevel;
     private float bloodOxygen;
     private long bloodOxygenDeadlineGameTime;
@@ -222,7 +229,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     public float pain() {
-        return clamp(basePain + woundPainContribution(), 0.0F, 30.0F);
+        return clamp(basePain + woundPainContribution() - medicationPainReduction(), 0.0F, 30.0F);
     }
 
     public float basePain() {
@@ -343,6 +350,48 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public float bloodDrugConcentration() {
         return bloodDrugConcentration;
+    }
+
+    public List<DrugDose> activeDrugDoses() {
+        return List.copyOf(activeDrugDoses);
+    }
+
+    public int activeDoseCount(MedicationType type) {
+        if (type == null) {
+            return 0;
+        }
+        int count = 0;
+        for (DrugDose dose : activeDrugDoses) {
+            if (dose.type() == type) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    public float medicationPainReduction() {
+        float reduction = 0.0F;
+        for (DrugDose dose : activeDrugDoses) {
+            reduction += dose.type().painReduction();
+        }
+        return reduction;
+    }
+
+    public boolean hasDrugNausea() {
+        return bloodDrugConcentration > DRUG_NAUSEA_THRESHOLD;
+    }
+
+    public boolean applyMedication(MedicationType type, long gameTime) {
+        if (type == null || gameTime < 0L || activeDrugDoses.size() >= MAX_ACTIVE_DRUG_DOSES) {
+            return false;
+        }
+        activeDrugDoses.add(new DrugDose(type, saturatingAdd(gameTime, type.effectDurationTicks())));
+        recalculateBloodDrugConcentration();
+        if (bloodDrugConcentration >= OVERDOSE_THRESHOLD && lifeState == BodyLifeState.ACTIVE) {
+            enterIncapacitated(CollapseReason.OVERDOSE, gameTime);
+        }
+        markChanged();
+        return true;
     }
 
     public int adrenalineLevel() {
@@ -1151,6 +1200,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             movementBleedingEndGameTime = shiftDeadline(movementBleedingEndGameTime, pausedTicks);
             shockWarningEndGameTime = shiftDeadline(shockWarningEndGameTime, pausedTicks);
             nextInfectionSettlementGameTime = shiftDeadline(nextInfectionSettlementGameTime, pausedTicks);
+            activeDrugDoses.replaceAll(dose -> dose.shifted(pausedTicks));
             for (WoundInstance wound : wounds) {
                 wound.shiftProgressionDeadlines(pausedTicks);
             }
@@ -1195,6 +1245,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         }
 
         boolean movementBleedingStateChanged = updateMovementBleedingState(gameTime, traumaticMovement);
+        boolean drugStateChanged = expireDrugDoses(gameTime);
 
         int expiredTransientWoundTags = 0;
         for (WoundInstance wound : wounds) {
@@ -1256,6 +1307,12 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             becameSeptic = true;
         }
 
+        boolean becameOverdosed = false;
+        if (bloodDrugConcentration >= OVERDOSE_THRESHOLD && lifeState == BodyLifeState.ACTIVE) {
+            enterIncapacitated(CollapseReason.OVERDOSE, gameTime);
+            becameOverdosed = true;
+        }
+
         ShockProgression shockProgression = advanceTraumaticShock(gameTime);
         DownedProgression downedProgression = advanceDownedProgression(gameTime);
         float recoveredBasePain = isShockWarningActive(gameTime)
@@ -1271,6 +1328,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 infectionChange,
                 becameSeptic,
                 infectionTimerChanged,
+                drugStateChanged,
+                becameOverdosed,
                 bleedingTimerChanged,
                 movementBleedingStateChanged,
                 tourniquetStateChanged,
@@ -1289,6 +1348,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             float infectionChange,
             boolean becameSeptic,
             boolean infectionTimerChanged,
+            boolean drugStateChanged,
+            boolean becameOverdosed,
             boolean bleedingTimerChanged,
             boolean movementBleedingStateChanged,
             boolean tourniquetStateChanged,
@@ -1304,6 +1365,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 && Math.abs(infectionChange) <= 0.0001F
                 && !becameSeptic
                 && !infectionTimerChanged
+                && !drugStateChanged
+                && !becameOverdosed
                 && !bleedingTimerChanged
                 && !movementBleedingStateChanged
                 && !tourniquetStateChanged
@@ -1324,7 +1387,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 infectionChange,
                 shockProgression.warningStarted(),
                 shockProgression.warningCancelled(),
-                becameSeptic || shockProgression.becameIncapacitated(),
+                becameSeptic || becameOverdosed || shockProgression.becameIncapacitated(),
                 downedProgression.bloodOxygenChanged(),
                 downedProgression.becameCardiacArrest(),
                 downedProgression.becameBrainDead()
@@ -1405,6 +1468,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return switch (collapseReason) {
             case TRAUMATIC_SHOCK -> pain() < TRAUMATIC_SHOCK_PAIN_THRESHOLD && vanillaHealth > 5.0F;
             case HEMORRHAGIC_SHOCK -> vanillaHealth > 10.0F && allBleedingWoundsControlled();
+            case OVERDOSE -> bloodDrugConcentration < OVERDOSE_THRESHOLD && vanillaHealth > 5.0F;
             default -> false;
         };
     }
@@ -1541,6 +1605,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 || collapseReason != CollapseReason.NONE
                 || shockWarningEndGameTime >= 0L
                 || basePain > 0.0F
+                || !activeDrugDoses.isEmpty()
+                || bloodDrugConcentration > 0.0F
                 || stressEndGameTime >= 0L
                 || nextPainRecoveryGameTime >= 0L
                 || bloodOxygen < MAX_BLOOD_OXYGEN
@@ -1565,6 +1631,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         collapseReason = CollapseReason.NONE;
         shockWarningEndGameTime = -1L;
         basePain = 0.0F;
+        activeDrugDoses.clear();
+        bloodDrugConcentration = 0.0F;
         bloodOxygen = MAX_BLOOD_OXYGEN;
         bloodOxygenDeadlineGameTime = -1L;
         brainDeathDeadlineGameTime = -1L;
@@ -1787,6 +1855,24 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return 1.5F;
     }
 
+    private boolean expireDrugDoses(long gameTime) {
+        int previousSize = activeDrugDoses.size();
+        activeDrugDoses.removeIf(dose -> dose.isExpired(gameTime));
+        if (activeDrugDoses.size() == previousSize) {
+            return false;
+        }
+        recalculateBloodDrugConcentration();
+        return true;
+    }
+
+    private void recalculateBloodDrugConcentration() {
+        float concentration = 0.0F;
+        for (DrugDose dose : activeDrugDoses) {
+            concentration += dose.type().concentration();
+        }
+        bloodDrugConcentration = Math.max(0.0F, concentration);
+    }
+
     private void resetToDefaults() {
         revision = 0L;
         lifeState = BodyLifeState.ACTIVE;
@@ -1797,6 +1883,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         firstAidSkill = false;
         surgerySkill = false;
         forensicSkill = false;
+        activeDrugDoses.clear();
         bloodDrugConcentration = 0.0F;
         adrenalineLevel = 0;
         bloodOxygen = MAX_BLOOD_OXYGEN;
@@ -1855,6 +1942,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         tag.putBoolean(TAG_SURGERY_SKILL, surgerySkill);
         tag.putBoolean(TAG_FORENSIC_SKILL, forensicSkill);
         tag.putFloat(TAG_BLOOD_DRUG_CONCENTRATION, bloodDrugConcentration);
+        ListTag drugDoseList = new ListTag();
+        for (DrugDose dose : activeDrugDoses) {
+            drugDoseList.add(dose.save());
+        }
+        tag.put(TAG_ACTIVE_DRUG_DOSES, drugDoseList);
         tag.putInt(TAG_ADRENALINE_LEVEL, adrenalineLevel);
         tag.putFloat(TAG_BLOOD_OXYGEN, bloodOxygen);
         tag.putLong(TAG_BLOOD_OXYGEN_DEADLINE, bloodOxygenDeadlineGameTime);
@@ -1956,7 +2048,12 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         firstAidSkill = tag.getBoolean(TAG_FIRST_AID_SKILL);
         surgerySkill = tag.getBoolean(TAG_SURGERY_SKILL);
         forensicSkill = tag.getBoolean(TAG_FORENSIC_SKILL);
-        bloodDrugConcentration = Math.max(0.0F, tag.getFloat(TAG_BLOOD_DRUG_CONCENTRATION));
+        activeDrugDoses.clear();
+        ListTag drugDoseList = tag.getList(TAG_ACTIVE_DRUG_DOSES, Tag.TAG_COMPOUND);
+        for (int index = 0; index < drugDoseList.size() && activeDrugDoses.size() < MAX_ACTIVE_DRUG_DOSES; index++) {
+            activeDrugDoses.add(DrugDose.load(drugDoseList.getCompound(index)));
+        }
+        recalculateBloodDrugConcentration();
         adrenalineLevel = Math.max(0, tag.getInt(TAG_ADRENALINE_LEVEL));
         bloodOxygen = tag.contains(TAG_BLOOD_OXYGEN, Tag.TAG_ANY_NUMERIC)
                 ? clamp(tag.getFloat(TAG_BLOOD_OXYGEN), 0.0F, MAX_BLOOD_OXYGEN)

@@ -1,6 +1,8 @@
 package com.swampd.superficialtrauma.common.treatment;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
+import com.swampd.superficialtrauma.common.medication.MedicationCancelReason;
+import com.swampd.superficialtrauma.common.medication.MedicationService;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
@@ -43,6 +45,7 @@ public final class TreatmentEvents {
             AirwayService.tick(player);
             TreatmentPreparationSoundService.tick(player);
             TreatmentService.tick(player);
+            MedicationService.tick(player);
             updateSelfTreatmentSpeed(player);
             InspectionService.tick(player);
         }
@@ -53,6 +56,7 @@ public final class TreatmentEvents {
         if (event.getAmount() > 0.0F && event.getEntity() instanceof ServerPlayer player) {
             TreatmentService.cancelInvolving(player, TreatmentCancelReason.DAMAGE);
             TreatmentPreparationSoundService.cancelInvolving(player);
+            MedicationService.cancelInvolving(player, MedicationCancelReason.DAMAGE);
             AirwayService.cancelInvolving(player);
             CprService.cancelInvolving(player);
             DefibrillationService.cancelInvolving(player);
@@ -107,6 +111,7 @@ public final class TreatmentEvents {
         if (event.getEntity() instanceof ServerPlayer player) {
             TreatmentService.cancelInvolving(player, TreatmentCancelReason.DISCONNECTED);
             TreatmentPreparationSoundService.cancelInvolving(player);
+            MedicationService.cancelInvolving(player, MedicationCancelReason.DISCONNECTED);
             AirwayService.cancelInvolving(player);
             CprService.cancelInvolving(player);
             DefibrillationService.cancelInvolving(player);
@@ -118,6 +123,7 @@ public final class TreatmentEvents {
     public static void onServerStopped(ServerStoppedEvent event) {
         TreatmentService.clearAll();
         TreatmentPreparationSoundService.clearAll();
+        MedicationService.clearAll();
         AirwayService.clearAll();
         CprService.clearAll();
         DefibrillationService.clearAll();
@@ -128,6 +134,7 @@ public final class TreatmentEvents {
         if (player instanceof ServerPlayer serverPlayer) {
             TreatmentService.cancelInvolving(serverPlayer, TreatmentCancelReason.ACTION);
             TreatmentPreparationSoundService.cancelInvolving(serverPlayer);
+            MedicationService.cancelInvolving(serverPlayer, MedicationCancelReason.ACTION);
             AirwayService.cancelInvolving(serverPlayer);
             CprService.cancelInvolving(serverPlayer);
             DefibrillationService.cancelInvolving(serverPlayer);
