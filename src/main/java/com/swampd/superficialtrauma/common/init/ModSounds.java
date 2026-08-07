@@ -10,6 +10,7 @@ import net.minecraftforge.registries.RegistryObject;
 
 public final class ModSounds {
     public static final float DEFIBRILLATOR_SOUND_RANGE = 8.0F;
+    public static final float MEDICAL_ACTION_SOUND_RANGE = 8.0F;
     public static final DeferredRegister<SoundEvent> SOUND_EVENTS = DeferredRegister.create(
             ForgeRegistries.SOUND_EVENTS,
             SuperficialTrauma.MOD_ID
@@ -21,6 +22,17 @@ public final class ModSounds {
     public static final RegistryObject<SoundEvent> DEFIBRILLATOR_DISCHARGE = registerFixedRange(
             "defibrillator_discharge"
     );
+    public static final RegistryObject<SoundEvent> PICKING_UP_BANDAGE = registerMedicalAction(
+            "picking_up_bandage"
+    );
+    public static final RegistryObject<SoundEvent> CLOTH_WRAPPING = registerMedicalAction(
+            "cloth_wrapping"
+    );
+    public static final RegistryObject<SoundEvent> PACKING = registerMedicalAction("packing");
+    public static final RegistryObject<SoundEvent> LIQUID_POUCH = registerMedicalAction("liquid_pouch");
+    public static final RegistryObject<SoundEvent> START_SURGERY = registerMedicalAction("start_surgery");
+    public static final RegistryObject<SoundEvent> FLASHLIGHT_CLICK = registerMedicalAction("flashlight_click");
+    public static final RegistryObject<SoundEvent> PAPER_WORK = registerMedicalAction("paper_work");
 
     private ModSounds() {
     }
@@ -34,6 +46,14 @@ public final class ModSounds {
         return SOUND_EVENTS.register(
                 name,
                 () -> SoundEvent.createFixedRangeEvent(location, DEFIBRILLATOR_SOUND_RANGE)
+        );
+    }
+
+    private static RegistryObject<SoundEvent> registerMedicalAction(String name) {
+        ResourceLocation location = ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, name);
+        return SOUND_EVENTS.register(
+                name,
+                () -> SoundEvent.createFixedRangeEvent(location, MEDICAL_ACTION_SOUND_RANGE)
         );
     }
 }

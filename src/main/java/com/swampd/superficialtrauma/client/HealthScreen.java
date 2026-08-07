@@ -12,6 +12,7 @@ import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentIngredient;
 import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
 import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
+import com.swampd.superficialtrauma.common.treatment.TreatmentPreparationType;
 import com.swampd.superficialtrauma.common.treatment.TreatmentType;
 import com.swampd.superficialtrauma.common.wound.WoundCovering;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
@@ -109,15 +110,15 @@ public final class HealthScreen extends Screen {
         boolean treatmentActive = ClientTreatmentState.isActive();
         if (preparation != null) {
             if (treatmentActive) {
-                preparation = null;
+                clearPreparation();
             } else if (patientMovedSincePreparation()) {
-                preparation = null;
+                clearPreparation();
                 if (minecraft != null) {
                     minecraft.setScreen(null);
                 }
                 return;
             } else if (!preparationStillValid(state)) {
-                preparation = null;
+                clearPreparation();
                 rebuildTreatmentButtons();
             }
         }
@@ -865,7 +866,7 @@ public final class HealthScreen extends Screen {
         stopAssistedBreathing();
         stopCpr();
         cancelDefibrillation();
-        preparation = null;
+        clearPreparation();
         panelMode = newMode;
         rebuildTreatmentButtons();
     }
@@ -1469,7 +1470,14 @@ public final class HealthScreen extends Screen {
         if (patientPosition == null) {
             return;
         }
+        clearPreparation();
         preparation = new TreatmentPreparation(patientEntityId, woundId, patientPosition, kind);
+        ModNetworking.setTreatmentPreparationSound(
+                patientEntityId,
+                woundId,
+                TreatmentPreparationType.valueOf(kind.name()),
+                true
+        );
         rebuildTreatmentButtons();
     }
 
@@ -1478,9 +1486,24 @@ public final class HealthScreen extends Screen {
             UUID woundId,
             TreatmentProcedure procedure
     ) {
-        preparation = null;
+        clearPreparation();
         ModNetworking.requestTreatment(patientEntityId, woundId, procedure, TreatmentAction.APPLY);
         rebuildTreatmentButtons();
+    }
+
+    private void clearPreparation() {
+        if (preparation == null) {
+            return;
+        }
+        if (minecraft != null && minecraft.getConnection() != null) {
+            ModNetworking.setTreatmentPreparationSound(
+                    preparation.patientEntityId(),
+                    preparation.woundId(),
+                    TreatmentPreparationType.valueOf(preparation.kind().name()),
+                    false
+            );
+        }
+        preparation = null;
     }
 
     private boolean preparationStillValid(BodyState state) {
@@ -1765,7 +1788,7 @@ public final class HealthScreen extends Screen {
         stopAssistedBreathing();
         stopCpr();
         cancelDefibrillation();
-        preparation = null;
+        clearPreparation();
         super.removed();
         if (inspectingOtherPlayer) {
             if (minecraft != null && minecraft.getConnection() != null) {

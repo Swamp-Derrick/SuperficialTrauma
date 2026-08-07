@@ -2,6 +2,9 @@ package com.swampd.superficialtrauma.common.treatment;
 
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSound;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSoundChannel;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSoundService;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.network.chat.Component;
@@ -94,9 +97,19 @@ public final class TreatmentService {
                 actor.position(),
                 patient.position()
         );
+        TreatmentPreparationSoundService.stop(actor);
         SESSION_BY_ACTOR.put(actor.getUUID(), session);
         ACTOR_BY_PATIENT.put(patient.getUUID(), actor.getUUID());
         ModNetworking.sendTreatmentStarted(actor, patient.getId(), session);
+        MedicalActionSound sound = medicalSoundFor(procedure);
+        if (sound != null) {
+            MedicalActionSoundService.start(
+                    actor,
+                    patient,
+                    MedicalActionSoundChannel.TREATMENT,
+                    sound
+            );
+        }
         return true;
     }
 
@@ -220,6 +233,7 @@ public final class TreatmentService {
         if (session.action().consumesItem()) {
             consumeRequiredItems(actor, session.procedure());
         }
+        stopTreatmentSound(actor, patient, session);
         release(session);
         ModNetworking.sendTreatmentCompleted(actor, patient.getId(), session);
         ModNetworking.syncBodyState(patient);
@@ -232,6 +246,10 @@ public final class TreatmentService {
             return;
         }
         ServerPlayer actor = findOnlinePlayer(session.actorId());
+        ServerPlayer patient = actor == null ? null : player(actor, session.patientId());
+        if (actor != null) {
+            stopTreatmentSound(actor, patient, session);
+        }
         release(session);
         if (actor != null) {
             ModNetworking.sendTreatmentCancelled(actor, session, reason);
@@ -244,6 +262,33 @@ public final class TreatmentService {
                 session.patientId(),
                 (ignored, currentActor) -> currentActor.equals(session.actorId()) ? null : currentActor
         );
+    }
+
+    private static void stopTreatmentSound(
+            ServerPlayer actor,
+            ServerPlayer patient,
+            TreatmentSession session
+    ) {
+        if (medicalSoundFor(session.procedure()) != null) {
+            MedicalActionSoundService.stop(
+                    actor,
+                    patient,
+                    MedicalActionSoundChannel.TREATMENT
+            );
+        }
+    }
+
+    private static MedicalActionSound medicalSoundFor(TreatmentProcedure procedure) {
+        if (procedure == null) {
+            return null;
+        }
+        if (procedure.isDebridement()) {
+            return MedicalActionSound.LIQUID_POUCH;
+        }
+        if (procedure.isWoundPacking()) {
+            return MedicalActionSound.PACKING;
+        }
+        return procedure.covering() == null ? null : MedicalActionSound.CLOTH_WRAPPING;
     }
 
     private static boolean isEligibleActor(ServerPlayer actor) {

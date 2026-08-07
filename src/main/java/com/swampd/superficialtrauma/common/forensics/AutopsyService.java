@@ -3,6 +3,9 @@ package com.swampd.superficialtrauma.common.forensics;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.entity.CorpseEntity;
 import com.swampd.superficialtrauma.common.init.ModItems;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSound;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSoundChannel;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSoundService;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -34,6 +37,9 @@ public final class AutopsyService {
         }
         Session session = SESSIONS.get(examiner.getUUID());
         if (session == null || !session.corpseId.equals(corpse.getUUID())) {
+            if (session != null && session.activeAction != AutopsyAction.NONE) {
+                stopAutopsySound(examiner);
+            }
             session = new Session(corpse.getUUID(), corpse.getId());
             SESSIONS.put(examiner.getUUID(), session);
         } else {
@@ -89,6 +95,12 @@ public final class AutopsyService {
         session.activeAction = action;
         session.actionStartPosition = examiner.position();
         session.actionEndGameTime = examiner.serverLevel().getGameTime() + action.durationTicks();
+        MedicalActionSoundService.start(
+                examiner,
+                null,
+                MedicalActionSoundChannel.AUTOPSY,
+                soundFor(action)
+        );
         sendReport(examiner, corpse, session, false);
         examiner.displayClientMessage(
                 Component.translatable("message.superficialtrauma.autopsy.started." + action.serializedName()),
@@ -99,6 +111,7 @@ public final class AutopsyService {
     public static void close(ServerPlayer examiner, int corpseEntityId) {
         Session session = SESSIONS.get(examiner.getUUID());
         if (session != null && session.corpseEntityId == corpseEntityId) {
+            stopAutopsySound(examiner);
             SESSIONS.remove(examiner.getUUID());
         }
     }
@@ -110,6 +123,7 @@ public final class AutopsyService {
         }
         CorpseEntity corpse = findCorpse(examiner, session.corpseId);
         if (corpse == null || !canInspect(examiner, corpse, MAX_CONTINUE_DISTANCE_SQUARED, false)) {
+            stopAutopsySound(examiner);
             SESSIONS.remove(examiner.getUUID());
             ModNetworking.closeAutopsy(examiner, session.corpseEntityId);
             return;
@@ -135,6 +149,7 @@ public final class AutopsyService {
                 } else if (completed == AutopsyAction.CHECKLIST) {
                     corpse.revealDetailedAutopsy();
                 }
+                stopAutopsySound(examiner);
                 session.clearAction();
                 sendReport(examiner, corpse, session, false);
                 examiner.displayClientMessage(
@@ -158,6 +173,7 @@ public final class AutopsyService {
     }
 
     private static void cancelAction(ServerPlayer examiner, CorpseEntity corpse, Session session) {
+        stopAutopsySound(examiner);
         session.clearAction();
         sendReport(examiner, corpse, session, false);
         examiner.displayClientMessage(Component.translatable("message.superficialtrauma.autopsy.cancelled"), true);
@@ -211,6 +227,22 @@ public final class AutopsyService {
             case CHECKLIST -> ModItems.CHECKLIST.get();
             case NONE -> null;
         };
+    }
+
+    private static MedicalActionSound soundFor(AutopsyAction action) {
+        return switch (action) {
+            case PENLIGHT -> MedicalActionSound.FLASHLIGHT_CLICK;
+            case CHECKLIST -> MedicalActionSound.PAPER_WORK;
+            case NONE -> throw new IllegalArgumentException("NONE has no autopsy sound");
+        };
+    }
+
+    private static void stopAutopsySound(ServerPlayer examiner) {
+        MedicalActionSoundService.stop(
+                examiner,
+                null,
+                MedicalActionSoundChannel.AUTOPSY
+        );
     }
 
     private static boolean hasItem(ServerPlayer player, Item item) {

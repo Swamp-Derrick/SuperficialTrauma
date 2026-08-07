@@ -12,6 +12,9 @@ import com.swampd.superficialtrauma.common.treatment.TreatmentSession;
 import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
 import com.swampd.superficialtrauma.common.forensics.AutopsyAction;
 import com.swampd.superficialtrauma.common.forensics.AutopsyReport;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSound;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSoundChannel;
+import com.swampd.superficialtrauma.common.treatment.TreatmentPreparationType;
 import com.swampd.superficialtrauma.network.packet.BloodLossFeedbackS2CPacket;
 import com.swampd.superficialtrauma.network.packet.BodyStateSyncS2CPacket;
 import com.swampd.superficialtrauma.network.packet.DownedPoseSyncS2CPacket;
@@ -33,6 +36,8 @@ import com.swampd.superficialtrauma.network.packet.StartAutopsyActionC2SPacket;
 import com.swampd.superficialtrauma.network.packet.CloseAutopsyC2SPacket;
 import com.swampd.superficialtrauma.network.packet.AutopsyReportS2CPacket;
 import com.swampd.superficialtrauma.network.packet.CloseAutopsyS2CPacket;
+import com.swampd.superficialtrauma.network.packet.MedicalActionSoundS2CPacket;
+import com.swampd.superficialtrauma.network.packet.TreatmentPreparationSoundC2SPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkDirection;
@@ -46,7 +51,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "17";
+    private static final String PROTOCOL_VERSION = "18";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -147,6 +152,22 @@ public final class ModNetworking {
                 TreatmentSessionS2CPacket::encode,
                 TreatmentSessionS2CPacket::decode,
                 TreatmentSessionS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                TreatmentPreparationSoundC2SPacket.class,
+                TreatmentPreparationSoundC2SPacket::encode,
+                TreatmentPreparationSoundC2SPacket::decode,
+                TreatmentPreparationSoundC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                MedicalActionSoundS2CPacket.class,
+                MedicalActionSoundS2CPacket::encode,
+                MedicalActionSoundS2CPacket::decode,
+                MedicalActionSoundS2CPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT)
         );
         CHANNEL.registerMessage(
@@ -314,6 +335,20 @@ public final class ModNetworking {
         CHANNEL.sendToServer(new StartTreatmentC2SPacket(patientEntityId, woundId, procedure, action));
     }
 
+    public static void setTreatmentPreparationSound(
+            int patientEntityId,
+            UUID woundId,
+            TreatmentPreparationType type,
+            boolean active
+    ) {
+        CHANNEL.sendToServer(new TreatmentPreparationSoundC2SPacket(
+                patientEntityId,
+                woundId,
+                type,
+                active
+        ));
+    }
+
     public static void setAssistedBreathing(int patientEntityId, boolean active) {
         CHANNEL.sendToServer(new AirwayActionC2SPacket(patientEntityId, active));
     }
@@ -429,6 +464,46 @@ public final class ModNetworking {
                         session.procedure(),
                         session.action()
                 )
+        );
+    }
+
+    public static void sendMedicalActionSound(
+            ServerPlayer actor,
+            ServerPlayer receiver,
+            MedicalActionSoundChannel channel,
+            MedicalActionSound sound,
+            boolean active
+    ) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> receiver),
+                active
+                        ? MedicalActionSoundS2CPacket.start(actor.getId(), channel, sound)
+                        : MedicalActionSoundS2CPacket.stop(actor.getId(), channel)
+        );
+    }
+
+    public static void stopMedicalActionSound(
+            ServerPlayer actor,
+            ServerPlayer receiver,
+            MedicalActionSoundChannel channel
+    ) {
+        sendMedicalActionSound(
+                actor,
+                receiver,
+                channel,
+                MedicalActionSound.CLOTH_WRAPPING,
+                false
+        );
+    }
+
+    public static void playMedicalActionSoundOnce(
+            ServerPlayer actor,
+            ServerPlayer receiver,
+            MedicalActionSound sound
+    ) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> receiver),
+                MedicalActionSoundS2CPacket.playOnce(actor.getId(), sound)
         );
     }
 

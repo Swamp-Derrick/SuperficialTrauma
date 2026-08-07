@@ -41,6 +41,7 @@ public final class TreatmentEvents {
             CprService.tick(player);
             DefibrillationService.tick(player);
             AirwayService.tick(player);
+            TreatmentPreparationSoundService.tick(player);
             TreatmentService.tick(player);
             updateSelfTreatmentSpeed(player);
             InspectionService.tick(player);
@@ -51,6 +52,7 @@ public final class TreatmentEvents {
     public static void onDamage(LivingDamageEvent event) {
         if (event.getAmount() > 0.0F && event.getEntity() instanceof ServerPlayer player) {
             TreatmentService.cancelInvolving(player, TreatmentCancelReason.DAMAGE);
+            TreatmentPreparationSoundService.cancelInvolving(player);
             AirwayService.cancelInvolving(player);
             CprService.cancelInvolving(player);
             DefibrillationService.cancelInvolving(player);
@@ -104,6 +106,7 @@ public final class TreatmentEvents {
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             TreatmentService.cancelInvolving(player, TreatmentCancelReason.DISCONNECTED);
+            TreatmentPreparationSoundService.cancelInvolving(player);
             AirwayService.cancelInvolving(player);
             CprService.cancelInvolving(player);
             DefibrillationService.cancelInvolving(player);
@@ -114,6 +117,7 @@ public final class TreatmentEvents {
     @SubscribeEvent
     public static void onServerStopped(ServerStoppedEvent event) {
         TreatmentService.clearAll();
+        TreatmentPreparationSoundService.clearAll();
         AirwayService.clearAll();
         CprService.clearAll();
         DefibrillationService.clearAll();
@@ -123,6 +127,7 @@ public final class TreatmentEvents {
     private static void cancelAction(net.minecraft.world.entity.player.Player player) {
         if (player instanceof ServerPlayer serverPlayer) {
             TreatmentService.cancelInvolving(serverPlayer, TreatmentCancelReason.ACTION);
+            TreatmentPreparationSoundService.cancelInvolving(serverPlayer);
             AirwayService.cancelInvolving(serverPlayer);
             CprService.cancelInvolving(serverPlayer);
             DefibrillationService.cancelInvolving(serverPlayer);

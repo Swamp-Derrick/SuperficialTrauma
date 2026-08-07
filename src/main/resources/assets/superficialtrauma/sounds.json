@@ -8,5 +8,40 @@
     "sounds": [
       "superficialtrauma:defibrillator_discharge"
     ]
+  },
+  "picking_up_bandage": {
+    "sounds": [
+      "superficialtrauma:picking_up_bandage"
+    ]
+  },
+  "cloth_wrapping": {
+    "sounds": [
+      "superficialtrauma:cloth_wrapping"
+    ]
+  },
+  "packing": {
+    "sounds": [
+      "superficialtrauma:packing"
+    ]
+  },
+  "liquid_pouch": {
+    "sounds": [
+      "superficialtrauma:liquid_pouch"
+    ]
+  },
+  "start_surgery": {
+    "sounds": [
+      "superficialtrauma:start_surgery"
+    ]
+  },
+  "flashlight_click": {
+    "sounds": [
+      "superficialtrauma:flashlight_click"
+    ]
+  },
+  "paper_work": {
+    "sounds": [
+      "superficialtrauma:paper_work"
+    ]
   }
 }

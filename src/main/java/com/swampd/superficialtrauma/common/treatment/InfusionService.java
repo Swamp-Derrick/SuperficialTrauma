@@ -4,6 +4,8 @@ import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.InfusionType;
 import com.swampd.superficialtrauma.common.init.ModItems;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSound;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSoundService;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -61,6 +63,7 @@ public final class InfusionService {
         );
         ModNetworking.syncBodyState(patient);
         InspectionService.syncPatient(patient);
+        MedicalActionSoundService.playOnce(actor, patient, MedicalActionSound.LIQUID_POUCH);
         actor.displayClientMessage(
                 Component.translatable("message.superficialtrauma.infusion.started", Component.translatable(type.translationKey())),
                 true
