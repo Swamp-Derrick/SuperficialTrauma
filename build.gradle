@@ -23,7 +23,6 @@ def compatibilityArtifacts = [
         [name: 'CGM-Unofficial', version: '1.4.20+Forge+1.20.1+valfucked', file: 'CGM-Unofficial-1.4.20+Forge+1.20.1+valfucked.jar'],
         [name: 'nzgExpansionUnofficialSD', version: '1.4.4-1.20.1', file: 'nzgExpansionUnofficialSD-1.4.4-1.20.1.jar'],
         [name: 'redundantGunsUnofficialSD', version: '1.0.0-1.20.1', file: 'redundantGunsUnofficialSD-1.0.0-1.20.1.jar'],
-        [name: 'corpse-forge-1.20.1', version: '1.0.23', file: 'corpse-forge-1.20.1-1.0.23.jar'],
         [name: 'voicechat-forge-1.20.1', version: '2.6.21', file: 'voicechat-forge-1.20.1-2.6.21.jar']
 ]
 

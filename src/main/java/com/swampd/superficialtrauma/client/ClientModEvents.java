@@ -2,9 +2,11 @@ package com.swampd.superficialtrauma.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.swampd.superficialtrauma.SuperficialTrauma;
+import com.swampd.superficialtrauma.common.init.ModEntities;
 import com.swampd.superficialtrauma.common.init.ModMenus;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.screens.MenuScreens;
+import net.minecraft.client.renderer.entity.EntityRenderers;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
 import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
@@ -31,7 +33,10 @@ public final class ClientModEvents {
 
     @SubscribeEvent
     public static void onClientSetup(FMLClientSetupEvent event) {
-        event.enqueueWork(() -> MenuScreens.register(ModMenus.LOOT_TARGET.get(), LootTargetScreen::new));
+        event.enqueueWork(() -> {
+            MenuScreens.register(ModMenus.LOOT_TARGET.get(), LootTargetScreen::new);
+            EntityRenderers.register(ModEntities.CORPSE.get(), CorpseRenderer::new);
+        });
     }
 
     @SubscribeEvent

@@ -3,6 +3,7 @@ package com.swampd.superficialtrauma.common.body;
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.damage.BloodLossDamage;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAggregator;
+import com.swampd.superficialtrauma.common.entity.CorpseService;
 import com.swampd.superficialtrauma.common.loot.LootingService;
 import com.swampd.superficialtrauma.common.treatment.DefibrillationService;
 import com.swampd.superficialtrauma.network.ModNetworking;
@@ -173,7 +174,7 @@ public final class BodyStateEvents {
                 if (poseCaptured) {
                     ModNetworking.syncDownedPose(serverPlayer);
                 }
-                triggerTrueDeath(serverPlayer);
+                triggerTrueDeath(serverPlayer, bodyState);
                 return;
             }
             enforceIncapacitation(serverPlayer, bodyState);
@@ -228,10 +229,11 @@ public final class BodyStateEvents {
         }
     }
 
-    private static void triggerTrueDeath(ServerPlayer player) {
+    private static void triggerTrueDeath(ServerPlayer player, BodyState bodyState) {
         if (!player.isAlive()) {
             return;
         }
+        CorpseService.spawn(player, bodyState);
         player.setHealth(0.0F);
         player.die(player.damageSources().genericKill());
     }

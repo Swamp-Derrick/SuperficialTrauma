@@ -52,13 +52,6 @@ ordering = "AFTER"
 side = "BOTH"
 
 [[dependencies."${mod_id}"]]
-modId = "corpse"
-mandatory = false
-versionRange = "[1.20.1-1.0.23,)"
-ordering = "AFTER"
-side = "BOTH"
-
-[[dependencies."${mod_id}"]]
 modId = "voicechat"
 mandatory = false
 versionRange = "[1.20.1-2.6.21,)"

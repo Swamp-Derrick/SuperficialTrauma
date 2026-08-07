@@ -20,6 +20,7 @@ import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
 import com.swampd.superficialtrauma.common.damage.CgmAmmoTags;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAggregator;
+import com.swampd.superficialtrauma.common.entity.CorpseService;
 import com.swampd.superficialtrauma.common.treatment.InspectionService;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundType;
@@ -122,7 +123,47 @@ public final class DebugCommands {
                                         BodyLifeState.VENTRICULAR_FIBRILLATION
                                 )))
                 )
+                .then(Commands.literal("spawncorpse")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(context -> spawnCorpsePreview(context, DownedFallDirection.FORWARD))
+                        .then(Commands.literal("forward")
+                                .executes(context -> spawnCorpsePreview(
+                                        context,
+                                        DownedFallDirection.FORWARD
+                                )))
+                        .then(Commands.literal("backward")
+                                .executes(context -> spawnCorpsePreview(
+                                        context,
+                                        DownedFallDirection.BACKWARD
+                                )))
+                        .then(Commands.literal("left")
+                                .executes(context -> spawnCorpsePreview(
+                                        context,
+                                        DownedFallDirection.LEFT
+                                )))
+                        .then(Commands.literal("right")
+                                .executes(context -> spawnCorpsePreview(
+                                        context,
+                                        DownedFallDirection.RIGHT
+                                )))
+                )
         );
+    }
+
+    private static int spawnCorpsePreview(
+            CommandContext<CommandSourceStack> context,
+            DownedFallDirection direction
+    ) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        if (!CorpseService.spawnPreview(player, direction)) {
+            context.getSource().sendFailure(Component.literal("Could not spawn corpse preview."));
+            return 0;
+        }
+        context.getSource().sendSuccess(
+                () -> Component.literal("Spawned corpse preview: " + direction.serializedName()),
+                true
+        );
+        return 1;
     }
 
     private static int showOwnStatus(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {

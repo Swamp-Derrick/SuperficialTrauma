@@ -6,6 +6,7 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.DownedGeometry;
 import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
 import com.swampd.superficialtrauma.common.body.DownedPosture;
+import com.swampd.superficialtrauma.common.entity.CorpseEntity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
@@ -30,6 +31,26 @@ public final class ClientDownedPlayerRenderer {
     private static final Deque<Integer> TRANSFORMED_PLAYERS = new ArrayDeque<>();
 
     private ClientDownedPlayerRenderer() {
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onHideDeadPlayer(RenderPlayerEvent.Pre event) {
+        Player player = event.getEntity();
+        if (!player.isDeadOrDying()) {
+            return;
+        }
+        boolean hasReplacementCorpse = player.level()
+                .getEntitiesOfClass(
+                        CorpseEntity.class,
+                        player.getBoundingBox().inflate(2.0D),
+                        corpse -> corpse.ownerId().filter(player.getUUID()::equals).isPresent()
+                )
+                .stream()
+                .findAny()
+                .isPresent();
+        if (hasReplacementCorpse) {
+            event.setCanceled(true);
+        }
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)

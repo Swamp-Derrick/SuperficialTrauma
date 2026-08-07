@@ -4,6 +4,7 @@ import com.swampd.superficialtrauma.common.damage.DamageClassification;
 import com.swampd.superficialtrauma.common.damage.DamageDowning;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAccumulator;
+import com.swampd.superficialtrauma.common.entity.CorpseSnapshot;
 import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
 import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
 import com.swampd.superficialtrauma.common.treatment.TreatmentType;
@@ -59,6 +60,7 @@ public final class BodyStateRoundTripTest {
         verifyHemorrhagicShockAwakeningRequirements();
         verifyDownedPostureClassification();
         verifyDownedGeometry();
+        verifyCorpseSnapshotRoundTrip();
         verifyDownedPoseSnapshotAndReset();
         verifyPainTagFloorAndClamp();
         verifyPainOfflinePauseAndNbt();
@@ -1033,6 +1035,50 @@ public final class BodyStateRoundTripTest {
                 expectedDiagonalHalfExtent,
                 diagonal.y,
                 "diagonal downed hitbox Z extent"
+        );
+    }
+
+    private static void verifyCorpseSnapshotRoundTrip() {
+        UUID ownerId = UUID.fromString("0e252da4-f73c-45cc-a8da-2bd305ec6fe8");
+        CorpseSnapshot original = new CorpseSnapshot(
+                ownerId,
+                "SnapshotPlayer",
+                "base64-texture-property",
+                "signed-texture-property",
+                640L,
+                new DownedPoseSnapshot(
+                        120L,
+                        37.5F,
+                        DownedPosture.CROUCHING,
+                        DownedFallDirection.LEFT
+                )
+        );
+        CompoundTag saved = original.save();
+        assertEquals(
+                CorpseSnapshot.CURRENT_DATA_VERSION,
+                saved.getInt("DataVersion"),
+                "corpse snapshots must carry an independent data version"
+        );
+        CorpseSnapshot restored = CorpseSnapshot.load(saved);
+
+        assertEquals(ownerId, restored.ownerId(), "corpse NBT must preserve owner UUID");
+        assertEquals("SnapshotPlayer", restored.ownerName(), "corpse NBT must preserve owner name");
+        assertEquals(
+                "base64-texture-property",
+                restored.skinTextureValue(),
+                "corpse NBT must preserve the skin texture independently of player presence"
+        );
+        assertEquals(
+                "signed-texture-property",
+                restored.skinTextureSignature(),
+                "corpse NBT must preserve the skin texture signature"
+        );
+        assertEquals(640L, restored.deathGameTime(), "corpse NBT must preserve death time");
+        assertEquals(original.downedPose(), restored.downedPose(), "corpse NBT must preserve downed pose");
+        assertFloatEquals(
+                -52.5F,
+                DownedGeometry.groundYaw(restored.downedPose()),
+                "corpse direction must remain derived from the captured left-fall snapshot"
         );
     }
 
