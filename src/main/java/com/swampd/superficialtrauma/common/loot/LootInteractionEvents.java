@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.common.loot;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
+import com.swampd.superficialtrauma.common.entity.CorpseEntity;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -19,13 +20,16 @@ public final class LootInteractionEvents {
         if (event.getLevel().isClientSide
                 || event.getHand() != InteractionHand.MAIN_HAND
                 || !(event.getEntity() instanceof ServerPlayer looter)
-                || !(event.getTarget() instanceof ServerPlayer target)
                 || looter.isShiftKeyDown()
-                || !LootingService.isLootable(target)) {
+                || !LootingService.isLootable(event.getTarget())) {
             return;
         }
 
-        LootingService.tryOpen(looter, target);
+        if (event.getTarget() instanceof ServerPlayer target) {
+            LootingService.tryOpen(looter, target);
+        } else if (event.getTarget() instanceof CorpseEntity corpse) {
+            LootingService.tryOpen(looter, corpse);
+        }
         event.setCancellationResult(InteractionResult.SUCCESS);
         event.setCanceled(true);
     }

@@ -1,12 +1,14 @@
 package com.swampd.superficialtrauma.common.loot;
 
 import com.swampd.superficialtrauma.common.init.ModMenus;
+import com.swampd.superficialtrauma.common.entity.CorpseEntity;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
@@ -23,17 +25,20 @@ public final class LootTargetMenu extends AbstractContainerMenu {
 
     private final Container targetInventory;
     private final int targetEntityId;
-    private final ServerPlayer targetPlayer;
-    private final UUID targetPlayerId;
+    private final Entity targetEntity;
+    private final UUID targetId;
+    private final boolean corpseTarget;
 
     public static LootTargetMenu fromNetwork(int containerId, Inventory playerInventory, FriendlyByteBuf buffer) {
         int targetEntityId = buffer.readVarInt();
+        boolean corpseTarget = buffer.readBoolean();
         return new LootTargetMenu(
                 containerId,
                 playerInventory,
                 new SimpleContainer(TARGET_SLOT_COUNT),
                 targetEntityId,
-                null
+                null,
+                corpseTarget
         );
     }
 
@@ -43,7 +48,19 @@ public final class LootTargetMenu extends AbstractContainerMenu {
                 playerInventory,
                 targetPlayer.getInventory(),
                 targetPlayer.getId(),
-                targetPlayer
+                targetPlayer,
+                false
+        );
+    }
+
+    public LootTargetMenu(int containerId, Inventory playerInventory, CorpseEntity corpse) {
+        this(
+                containerId,
+                playerInventory,
+                corpse,
+                corpse.getId(),
+                corpse,
+                true
         );
     }
 
@@ -52,14 +69,16 @@ public final class LootTargetMenu extends AbstractContainerMenu {
             Inventory playerInventory,
             Container targetInventory,
             int targetEntityId,
-            ServerPlayer targetPlayer
+            Entity targetEntity,
+            boolean corpseTarget
     ) {
         super(ModMenus.LOOT_TARGET.get(), containerId);
         checkContainerSize(targetInventory, TARGET_SLOT_COUNT);
         this.targetInventory = targetInventory;
         this.targetEntityId = targetEntityId;
-        this.targetPlayer = targetPlayer;
-        this.targetPlayerId = targetPlayer == null ? null : targetPlayer.getUUID();
+        this.targetEntity = targetEntity;
+        this.targetId = targetEntity == null ? null : targetEntity.getUUID();
+        this.corpseTarget = corpseTarget;
 
         addTargetSlots(targetInventory);
         addPlayerSlots(playerInventory);
@@ -96,7 +115,7 @@ public final class LootTargetMenu extends AbstractContainerMenu {
 
     @Override
     public boolean stillValid(Player player) {
-        return targetPlayer == null || LootingService.canContinueLooting(player, targetPlayer);
+        return targetEntity == null || LootingService.canContinueLooting(player, targetEntity);
     }
 
     @Override
@@ -140,6 +159,9 @@ public final class LootTargetMenu extends AbstractContainerMenu {
             return false;
         }
 
+        if (targetEntity instanceof CorpseEntity && player instanceof ServerPlayer serverPlayer) {
+            CorpseEquipmentTransfer.equipUpgrades(serverPlayer, targetInventory);
+        }
         for (int targetSlot = 0; targetSlot < TARGET_SLOT_COUNT; targetSlot++) {
             quickMoveStack(player, targetSlot);
         }
@@ -157,8 +179,8 @@ public final class LootTargetMenu extends AbstractContainerMenu {
     @Override
     public void removed(Player player) {
         super.removed(player);
-        if (targetPlayerId != null) {
-            LootingService.release(targetPlayerId, player.getUUID());
+        if (targetId != null) {
+            LootingService.release(targetId, player.getUUID());
         }
     }
 
@@ -175,13 +197,17 @@ public final class LootTargetMenu extends AbstractContainerMenu {
         return targetEntityId;
     }
 
-    public UUID targetPlayerId() {
-        return targetPlayerId;
+    public UUID targetId() {
+        return targetId;
+    }
+
+    public boolean isCorpseTarget() {
+        return corpseTarget;
     }
 
     private void syncTargetOwnerInventory() {
         targetInventory.setChanged();
-        if (targetPlayer != null) {
+        if (targetEntity instanceof ServerPlayer targetPlayer) {
             targetPlayer.inventoryMenu.broadcastChanges();
         }
     }

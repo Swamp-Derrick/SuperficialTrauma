@@ -5,6 +5,7 @@ import com.swampd.superficialtrauma.common.damage.DamageDowning;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAccumulator;
 import com.swampd.superficialtrauma.common.entity.CorpseSnapshot;
+import com.swampd.superficialtrauma.common.loot.CorpseEquipmentTransfer;
 import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
 import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
 import com.swampd.superficialtrauma.common.treatment.TreatmentType;
@@ -61,6 +62,7 @@ public final class BodyStateRoundTripTest {
         verifyDownedPostureClassification();
         verifyDownedGeometry();
         verifyCorpseSnapshotRoundTrip();
+        verifyCorpseArmorUpgradeRules();
         verifyDownedPoseSnapshotAndReset();
         verifyPainTagFloorAndClamp();
         verifyPainOfflinePauseAndNbt();
@@ -1079,6 +1081,43 @@ public final class BodyStateRoundTripTest {
                 -52.5F,
                 DownedGeometry.groundYaw(restored.downedPose()),
                 "corpse direction must remain derived from the captured left-fall snapshot"
+        );
+    }
+
+    private static void verifyCorpseArmorUpgradeRules() {
+        CorpseEquipmentTransfer.ArmorQuality ironChestplate =
+                new CorpseEquipmentTransfer.ArmorQuality(6, 0.0F, 0.0F, 0, 1.0D);
+        CorpseEquipmentTransfer.ArmorQuality diamondChestplate =
+                new CorpseEquipmentTransfer.ArmorQuality(8, 2.0F, 0.0F, 0, 1.0D);
+        CorpseEquipmentTransfer.ArmorQuality netheriteChestplate =
+                new CorpseEquipmentTransfer.ArmorQuality(8, 3.0F, 0.1F, 0, 1.0D);
+        CorpseEquipmentTransfer.ArmorQuality damagedDiamondChestplate =
+                new CorpseEquipmentTransfer.ArmorQuality(8, 2.0F, 0.0F, 0, 0.25D);
+        CorpseEquipmentTransfer.ArmorQuality enchantedDiamondChestplate =
+                new CorpseEquipmentTransfer.ArmorQuality(8, 2.0F, 0.0F, 4, 1.0D);
+
+        assertEquals(
+                true,
+                CorpseEquipmentTransfer.isHigherQuality(diamondChestplate, ironChestplate),
+                "take-all must recognize diamond chest armor as an iron upgrade"
+        );
+        assertEquals(
+                false,
+                CorpseEquipmentTransfer.isHigherQuality(ironChestplate, diamondChestplate),
+                "take-all must not replace stronger armor with weaker armor"
+        );
+        assertEquals(
+                true,
+                CorpseEquipmentTransfer.isHigherQuality(netheriteChestplate, diamondChestplate),
+                "netherite toughness and knockback resistance must outrank diamond"
+        );
+        assertEquals(
+                true,
+                CorpseEquipmentTransfer.isHigherQuality(
+                        enchantedDiamondChestplate,
+                        damagedDiamondChestplate
+                ),
+                "equal armor tiers must prefer protection enchantments before remaining durability"
         );
     }
 

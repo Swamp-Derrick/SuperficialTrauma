@@ -9,10 +9,12 @@ import com.swampd.superficialtrauma.common.body.DownedGeometry;
 import com.swampd.superficialtrauma.common.entity.CorpseEntity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.PlayerModel;
+import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelLayers;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
+import net.minecraft.client.renderer.entity.layers.HumanoidArmorLayer;
 import net.minecraft.client.resources.DefaultPlayerSkin;
 import net.minecraft.resources.ResourceLocation;
 
@@ -25,6 +27,12 @@ public final class CorpseRenderer extends LivingEntityRenderer<CorpseEntity, Pla
 
     public CorpseRenderer(EntityRendererProvider.Context context) {
         this(context, new StaticPlayerModel(context, false), new StaticPlayerModel(context, true));
+        addLayer(new HumanoidArmorLayer<>(
+                this,
+                new HumanoidModel<>(context.bakeLayer(ModelLayers.PLAYER_INNER_ARMOR)),
+                new HumanoidModel<>(context.bakeLayer(ModelLayers.PLAYER_OUTER_ARMOR)),
+                context.getModelManager()
+        ));
     }
 
     private CorpseRenderer(

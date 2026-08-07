@@ -19,7 +19,7 @@ public record CorpseSnapshot(
         long deathGameTime,
         DownedPoseSnapshot downedPose
 ) {
-    public static final int CURRENT_DATA_VERSION = 1;
+    public static final int CURRENT_DATA_VERSION = 2;
     private static final String TAG_DATA_VERSION = "DataVersion";
     private static final String TAG_OWNER_ID = "OwnerId";
     private static final String TAG_OWNER_NAME = "OwnerName";

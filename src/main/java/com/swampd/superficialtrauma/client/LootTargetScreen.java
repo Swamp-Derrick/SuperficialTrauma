@@ -31,7 +31,9 @@ public final class LootTargetScreen extends AbstractContainerScreen<LootTargetMe
     protected void init() {
         super.init();
         takeAllButton = addRenderableWidget(Button.builder(
-                        Component.translatable("screen.superficialtrauma.loot.take_all"),
+                        Component.translatable(menu.isCorpseTarget()
+                                ? "screen.superficialtrauma.loot.take_all_and_equip"
+                                : "screen.superficialtrauma.loot.take_all"),
                         button -> {
                             if (minecraft != null && minecraft.gameMode != null) {
                                 minecraft.gameMode.handleInventoryButtonClick(
@@ -41,7 +43,7 @@ public final class LootTargetScreen extends AbstractContainerScreen<LootTargetMe
                             }
                         }
                 )
-                .bounds(leftPos + 52, topPos + 106, 100, 18)
+                .bounds(leftPos + 32, topPos + 106, 140, 18)
                 .build());
         takeAllButton.active = menu.hasLootableItems();
     }

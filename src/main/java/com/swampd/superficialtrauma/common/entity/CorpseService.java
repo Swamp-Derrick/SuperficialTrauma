@@ -22,7 +22,7 @@ public final class CorpseService {
                         DownedFallDirection.FADE_ONLY
                 )
         );
-        return spawn(player, pose);
+        return spawn(player, pose, true);
     }
 
     public static boolean spawnPreview(ServerPlayer player, DownedFallDirection direction) {
@@ -33,11 +33,16 @@ public final class CorpseService {
                         player.getYRot(),
                         DownedPosture.STANDING,
                         direction
-                )
+                ),
+                false
         );
     }
 
-    private static boolean spawn(ServerPlayer player, DownedPoseSnapshot pose) {
+    private static boolean spawn(
+            ServerPlayer player,
+            DownedPoseSnapshot pose,
+            boolean captureInventory
+    ) {
         CorpseEntity corpse = ModEntities.CORPSE.get().create(player.serverLevel());
         if (corpse == null) {
             SuperficialTrauma.LOGGER.error("Could not create corpse entity for {}", player.getGameProfile().getName());
@@ -54,7 +59,15 @@ public final class CorpseService {
                 pose
         );
         corpse.initialize(snapshot, player.getX(), player.getY(), player.getZ());
-        return player.serverLevel().addFreshEntity(corpse);
+        if (captureInventory) {
+            corpse.copyInventoryFrom(player);
+        }
+        boolean added = player.serverLevel().addFreshEntity(corpse);
+        if (added && captureInventory) {
+            player.getInventory().clearContent();
+            player.inventoryMenu.broadcastChanges();
+        }
+        return added;
     }
 
     private static Property firstSkinTexture(ServerPlayer player) {
