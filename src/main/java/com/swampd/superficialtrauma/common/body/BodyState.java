@@ -25,7 +25,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 19;
+    public static final int CURRENT_DATA_VERSION = 20;
     public static final int MAX_WOUNDS = 8;
     public static final int MAX_WOUND_HISTORY = 6;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
@@ -63,6 +63,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_NEXT_INFECTION_SETTLEMENT_GAME_TIME = "NextInfectionSettlementGameTime";
     private static final String TAG_FIRST_AID_SKILL = "FirstAidSkill";
     private static final String TAG_SURGERY_SKILL = "SurgerySkill";
+    private static final String TAG_FORENSIC_SKILL = "ForensicSkill";
     private static final String TAG_BLOOD_DRUG_CONCENTRATION = "BloodDrugConcentration";
     private static final String TAG_ADRENALINE_LEVEL = "AdrenalineLevel";
     private static final String TAG_BLOOD_OXYGEN = "BloodOxygen";
@@ -115,6 +116,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private long nextInfectionSettlementGameTime;
     private boolean firstAidSkill;
     private boolean surgerySkill;
+    private boolean forensicSkill;
     private float bloodDrugConcentration;
     private int adrenalineLevel;
     private float bloodOxygen;
@@ -308,6 +310,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return firstAidSkill;
     }
 
+    public boolean hasForensicSkill() {
+        return forensicSkill;
+    }
+
     public boolean unlockFirstAidSkill() {
         if (firstAidSkill) {
             return false;
@@ -322,6 +328,15 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             return false;
         }
         surgerySkill = true;
+        markChanged();
+        return true;
+    }
+
+    public boolean unlockForensicSkill() {
+        if (forensicSkill) {
+            return false;
+        }
+        forensicSkill = true;
         markChanged();
         return true;
     }
@@ -1680,6 +1695,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             surgerySkill = true;
             changed = true;
         }
+        if (other.forensicSkill && !forensicSkill) {
+            forensicSkill = true;
+            changed = true;
+        }
         if (changed) {
             markChanged();
         }
@@ -1777,6 +1796,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         nextInfectionSettlementGameTime = -1L;
         firstAidSkill = false;
         surgerySkill = false;
+        forensicSkill = false;
         bloodDrugConcentration = 0.0F;
         adrenalineLevel = 0;
         bloodOxygen = MAX_BLOOD_OXYGEN;
@@ -1833,6 +1853,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         tag.putLong(TAG_NEXT_INFECTION_SETTLEMENT_GAME_TIME, nextInfectionSettlementGameTime);
         tag.putBoolean(TAG_FIRST_AID_SKILL, firstAidSkill);
         tag.putBoolean(TAG_SURGERY_SKILL, surgerySkill);
+        tag.putBoolean(TAG_FORENSIC_SKILL, forensicSkill);
         tag.putFloat(TAG_BLOOD_DRUG_CONCENTRATION, bloodDrugConcentration);
         tag.putInt(TAG_ADRENALINE_LEVEL, adrenalineLevel);
         tag.putFloat(TAG_BLOOD_OXYGEN, bloodOxygen);
@@ -1934,6 +1955,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 : -1L;
         firstAidSkill = tag.getBoolean(TAG_FIRST_AID_SKILL);
         surgerySkill = tag.getBoolean(TAG_SURGERY_SKILL);
+        forensicSkill = tag.getBoolean(TAG_FORENSIC_SKILL);
         bloodDrugConcentration = Math.max(0.0F, tag.getFloat(TAG_BLOOD_DRUG_CONCENTRATION));
         adrenalineLevel = Math.max(0, tag.getInt(TAG_ADRENALINE_LEVEL));
         bloodOxygen = tag.contains(TAG_BLOOD_OXYGEN, Tag.TAG_ANY_NUMERIC)

@@ -6,6 +6,8 @@ import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAccumulator;
 import com.swampd.superficialtrauma.common.entity.CorpseSnapshot;
 import com.swampd.superficialtrauma.common.entity.EmptyCorpseLifecycle;
+import com.swampd.superficialtrauma.common.forensics.AutopsyAction;
+import com.swampd.superficialtrauma.common.forensics.AutopsyReport;
 import com.swampd.superficialtrauma.common.config.CorpseServerConfig;
 import com.swampd.superficialtrauma.common.loot.CorpseEquipmentTransfer;
 import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
@@ -64,6 +66,7 @@ public final class BodyStateRoundTripTest {
         verifyDownedPostureClassification();
         verifyDownedGeometry();
         verifyCorpseSnapshotRoundTrip();
+        verifyAutopsyReportPrivacy();
         verifyEmptyCorpseLifecycle();
         verifyCorpseArmorUpgradeRules();
         verifyDownedPoseSnapshotAndReset();
@@ -1045,6 +1048,28 @@ public final class BodyStateRoundTripTest {
 
     private static void verifyCorpseSnapshotRoundTrip() {
         UUID ownerId = UUID.fromString("0e252da4-f73c-45cc-a8da-2bd305ec6fe8");
+        WoundHistoryEntry forensicWound = new WoundHistoryEntry(
+                UUID.fromString("d26f024b-2cd2-42da-a7aa-2abcc7195d7d"),
+                WoundType.GUNSHOT_HIGH_VELOCITY,
+                2,
+                11.0F,
+                80L,
+                100L,
+                -1L,
+                true,
+                false
+        );
+        DowningHitRecord downingHit = new DowningHitRecord(
+                9.0F,
+                "minecraft:arrow",
+                DamageKind.CGM_HIGH_VELOCITY,
+                "projectile",
+                "cgm:projectile",
+                "cgm:rifle_ammo",
+                "cgm:rifle",
+                18.5D,
+                120L
+        );
         CorpseSnapshot original = new CorpseSnapshot(
                 ownerId,
                 "SnapshotPlayer",
@@ -1056,7 +1081,9 @@ public final class BodyStateRoundTripTest {
                         37.5F,
                         DownedPosture.CROUCHING,
                         DownedFallDirection.LEFT
-                )
+                ),
+                List.of(forensicWound),
+                downingHit
         );
         CompoundTag saved = original.save();
         assertEquals(
@@ -1080,6 +1107,8 @@ public final class BodyStateRoundTripTest {
         );
         assertEquals(640L, restored.deathGameTime(), "corpse NBT must preserve death time");
         assertEquals(original.downedPose(), restored.downedPose(), "corpse NBT must preserve downed pose");
+        assertEquals(List.of(forensicWound), restored.woundHistory(), "corpse NBT must freeze wound history");
+        assertEquals(downingHit, restored.downingHitRecord(), "corpse NBT must freeze the incapacitating hit");
         assertFloatEquals(
                 -52.5F,
                 DownedGeometry.groundYaw(restored.downedPose()),
@@ -1122,6 +1151,61 @@ public final class BodyStateRoundTripTest {
                 ),
                 "equal armor tiers must prefer protection enchantments before remaining durability"
         );
+    }
+
+    private static void verifyAutopsyReportPrivacy() {
+        DowningHitRecord hiddenHit = new DowningHitRecord(
+                8.0F,
+                "minecraft:player_attack",
+                DamageKind.CGM_LOW_VELOCITY,
+                "projectile",
+                "cgm:projectile",
+                "cgm:basic_bullet",
+                "cgm:pistol",
+                7.25D,
+                200L
+        );
+        AutopsyReport basicReport = new AutopsyReport(
+                17,
+                "EvidencePlayer",
+                -1L,
+                List.of(),
+                false,
+                hiddenHit,
+                true,
+                true,
+                true,
+                AutopsyAction.NONE,
+                -1L
+        );
+        assertEquals(
+                true,
+                basicReport.downingHit() == null,
+                "unrevealed downing evidence must not enter a basic client report"
+        );
+        assertEquals(
+                false,
+                basicReport.save().contains("DowningHit", Tag.TAG_COMPOUND),
+                "unrevealed downing evidence must not be sent over the network"
+        );
+
+        AutopsyReport detailedReport = new AutopsyReport(
+                17,
+                "EvidencePlayer",
+                1_200L,
+                List.of(),
+                true,
+                hiddenHit,
+                true,
+                true,
+                true,
+                AutopsyAction.CHECKLIST,
+                900L
+        );
+        AutopsyReport restored = AutopsyReport.load(detailedReport.save());
+        assertEquals(hiddenHit, restored.downingHit(), "completed detailed examination must preserve downing evidence");
+        assertEquals(AutopsyAction.CHECKLIST, restored.activeAction(), "autopsy action state must survive packet NBT");
+        assertEquals(900L, restored.actionEndGameTime(), "autopsy countdown deadline must survive packet NBT");
     }
 
     private static void verifyEmptyCorpseLifecycle() {
@@ -1823,20 +1907,26 @@ public final class BodyStateRoundTripTest {
         assertEquals(false, state.hasSurgerySkill(), "new body state must not know surgery");
         assertEquals(true, state.unlockSurgerySkill(), "the surgery skill book must unlock surgery once");
         assertEquals(false, state.unlockSurgerySkill(), "reusing a surgery skill book must not unlock twice");
+        assertEquals(false, state.hasForensicSkill(), "new body state must not know forensic medicine");
+        assertEquals(true, state.unlockForensicSkill(), "the forensic skill book must unlock forensic medicine once");
+        assertEquals(false, state.unlockForensicSkill(), "reusing a forensic skill book must not unlock twice");
 
         BodyState restored = new BodyState();
         restored.deserializeNBT(state.serializeNBT());
         assertEquals(true, restored.hasFirstAidSkill(), "first-aid skill must survive save and reload");
         assertEquals(true, restored.hasSurgerySkill(), "surgery skill must survive save and reload");
+        assertEquals(true, restored.hasForensicSkill(), "forensic skill must survive save and reload");
 
         BodyState deathClone = new BodyState();
         deathClone.copyPersistentKnowledgeFrom(restored);
         assertEquals(true, deathClone.hasFirstAidSkill(), "permanent first-aid knowledge must survive a death clone");
         assertEquals(true, deathClone.hasSurgerySkill(), "permanent surgery knowledge must survive a death clone");
+        assertEquals(true, deathClone.hasForensicSkill(), "permanent forensic knowledge must survive a death clone");
 
         restored.resetAllForDebug();
         assertEquals(false, restored.hasFirstAidSkill(), "the full debug reset must clear learned first-aid skill");
         assertEquals(false, restored.hasSurgerySkill(), "the full debug reset must clear learned surgery skill");
+        assertEquals(false, restored.hasForensicSkill(), "the full debug reset must clear learned forensic skill");
     }
 
     private static void verifyDebugInfectionSetter() {

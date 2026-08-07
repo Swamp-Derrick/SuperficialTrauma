@@ -32,8 +32,11 @@ public final class ModCreativeTabs {
                         output.accept(ModItems.MANUAL_RESUSCITATOR.get());
                         output.accept(ModItems.DEFIBRILLATOR.get());
                         output.accept(ModItems.SURGICAL_KIT.get());
+                        output.accept(ModItems.PUPIL_PENLIGHT.get());
+                        output.accept(ModItems.CHECKLIST.get());
                         output.accept(ModItems.FIRST_AID_SKILL_BOOK.get());
                         output.accept(ModItems.SURGERY_SKILL_BOOK.get());
+                        output.accept(ModItems.FORENSIC_SKILL_BOOK.get());
                     })
                     .build()
     );

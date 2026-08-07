@@ -4,6 +4,7 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.damage.BloodLossDamage;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAggregator;
 import com.swampd.superficialtrauma.common.entity.CorpseService;
+import com.swampd.superficialtrauma.common.forensics.AutopsyService;
 import com.swampd.superficialtrauma.common.loot.LootingService;
 import com.swampd.superficialtrauma.common.treatment.DefibrillationService;
 import com.swampd.superficialtrauma.network.ModNetworking;
@@ -79,6 +80,7 @@ public final class BodyStateEvents {
     public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         ShotgunVolleyAggregator.clearPlayer(event.getEntity().getUUID());
         LootingService.forgetPlayer(event.getEntity().getUUID());
+        AutopsyService.forgetPlayer(event.getEntity().getUUID());
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
             BodyStateCapability.get(serverPlayer).ifPresent(bodyState ->
                     bodyState.pauseBodyProgression(serverPlayer.serverLevel().getGameTime())
@@ -130,6 +132,7 @@ public final class BodyStateEvents {
 
         long gameTime = serverPlayer.serverLevel().getGameTime();
         LootingService.closeIfInvalid(serverPlayer);
+        AutopsyService.tick(serverPlayer);
         BodyStateCapability.get(serverPlayer).ifPresent(bodyState -> {
             boolean shotgunVolleyResolved = ShotgunVolleyAggregator.resolveReady(
                     serverPlayer,
@@ -204,6 +207,7 @@ public final class BodyStateEvents {
     public static void onServerStopped(ServerStoppedEvent event) {
         ShotgunVolleyAggregator.clearAll();
         LootingService.clearAll();
+        AutopsyService.clearAll();
     }
 
     private static void notifyDownedState(ServerPlayer player, BodyProgressionResult result) {

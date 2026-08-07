@@ -10,6 +10,8 @@ import com.swampd.superficialtrauma.common.treatment.TreatmentCancelReason;
 import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentSession;
 import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
+import com.swampd.superficialtrauma.common.forensics.AutopsyAction;
+import com.swampd.superficialtrauma.common.forensics.AutopsyReport;
 import com.swampd.superficialtrauma.network.packet.BloodLossFeedbackS2CPacket;
 import com.swampd.superficialtrauma.network.packet.BodyStateSyncS2CPacket;
 import com.swampd.superficialtrauma.network.packet.DownedPoseSyncS2CPacket;
@@ -26,6 +28,11 @@ import com.swampd.superficialtrauma.network.packet.StartInfusionC2SPacket;
 import com.swampd.superficialtrauma.network.packet.CprActionC2SPacket;
 import com.swampd.superficialtrauma.network.packet.StartDefibrillationC2SPacket;
 import com.swampd.superficialtrauma.network.packet.DefibrillatorChargingSoundS2CPacket;
+import com.swampd.superficialtrauma.network.packet.RequestAutopsyC2SPacket;
+import com.swampd.superficialtrauma.network.packet.StartAutopsyActionC2SPacket;
+import com.swampd.superficialtrauma.network.packet.CloseAutopsyC2SPacket;
+import com.swampd.superficialtrauma.network.packet.AutopsyReportS2CPacket;
+import com.swampd.superficialtrauma.network.packet.CloseAutopsyS2CPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkDirection;
@@ -39,7 +46,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "16";
+    private static final String PROTOCOL_VERSION = "17";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -182,6 +189,46 @@ public final class ModNetworking {
                 DefibrillatorChargingSoundS2CPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT)
         );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                RequestAutopsyC2SPacket.class,
+                RequestAutopsyC2SPacket::encode,
+                RequestAutopsyC2SPacket::decode,
+                RequestAutopsyC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                StartAutopsyActionC2SPacket.class,
+                StartAutopsyActionC2SPacket::encode,
+                StartAutopsyActionC2SPacket::decode,
+                StartAutopsyActionC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                CloseAutopsyC2SPacket.class,
+                CloseAutopsyC2SPacket::encode,
+                CloseAutopsyC2SPacket::decode,
+                CloseAutopsyC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                AutopsyReportS2CPacket.class,
+                AutopsyReportS2CPacket::encode,
+                AutopsyReportS2CPacket::decode,
+                AutopsyReportS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                CloseAutopsyS2CPacket.class,
+                CloseAutopsyS2CPacket::encode,
+                CloseAutopsyS2CPacket::decode,
+                CloseAutopsyS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
     }
 
     public static void syncBodyState(ServerPlayer player) {
@@ -240,6 +287,18 @@ public final class ModNetworking {
 
     public static void requestInspection(int targetEntityId) {
         CHANNEL.sendToServer(new RequestInspectionC2SPacket(targetEntityId));
+    }
+
+    public static void requestAutopsy(int corpseEntityId) {
+        CHANNEL.sendToServer(new RequestAutopsyC2SPacket(corpseEntityId));
+    }
+
+    public static void requestAutopsyAction(int corpseEntityId, AutopsyAction action) {
+        CHANNEL.sendToServer(new StartAutopsyActionC2SPacket(corpseEntityId, action));
+    }
+
+    public static void closeAutopsy(int corpseEntityId) {
+        CHANNEL.sendToServer(new CloseAutopsyC2SPacket(corpseEntityId));
     }
 
     public static void closeInspection(int targetEntityId) {
@@ -314,6 +373,20 @@ public final class ModNetworking {
         CHANNEL.send(
                 PacketDistributor.PLAYER.with(() -> inspector),
                 new CloseInspectionS2CPacket(patientEntityId)
+        );
+    }
+
+    public static void sendAutopsyReport(ServerPlayer examiner, AutopsyReport report, boolean openScreen) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> examiner),
+                new AutopsyReportS2CPacket(report.save(), openScreen)
+        );
+    }
+
+    public static void closeAutopsy(ServerPlayer examiner, int corpseEntityId) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> examiner),
+                new CloseAutopsyS2CPacket(corpseEntityId)
         );
     }
 

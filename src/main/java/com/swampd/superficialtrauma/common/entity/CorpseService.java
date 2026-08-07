@@ -22,7 +22,7 @@ public final class CorpseService {
                         DownedFallDirection.FADE_ONLY
                 )
         );
-        return spawn(player, pose, true);
+        return spawn(player, pose, bodyState, true);
     }
 
     public static boolean spawnPreview(ServerPlayer player, DownedFallDirection direction) {
@@ -34,6 +34,7 @@ public final class CorpseService {
                         DownedPosture.STANDING,
                         direction
                 ),
+                null,
                 false
         );
     }
@@ -41,6 +42,7 @@ public final class CorpseService {
     private static boolean spawn(
             ServerPlayer player,
             DownedPoseSnapshot pose,
+            BodyState bodyState,
             boolean captureInventory
     ) {
         CorpseEntity corpse = ModEntities.CORPSE.get().create(player.serverLevel());
@@ -56,7 +58,9 @@ public final class CorpseService {
                 skinTexture == null ? "" : skinTexture.getValue(),
                 skinTexture == null || !skinTexture.hasSignature() ? "" : skinTexture.getSignature(),
                 player.serverLevel().getGameTime(),
-                pose
+                pose,
+                bodyState == null ? java.util.List.of() : bodyState.woundHistory(),
+                bodyState == null ? null : bodyState.downingHitRecord().orElse(null)
         );
         corpse.initialize(snapshot, player.getX(), player.getY(), player.getZ());
         if (captureInventory) {

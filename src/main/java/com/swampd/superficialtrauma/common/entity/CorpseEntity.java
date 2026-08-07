@@ -6,6 +6,8 @@ import com.swampd.superficialtrauma.common.body.DownedGeometry;
 import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
 import com.swampd.superficialtrauma.common.body.DownedPosture;
 import com.swampd.superficialtrauma.common.body.DownedFallDirection;
+import com.swampd.superficialtrauma.common.body.DowningHitRecord;
+import com.swampd.superficialtrauma.common.body.WoundHistoryEntry;
 import com.swampd.superficialtrauma.common.config.CorpseServerConfig;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
@@ -35,6 +37,8 @@ public final class CorpseEntity extends LivingEntity implements Container {
     public static final int INVENTORY_SIZE = 41;
     private static final String TAG_INVENTORY = "CorpseInventory";
     private static final String TAG_EMPTY_SINCE_GAME_TIME = "EmptySinceGameTime";
+    private static final String TAG_DEATH_TIME_REVEALED = "DeathTimeRevealed";
+    private static final String TAG_DETAILED_AUTOPSY_REVEALED = "DetailedAutopsyRevealed";
     private static final EntityDataAccessor<Optional<UUID>> OWNER_ID = SynchedEntityData.defineId(
             CorpseEntity.class,
             EntityDataSerializers.OPTIONAL_UUID
@@ -73,6 +77,10 @@ public final class CorpseEntity extends LivingEntity implements Container {
     );
     private final NonNullList<ItemStack> inventory = NonNullList.withSize(INVENTORY_SIZE, ItemStack.EMPTY);
     private long emptySinceGameTime = EmptyCorpseLifecycle.NOT_EMPTY;
+    private List<WoundHistoryEntry> forensicWoundHistory = List.of();
+    private DowningHitRecord forensicDowningHit;
+    private boolean deathTimeRevealed;
+    private boolean detailedAutopsyRevealed;
 
     public CorpseEntity(EntityType<? extends CorpseEntity> entityType, Level level) {
         super(entityType, level);
@@ -105,6 +113,8 @@ public final class CorpseEntity extends LivingEntity implements Container {
         entityData.set(BODY_YAW, snapshot.downedPose().bodyYaw());
         entityData.set(POSTURE, snapshot.downedPose().posture().serializedName());
         entityData.set(FALL_DIRECTION, snapshot.downedPose().fallDirection().serializedName());
+        forensicWoundHistory = snapshot.woundHistory();
+        forensicDowningHit = snapshot.downingHitRecord();
         moveTo(x, y, z, snapshot.downedPose().bodyYaw(), 0.0F);
         setYBodyRot(snapshot.downedPose().bodyYaw());
         setYHeadRot(snapshot.downedPose().bodyYaw());
@@ -118,8 +128,44 @@ public final class CorpseEntity extends LivingEntity implements Container {
                 entityData.get(SKIN_TEXTURE_VALUE),
                 entityData.get(SKIN_TEXTURE_SIGNATURE),
                 entityData.get(DEATH_GAME_TIME),
-                downedPose()
+                downedPose(),
+                forensicWoundHistory,
+                forensicDowningHit
         );
+    }
+
+    public List<WoundHistoryEntry> forensicWoundHistory() {
+        return forensicWoundHistory;
+    }
+
+    public Optional<DowningHitRecord> forensicDowningHit() {
+        return Optional.ofNullable(forensicDowningHit);
+    }
+
+    public boolean deathTimeRevealed() {
+        return deathTimeRevealed;
+    }
+
+    public boolean detailedAutopsyRevealed() {
+        return detailedAutopsyRevealed;
+    }
+
+    public boolean revealDeathTime() {
+        if (deathTimeRevealed) {
+            return false;
+        }
+        deathTimeRevealed = true;
+        setChanged();
+        return true;
+    }
+
+    public boolean revealDetailedAutopsy() {
+        if (detailedAutopsyRevealed) {
+            return false;
+        }
+        detailedAutopsyRevealed = true;
+        setChanged();
+        return true;
     }
 
     public Optional<UUID> ownerId() {
@@ -316,6 +362,8 @@ public final class CorpseEntity extends LivingEntity implements Container {
         if (emptySinceGameTime >= 0L) {
             tag.putLong(TAG_EMPTY_SINCE_GAME_TIME, emptySinceGameTime);
         }
+        tag.putBoolean(TAG_DEATH_TIME_REVEALED, deathTimeRevealed);
+        tag.putBoolean(TAG_DETAILED_AUTOPSY_REVEALED, detailedAutopsyRevealed);
     }
 
     @Override
@@ -332,6 +380,8 @@ public final class CorpseEntity extends LivingEntity implements Container {
         emptySinceGameTime = tag.contains(TAG_EMPTY_SINCE_GAME_TIME, Tag.TAG_ANY_NUMERIC)
                 ? Math.max(0L, tag.getLong(TAG_EMPTY_SINCE_GAME_TIME))
                 : EmptyCorpseLifecycle.NOT_EMPTY;
+        deathTimeRevealed = tag.getBoolean(TAG_DEATH_TIME_REVEALED);
+        detailedAutopsyRevealed = tag.getBoolean(TAG_DETAILED_AUTOPSY_REVEALED);
     }
 
     @Override

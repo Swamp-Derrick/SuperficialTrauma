@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.client;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
+import com.swampd.superficialtrauma.common.entity.CorpseEntity;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.InteractionHand;
@@ -53,10 +54,22 @@ public final class ClientForgeEvents {
     public static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
         if (!event.getLevel().isClientSide
                 || event.getHand() != InteractionHand.MAIN_HAND
-                || !(event.getTarget() instanceof Player target)
                 || event.getEntity() != Minecraft.getInstance().player
-                || event.getEntity() == target
                 || ClientDownedPoses.get(event.getEntity().getId()).isPresent()) {
+            return;
+        }
+
+        if (event.getTarget() instanceof CorpseEntity corpse) {
+            if (!event.getEntity().isShiftKeyDown()) {
+                return;
+            }
+            ModNetworking.requestAutopsy(corpse.getId());
+            event.setCancellationResult(InteractionResult.SUCCESS);
+            event.setCanceled(true);
+            return;
+        }
+
+        if (!(event.getTarget() instanceof Player target) || event.getEntity() == target) {
             return;
         }
 
@@ -106,6 +119,7 @@ public final class ClientForgeEvents {
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         ClientBodyState.clear();
         ClientInspectionState.clear();
+        ClientAutopsyState.clear();
         ClientTreatmentState.clear();
         ClientDownedPoses.clear();
         ClientBloodLossOverlay.clear();
