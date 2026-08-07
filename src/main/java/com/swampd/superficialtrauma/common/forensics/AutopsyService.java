@@ -29,24 +29,37 @@ public final class AutopsyService {
                 || !canInspect(examiner, corpse, MAX_OPEN_DISTANCE_SQUARED, true)) {
             return false;
         }
-        examiner.closeContainer();
-        Session session = new Session(corpse.getUUID(), corpse.getId());
-        SESSIONS.put(examiner.getUUID(), session);
+        if (examiner.containerMenu != examiner.inventoryMenu) {
+            examiner.closeContainer();
+        }
+        Session session = SESSIONS.get(examiner.getUUID());
+        if (session == null || !session.corpseId.equals(corpse.getUUID())) {
+            session = new Session(corpse.getUUID(), corpse.getId());
+            SESSIONS.put(examiner.getUUID(), session);
+        } else {
+            session.corpseEntityId = corpse.getId();
+        }
         sendReport(examiner, corpse, session, true);
         return true;
     }
 
     public static void start(ServerPlayer examiner, int corpseEntityId, AutopsyAction action) {
         Session session = SESSIONS.get(examiner.getUUID());
-        CorpseEntity corpse = session == null ? null : findCorpse(examiner, session.corpseId);
-        if (session == null
-                || corpse == null
-                || corpse.getId() != corpseEntityId
+        CorpseEntity corpse = examiner.serverLevel().getEntity(corpseEntityId) instanceof CorpseEntity found
+                ? found
+                : null;
+        if (corpse == null
                 || action == null
                 || action == AutopsyAction.NONE
-                || session.activeAction != AutopsyAction.NONE
                 || !canInspect(examiner, corpse, MAX_OPEN_DISTANCE_SQUARED, true)) {
             examiner.displayClientMessage(Component.translatable("message.superficialtrauma.autopsy.invalid"), true);
+            return;
+        }
+        if (session == null || !session.corpseId.equals(corpse.getUUID())) {
+            session = new Session(corpse.getUUID(), corpse.getId());
+            SESSIONS.put(examiner.getUUID(), session);
+        }
+        if (session.activeAction != AutopsyAction.NONE) {
             return;
         }
         boolean knowsForensics = BodyStateCapability.get(examiner)

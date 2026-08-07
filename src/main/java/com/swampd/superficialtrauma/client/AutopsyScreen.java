@@ -100,7 +100,7 @@ public final class AutopsyScreen extends Screen {
         graphics.drawCenteredString(
                 font,
                 Component.translatable("screen.superficialtrauma.autopsy.title", report.ownerName()),
-                panelLeft + panelWidth / 2,
+                panelLeft + informationWidth / 2,
                 panelTop + 14,
                 TEXT_COLOR
         );
@@ -234,15 +234,14 @@ public final class AutopsyScreen extends Screen {
 
     private void renderOperations(GuiGraphics graphics) {
         int x = operationsLeft + 14;
-        int y = panelTop + 44;
         int textWidth = operationsWidth - 28;
-        graphics.drawString(font, Component.translatable("screen.superficialtrauma.autopsy.operations"), x, y, TEXT_COLOR, false);
-        y += 20;
-        Component eligibility = report.examinerKnowsForensics()
-                ? Component.translatable("screen.superficialtrauma.autopsy.skill_ready")
-                : Component.translatable("screen.superficialtrauma.autopsy.skill_required");
-        drawWrapped(graphics, eligibility, x, y, textWidth, report.examinerKnowsForensics() ? SUCCESS_COLOR : MUTED_COLOR);
-
+        graphics.drawCenteredString(
+                font,
+                Component.translatable("screen.superficialtrauma.autopsy.operations"),
+                operationsLeft + operationsWidth / 2,
+                panelTop + 44,
+                TEXT_COLOR
+        );
         int statusY = panelTop + 178;
         if (report.activeAction() != AutopsyAction.NONE) {
             long remainingTicks = minecraft == null || minecraft.level == null
@@ -260,29 +259,7 @@ public final class AutopsyScreen extends Screen {
                     textWidth,
                     ACCENT_COLOR
             );
-        } else {
-            Component penlightStatus = report.deathAgeTicks() >= 0L
-                    ? Component.translatable("screen.superficialtrauma.autopsy.penlight_complete")
-                    : report.examinerHasPenlight()
-                    ? Component.translatable("screen.superficialtrauma.autopsy.penlight_ready")
-                    : Component.translatable("screen.superficialtrauma.autopsy.penlight_missing");
-            int nextY = drawWrapped(graphics, penlightStatus, x, statusY, textWidth, MUTED_COLOR) + 8;
-            Component checklistStatus = report.detailedAutopsyRevealed()
-                    ? Component.translatable("screen.superficialtrauma.autopsy.checklist_complete")
-                    : report.examinerHasChecklist()
-                    ? Component.translatable("screen.superficialtrauma.autopsy.checklist_ready")
-                    : Component.translatable("screen.superficialtrauma.autopsy.checklist_missing");
-            drawWrapped(graphics, checklistStatus, x, nextY, textWidth, MUTED_COLOR);
         }
-
-        drawWrapped(
-                graphics,
-                Component.translatable("screen.superficialtrauma.autopsy.close_hint"),
-                x,
-                panelTop + panelHeight - 42,
-                textWidth,
-                MUTED_COLOR
-        );
     }
 
     private void refreshButtons() {
