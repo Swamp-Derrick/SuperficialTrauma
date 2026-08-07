@@ -15,6 +15,7 @@ import net.minecraftforge.common.util.INBTSerializable;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -24,8 +25,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 18;
+    public static final int CURRENT_DATA_VERSION = 19;
     public static final int MAX_WOUNDS = 8;
+    public static final int MAX_WOUND_HISTORY = 6;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
     public static final long WOUND_PROGRESSION_INTERVAL_TICKS = 20L;
     public static final long STRESS_DURATION_TICKS = 20L * 20L;
@@ -85,6 +87,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_DOWNED_POSTURE = "DownedPosture";
     private static final String TAG_DOWNED_FALL_DIRECTION = "DownedFallDirection";
     private static final String TAG_WOUNDS = "Wounds";
+    private static final String TAG_WOUND_HISTORY = "WoundHistory";
+    private static final String TAG_DOWNING_HIT = "DowningHit";
     private static final String TAG_DAMAGE_WINDOWS = "DamageWindows";
     private static final String TAG_LAST_WOUND_PROGRESSION_GAME_TIME = "LastWoundProgressionGameTime";
     private static final String TAG_STRESS_END_GAME_TIME = "StressEndGameTime";
@@ -100,6 +104,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_LAST_PROJECTILE_ENTITY_ID = "LastProjectileEntityId";
     private static final String TAG_LAST_AMMO_ID = "LastAmmoId";
     private static final String TAG_LAST_WEAPON_ID = "LastWeaponId";
+    private static final String TAG_LAST_ATTACKER_DISTANCE = "LastAttackerDistance";
     private static final String TAG_LAST_DAMAGE_GAME_TIME = "LastDamageGameTime";
 
     private long revision;
@@ -131,6 +136,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private DownedPosture downedPosture;
     private DownedFallDirection downedFallDirection;
     private final List<WoundInstance> wounds = new ArrayList<>();
+    private final List<WoundHistoryEntry> woundHistory = new ArrayList<>();
+    private DowningHitRecord downingHitRecord;
     private final EnumMap<WoundType, DamageWindow> damageWindows = new EnumMap<>(WoundType.class);
     private long lastWoundProgressionGameTime;
     private long stressEndGameTime;
@@ -146,6 +153,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private String lastProjectileEntityId;
     private String lastAmmoId;
     private String lastWeaponId;
+    private double lastAttackerDistance;
     private long lastDamageGameTime;
 
     public BodyState() {
@@ -178,6 +186,35 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         }
 
         enterIncapacitated(reason, gameTime);
+        markChanged();
+        return true;
+    }
+
+    /**
+     * Enters the downed state and freezes the most recently recorded external damage as forensic evidence.
+     * Later damage may update diagnostics, but it cannot replace this record during the same downed episode.
+     */
+    public boolean incapacitateFromLastDamage(CollapseReason reason, long gameTime) {
+        if (lifeState != BodyLifeState.ACTIVE) {
+            return false;
+        }
+
+        DowningHitRecord capturedHit = null;
+        if (lastFinalDamage > 0.0F && lastDamageGameTime == gameTime) {
+            capturedHit = new DowningHitRecord(
+                    lastFinalDamage,
+                    lastDamageType,
+                    lastDamageKind,
+                    lastDamageReason,
+                    lastProjectileEntityId,
+                    lastAmmoId,
+                    lastWeaponId,
+                    lastAttackerDistance,
+                    lastDamageGameTime
+            );
+        }
+        enterIncapacitated(reason, gameTime);
+        downingHitRecord = capturedHit;
         markChanged();
         return true;
     }
@@ -719,6 +756,17 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return Collections.unmodifiableList(wounds);
     }
 
+    /**
+     * Returns the six most recent wound records in chronological order, oldest first.
+     */
+    public List<WoundHistoryEntry> woundHistory() {
+        return Collections.unmodifiableList(woundHistory);
+    }
+
+    public Optional<DowningHitRecord> downingHitRecord() {
+        return Optional.ofNullable(downingHitRecord);
+    }
+
     public Optional<WoundInstance> wound(UUID woundId) {
         if (woundId == null) {
             return Optional.empty();
@@ -783,11 +831,16 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     public boolean applyIcePack(UUID woundId) {
+        return applyIcePack(woundId, Math.max(0L, lastWoundProgressionGameTime));
+    }
+
+    public boolean applyIcePack(UUID woundId, long gameTime) {
         Optional<WoundInstance> wound = wound(woundId);
         if (wound.isEmpty() || !wound.get().applyIcePack()) {
             return false;
         }
         if (wound.get().isHealed()) {
+            upsertWoundHistory(wound.get(), gameTime, true);
             wounds.remove(wound.get());
         }
         markChanged();
@@ -885,6 +938,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return lastWeaponId;
     }
 
+    public double lastAttackerDistance() {
+        return lastAttackerDistance;
+    }
+
     public long lastDamageGameTime() {
         return lastDamageGameTime;
     }
@@ -895,6 +952,22 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             DamageClassification classification,
             long gameTime
     ) {
+        recordFinalDamage(
+                finalDamage,
+                damageType,
+                classification,
+                DowningHitRecord.UNKNOWN_DISTANCE,
+                gameTime
+        );
+    }
+
+    public void recordFinalDamage(
+            float finalDamage,
+            String damageType,
+            DamageClassification classification,
+            double attackerDistance,
+            long gameTime
+    ) {
         lastFinalDamage = Math.max(0.0F, finalDamage);
         lastDamageType = damageType == null ? "unknown" : damageType;
         lastDamageKind = classification.kind();
@@ -902,6 +975,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         lastProjectileEntityId = classification.projectileEntityId();
         lastAmmoId = classification.ammoId();
         lastWeaponId = classification.weaponId();
+        lastAttackerDistance = DowningHitRecord.normalizeDistance(attackerDistance);
         lastDamageGameTime = gameTime;
         markChanged();
     }
@@ -925,6 +999,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         if (activeWound.isPresent()) {
             WoundInstance wound = activeWound.get();
             wound.addAccumulatedDamage(finalDamage, gameTime);
+            upsertWoundHistory(wound, gameTime, false);
             markChanged();
             return new WoundUpdateResult(WoundUpdateResult.Status.UPDATED, wound, wound.accumulatedDamage());
         }
@@ -968,6 +1043,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 pendingWindow.endGameTime()
         );
         wounds.add(wound);
+        upsertWoundHistory(wound, gameTime, false);
         damageWindows.remove(type);
         markChanged();
         return new WoundUpdateResult(WoundUpdateResult.Status.CREATED, wound, wound.accumulatedDamage());
@@ -987,6 +1063,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 gameTime + DAMAGE_WINDOW_TICKS
         );
         wounds.add(wound);
+        upsertWoundHistory(wound, gameTime, false);
         markChanged();
         return new WoundUpdateResult(WoundUpdateResult.Status.CREATED, wound, shockDamage);
     }
@@ -1026,6 +1103,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                     closeRangeShot,
                     gameTime
             );
+            upsertWoundHistory(wound, gameTime, false);
             markChanged();
             return new WoundUpdateResult(WoundUpdateResult.Status.UPDATED, wound, wound.accumulatedDamage());
         }
@@ -1045,6 +1123,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 gameTime + DAMAGE_WINDOW_TICKS
         );
         wounds.add(wound);
+        upsertWoundHistory(wound, gameTime, false);
         markChanged();
         return new WoundUpdateResult(WoundUpdateResult.Status.CREATED, wound, wound.accumulatedDamage());
     }
@@ -1127,6 +1206,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                         progressedWounds++;
                     }
                     if (wound.isHealed()) {
+                        upsertWoundHistory(wound, lastWoundProgressionGameTime, true);
                         iterator.remove();
                         healedWounds++;
                     }
@@ -1284,6 +1364,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private void enterIncapacitated(CollapseReason reason, long gameTime) {
         clearDownedPoseSnapshot();
         resuscitationContributors.clear();
+        downingHitRecord = null;
         lifeState = BodyLifeState.INCAPACITATED;
         collapseReason = reason == null || reason == CollapseReason.NONE
                 ? CollapseReason.LETHAL_DAMAGE
@@ -1322,6 +1403,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private void finishAwakening(long gameTime) {
         lifeState = BodyLifeState.ACTIVE;
         collapseReason = CollapseReason.NONE;
+        downingHitRecord = null;
         awakeningEndGameTime = -1L;
         awakeningRetryGameTime = -1L;
         awakeningRecoveryEndGameTime = saturatingAdd(gameTime, AWAKENING_RECOVERY_DURATION_TICKS);
@@ -1458,7 +1540,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 || awakeningRecoveryEndGameTime >= 0L
                 || !resuscitationContributors.isEmpty()
                 || infusionType != InfusionType.NONE
-                || downedGameTime >= 0L;
+                || downedGameTime >= 0L
+                || downingHitRecord != null;
         if (!changed) {
             return false;
         }
@@ -1480,6 +1563,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         resuscitationContributors.clear();
         clearInfusion();
         clearDownedPoseSnapshot();
+        downingHitRecord = null;
         stressEndGameTime = -1L;
         nextPainRecoveryGameTime = -1L;
         markChanged();
@@ -1493,6 +1577,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         }
         clearDownedPoseSnapshot();
         resuscitationContributors.clear();
+        downingHitRecord = null;
         lifeState = rhythm;
         collapseReason = CollapseReason.HEMORRHAGIC_SHOCK;
         bloodOxygen = 0.0F;
@@ -1600,6 +1685,37 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         }
     }
 
+    private void upsertWoundHistory(WoundInstance wound, long gameTime, boolean healed) {
+        int existingIndex = -1;
+        for (int i = 0; i < woundHistory.size(); i++) {
+            if (woundHistory.get(i).woundId().equals(wound.id())) {
+                existingIndex = i;
+                break;
+            }
+        }
+
+        WoundHistoryEntry entry;
+        if (existingIndex >= 0) {
+            WoundHistoryEntry existing = woundHistory.remove(existingIndex);
+            entry = healed
+                    ? existing.healed(wound, gameTime)
+                    : existing.refreshed(wound, gameTime);
+        } else {
+            entry = WoundHistoryEntry.active(wound, gameTime);
+            if (healed) {
+                entry = entry.healed(wound, gameTime);
+            }
+        }
+        woundHistory.add(entry);
+        woundHistory.sort(Comparator
+                .comparingLong(WoundHistoryEntry::lastTraumaGameTime)
+                .thenComparingLong(WoundHistoryEntry::createdGameTime)
+                .thenComparing(history -> history.woundId().toString()));
+        while (woundHistory.size() > MAX_WOUND_HISTORY) {
+            woundHistory.remove(0);
+        }
+    }
+
     private void markChanged() {
         revision++;
     }
@@ -1677,6 +1793,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         clearInfusion();
         clearDownedPoseSnapshot();
         wounds.clear();
+        woundHistory.clear();
+        downingHitRecord = null;
         damageWindows.clear();
         lastWoundProgressionGameTime = -1L;
         stressEndGameTime = -1L;
@@ -1692,6 +1810,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         lastProjectileEntityId = "none";
         lastAmmoId = "none";
         lastWeaponId = "none";
+        lastAttackerDistance = DowningHitRecord.UNKNOWN_DISTANCE;
         lastDamageGameTime = -1L;
     }
 
@@ -1752,6 +1871,15 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         }
         tag.put(TAG_WOUNDS, woundList);
 
+        ListTag woundHistoryList = new ListTag();
+        for (WoundHistoryEntry historyEntry : woundHistory) {
+            woundHistoryList.add(historyEntry.serializeNBT());
+        }
+        tag.put(TAG_WOUND_HISTORY, woundHistoryList);
+        if (downingHitRecord != null) {
+            tag.put(TAG_DOWNING_HIT, downingHitRecord.serializeNBT());
+        }
+
         ListTag damageWindowList = new ListTag();
         for (DamageWindow damageWindow : damageWindows.values()) {
             damageWindowList.add(damageWindow.serializeNBT());
@@ -1772,6 +1900,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         tag.putString(TAG_LAST_PROJECTILE_ENTITY_ID, lastProjectileEntityId);
         tag.putString(TAG_LAST_AMMO_ID, lastAmmoId);
         tag.putString(TAG_LAST_WEAPON_ID, lastWeaponId);
+        tag.putDouble(TAG_LAST_ATTACKER_DISTANCE, lastAttackerDistance);
         tag.putLong(TAG_LAST_DAMAGE_GAME_TIME, lastDamageGameTime);
         return tag;
     }
@@ -1882,6 +2011,41 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             wounds.add(WoundInstance.deserializeNBT(woundList.getCompound(i)));
         }
 
+        ListTag woundHistoryList = tag.getList(TAG_WOUND_HISTORY, Tag.TAG_COMPOUND);
+        for (int i = 0; i < woundHistoryList.size(); i++) {
+            try {
+                WoundHistoryEntry historyEntry = WoundHistoryEntry.deserializeNBT(woundHistoryList.getCompound(i));
+                int existingIndex = -1;
+                for (int historyIndex = 0; historyIndex < woundHistory.size(); historyIndex++) {
+                    if (woundHistory.get(historyIndex).woundId().equals(historyEntry.woundId())) {
+                        existingIndex = historyIndex;
+                        break;
+                    }
+                }
+                if (existingIndex >= 0) {
+                    woundHistory.remove(existingIndex);
+                }
+                woundHistory.add(historyEntry);
+            } catch (IllegalArgumentException exception) {
+                SuperficialTrauma.LOGGER.warn("Skipping invalid wound history entry at index {}", i, exception);
+            }
+        }
+        woundHistory.sort(Comparator
+                .comparingLong(WoundHistoryEntry::lastTraumaGameTime)
+                .thenComparingLong(WoundHistoryEntry::createdGameTime)
+                .thenComparing(history -> history.woundId().toString()));
+        while (woundHistory.size() > MAX_WOUND_HISTORY) {
+            woundHistory.remove(0);
+        }
+        if (woundHistory.isEmpty()) {
+            for (WoundInstance wound : wounds) {
+                upsertWoundHistory(wound, wound.createdGameTime(), false);
+            }
+        }
+        if (tag.contains(TAG_DOWNING_HIT, Tag.TAG_COMPOUND)) {
+            downingHitRecord = DowningHitRecord.deserializeNBT(tag.getCompound(TAG_DOWNING_HIT));
+        }
+
         ListTag damageWindowList = tag.getList(TAG_DAMAGE_WINDOWS, Tag.TAG_COMPOUND);
         for (int i = 0; i < damageWindowList.size(); i++) {
             DamageWindow damageWindow = DamageWindow.deserializeNBT(damageWindowList.getCompound(i));
@@ -1918,6 +2082,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         lastProjectileEntityId = getStringOrDefault(tag, TAG_LAST_PROJECTILE_ENTITY_ID, "none");
         lastAmmoId = getStringOrDefault(tag, TAG_LAST_AMMO_ID, "none");
         lastWeaponId = getStringOrDefault(tag, TAG_LAST_WEAPON_ID, "none");
+        lastAttackerDistance = tag.contains(TAG_LAST_ATTACKER_DISTANCE, Tag.TAG_ANY_NUMERIC)
+                ? DowningHitRecord.normalizeDistance(tag.getDouble(TAG_LAST_ATTACKER_DISTANCE))
+                : DowningHitRecord.UNKNOWN_DISTANCE;
         lastDamageGameTime = tag.contains(TAG_LAST_DAMAGE_GAME_TIME, Tag.TAG_ANY_NUMERIC)
                 ? tag.getLong(TAG_LAST_DAMAGE_GAME_TIME)
                 : -1L;

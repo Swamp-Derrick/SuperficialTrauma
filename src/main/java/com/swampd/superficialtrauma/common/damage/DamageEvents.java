@@ -12,11 +12,15 @@ import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.event.entity.living.LivingDamageEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.registries.ForgeRegistries;
 
 @Mod.EventBusSubscriber(modid = SuperficialTrauma.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public final class DamageEvents {
@@ -35,10 +39,20 @@ public final class DamageEvents {
         long gameTime = player.serverLevel().getGameTime();
         float finalDamage = event.getAmount();
         String damageType = event.getSource().getMsgId();
-        DamageClassification classification = DamageClassifier.classify(player, event.getSource());
+        DamageClassification classification = withDirectWeapon(
+                DamageClassifier.classify(player, event.getSource()),
+                event.getSource()
+        );
+        double sourceDistance = attackerDistance(player, event.getSource());
 
         BodyStateCapability.get(player).ifPresent(bodyState -> {
-            bodyState.recordFinalDamage(finalDamage, damageType, classification, gameTime);
+            bodyState.recordFinalDamage(
+                    finalDamage,
+                    damageType,
+                    classification,
+                    sourceDistance,
+                    gameTime
+            );
 
             if (!bodyState.canAct()) {
                 boolean poseCaptured = bodyState.captureDownedPose(
@@ -92,7 +106,7 @@ public final class DamageEvents {
                         gunshotResult.status(),
                         gunshotResult.accumulatedDamage(),
                         player.getArmorValue(),
-                        attackerDistance(player, event.getSource())
+                        sourceDistance
                 );
             } else if (!shotgunPelletQueued && classification.woundType() != null) {
                 WoundUpdateResult result = bodyState.applyDamage(classification.woundType(), finalDamage, gameTime);
@@ -123,7 +137,7 @@ public final class DamageEvents {
                 event.setAmount(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
             }
             boolean becameDowned = lethalHit
-                    && bodyState.incapacitate(CollapseReason.HEMORRHAGIC_SHOCK, gameTime);
+                    && bodyState.incapacitateFromLastDamage(CollapseReason.HEMORRHAGIC_SHOCK, gameTime);
             if (becameDowned) {
                 bodyState.captureDownedPose(DownedPoseCapture.capture(player, event.getSource(), gameTime));
                 DownedHitbox.update(player, bodyState);
@@ -181,5 +195,36 @@ public final class DamageEvents {
         return attacker == null || attacker == player
                 ? Double.POSITIVE_INFINITY
                 : attacker.distanceTo(player);
+    }
+
+    private static DamageClassification withDirectWeapon(
+            DamageClassification classification,
+            DamageSource source
+    ) {
+        if (!"none".equals(classification.weaponId())) {
+            return classification;
+        }
+        Entity attacker = source.getEntity();
+        if (attacker == null
+                || source.getDirectEntity() != attacker
+                || !(attacker instanceof LivingEntity livingAttacker)) {
+            return classification;
+        }
+        ItemStack weapon = livingAttacker.getMainHandItem();
+        if (weapon.isEmpty()) {
+            return classification;
+        }
+        ResourceLocation weaponId = ForgeRegistries.ITEMS.getKey(weapon.getItem());
+        if (weaponId == null) {
+            return classification;
+        }
+        return new DamageClassification(
+                classification.woundType(),
+                classification.kind(),
+                classification.reason(),
+                classification.projectileEntityId(),
+                classification.ammoId(),
+                weaponId.toString()
+        );
     }
 }

@@ -193,7 +193,7 @@ public final class TreatmentService {
                     && state.get().debrideWound(session.woundId());
         } else if (session.procedure().isIcePack()) {
             changed = session.action() == TreatmentAction.APPLY
-                    && state.get().applyIcePack(session.woundId());
+                    && state.get().applyIcePack(session.woundId(), gameTime);
         } else if (session.procedure().isTourniquet()) {
             changed = session.action() == TreatmentAction.APPLY
                     ? state.get().applyTourniquet(session.woundId(), gameTime)

@@ -68,6 +68,8 @@ public final class BodyStateRoundTripTest {
         verifyBleedingOfflinePauseAndNbt();
         verifyNaturalHealingRates();
         verifyTimedWoundProgression();
+        verifyWoundHistoryLifecycleAndLimit();
+        verifyDowningHitEvidence();
         verifyPendingWindowExpiry();
         verifyNbtRoundTrip();
         verifyNonBluntNbtRoundTrip();
@@ -1249,6 +1251,122 @@ public final class BodyStateRoundTripTest {
         assertFloatEquals(100.0F, stalled.wounds().get(0).healingProgress(), "non-self-healing H must remain at 100");
     }
 
+    private static void verifyWoundHistoryLifecycleAndLimit() {
+        BodyState updated = new BodyState();
+        WoundInstance sharpWound = requireWound(updated.applyDamage(WoundType.SHARP, 5.0F, 0L));
+        updated.applyDamage(WoundType.SHARP, 10.0F, 1L);
+        assertEquals(1, updated.woundHistory().size(), "updating a wound must not duplicate its history entry");
+        WoundHistoryEntry updatedHistory = updated.woundHistory().get(0);
+        assertEquals(sharpWound.id(), updatedHistory.woundId(), "history must retain the wound UUID");
+        assertEquals(3, updatedHistory.severity(), "history must refresh an upgraded wound severity");
+        assertFloatEquals(15.0F, updatedHistory.accumulatedDamage(), "history must refresh accumulated damage");
+        assertEquals(1L, updatedHistory.lastTraumaGameTime(), "history must record the latest trauma time");
+        assertEquals(false, updatedHistory.healed(), "an active wound must not be marked healed");
+
+        BodyState healed = new BodyState();
+        UUID healedWoundId = requireWound(healed.applyDamage(WoundType.BLUNT, 1.5F, 0L)).id();
+        healed.resumeBodyProgression(0L);
+        healed.advanceBodyProgression(2_000L);
+        assertEquals(0, healed.wounds().size(), "the test wound must leave the active wound list");
+        assertEquals(1, healed.woundHistory().size(), "a healed wound must remain in forensic history");
+        WoundHistoryEntry healedHistory = healed.woundHistory().get(0);
+        assertEquals(healedWoundId, healedHistory.woundId(), "healed history must retain the original UUID");
+        assertEquals(true, healedHistory.healed(), "natural healing must archive the wound as healed");
+        assertEquals(2_000L, healedHistory.healedGameTime(), "healing time must use the server progression clock");
+
+        BodyState restoredHealed = new BodyState();
+        restoredHealed.deserializeNBT(healed.serializeNBT());
+        assertEquals(1, restoredHealed.woundHistory().size(), "healed history must survive NBT round trip");
+        assertEquals(true, restoredHealed.woundHistory().get(0).healed(), "healed status must survive NBT");
+
+        BodyState limited = new BodyState();
+        UUID[] woundIds = new UUID[7];
+        for (int i = 0; i < woundIds.length; i++) {
+            woundIds[i] = requireWound(limited.applyDefibrillatorShockBurn(i)).id();
+        }
+        assertEquals(BodyState.MAX_WOUND_HISTORY, limited.woundHistory().size(), "history must be capped at six wounds");
+        assertEquals(woundIds[1], limited.woundHistory().get(0).woundId(), "the oldest record must be evicted first");
+        assertEquals(woundIds[6], limited.woundHistory().get(5).woundId(), "the newest record must remain last");
+
+        BodyState migrationSource = new BodyState();
+        UUID migratedWoundId = requireWound(migrationSource.applyDamage(WoundType.EXPLOSION, 4.0F, 50L)).id();
+        CompoundTag versionEighteen = migrationSource.serializeNBT();
+        versionEighteen.putInt("DataVersion", 18);
+        versionEighteen.remove("WoundHistory");
+        BodyState migrated = new BodyState();
+        migrated.deserializeNBT(versionEighteen);
+        assertEquals(1, migrated.woundHistory().size(), "old active wounds must be backfilled into history");
+        assertEquals(migratedWoundId, migrated.woundHistory().get(0).woundId(), "migration must preserve wound identity");
+    }
+
+    private static void verifyDowningHitEvidence() {
+        BodyState state = new BodyState();
+        DamageClassification rifleHit = DamageClassification.cgmProjectile(
+                DamageKind.CGM_HIGH_VELOCITY,
+                "cgm_projectile_ammo_tag",
+                "cgm:projectile",
+                "nzgexpansion:medium_bullet",
+                "nzgexpansion:battle_rifle"
+        );
+        state.recordFinalDamage(14.0F, "cgm.bullet.killed", rifleHit, 18.5D, 100L);
+        assertEquals(
+                true,
+                state.incapacitateFromLastDamage(CollapseReason.HEMORRHAGIC_SHOCK, 100L),
+                "a lethal external hit must start a downed episode"
+        );
+        DowningHitRecord captured = state.downingHitRecord()
+                .orElseThrow(() -> new AssertionError("the downing hit must be captured"));
+        assertEquals("nzgexpansion:battle_rifle", captured.weaponId(), "the downing weapon must be frozen");
+        assertEquals("nzgexpansion:medium_bullet", captured.ammoId(), "the downing ammo must be frozen");
+        assertDoubleEquals(18.5D, captured.attackerDistance(), "the impact distance must be frozen");
+        assertEquals(true, captured.isRanged(), "a CGM projectile must be marked as ranged evidence");
+
+        DamageClassification laterHit = DamageClassification.cgmProjectile(
+                DamageKind.CGM_SHOTGUN,
+                "cgm_projectile_ammo_tag",
+                "cgm:projectile",
+                "cgm:shell",
+                "cgm:shotgun"
+        );
+        state.recordFinalDamage(20.0F, "cgm.bullet.executed", laterHit, 2.0D, 101L);
+        DowningHitRecord afterLaterDamage = state.downingHitRecord().orElseThrow();
+        assertEquals(
+                "nzgexpansion:battle_rifle",
+                afterLaterDamage.weaponId(),
+                "damage received while downed must not overwrite the downing weapon"
+        );
+        assertDoubleEquals(
+                18.5D,
+                afterLaterDamage.attackerDistance(),
+                "damage received while downed must not overwrite the downing distance"
+        );
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(state.serializeNBT());
+        DowningHitRecord restoredHit = restored.downingHitRecord()
+                .orElseThrow(() -> new AssertionError("downing evidence must survive NBT round trip"));
+        assertEquals("nzgexpansion:battle_rifle", restoredHit.weaponId(), "NBT must preserve the downing weapon");
+        assertDoubleEquals(18.5D, restoredHit.attackerDistance(), "NBT must preserve downing distance");
+
+        assertEquals(true, restored.forceRecoverForDebug(), "debug recovery must return the player to active state");
+        assertEquals(true, restored.downingHitRecord().isEmpty(), "successful recovery must close the old downed episode");
+        restored.recordFinalDamage(6.0F, "fall", DamageClassification.blunt("fall"), 200L);
+        restored.incapacitateFromLastDamage(CollapseReason.HEMORRHAGIC_SHOCK, 200L);
+        assertEquals(
+                "fall",
+                restored.downingHitRecord().orElseThrow().damageType(),
+                "a later downed episode must capture its own hit"
+        );
+
+        BodyState nonDamageCollapse = new BodyState();
+        nonDamageCollapse.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 300L);
+        assertEquals(
+                true,
+                nonDamageCollapse.downingHitRecord().isEmpty(),
+                "a non-damage collapse must not invent a downing hit"
+        );
+    }
+
     private static void verifyPendingWindowExpiry() {
         BodyState state = new BodyState();
         state.applyDamage(WoundType.EXPLOSION, 3.0F, 0L);
@@ -1772,6 +1890,12 @@ public final class BodyStateRoundTripTest {
 
     private static void assertFloatEquals(float expected, float actual, String message) {
         if (Math.abs(expected - actual) > EPSILON) {
+            throw new AssertionError(message + ": expected=" + expected + ", actual=" + actual);
+        }
+    }
+
+    private static void assertDoubleEquals(double expected, double actual, String message) {
+        if (Math.abs(expected - actual) > 0.0001D) {
             throw new AssertionError(message + ": expected=" + expected + ", actual=" + actual);
         }
     }
