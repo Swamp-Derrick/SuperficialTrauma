@@ -2,6 +2,7 @@ package com.swampd.superficialtrauma;
 
 import com.mojang.logging.LogUtils;
 import com.swampd.superficialtrauma.common.body.BodyState;
+import com.swampd.superficialtrauma.common.config.CorpseServerConfig;
 import com.swampd.superficialtrauma.common.init.ModCreativeTabs;
 import com.swampd.superficialtrauma.common.init.ModEntities;
 import com.swampd.superficialtrauma.common.init.ModMenus;
@@ -11,6 +12,7 @@ import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.common.capabilities.RegisterCapabilitiesEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import org.slf4j.Logger;
@@ -22,6 +24,7 @@ public final class SuperficialTrauma {
 
     public SuperficialTrauma(FMLJavaModLoadingContext loadingContext) {
         IEventBus modEventBus = loadingContext.getModEventBus();
+        loadingContext.registerConfig(ModConfig.Type.SERVER, CorpseServerConfig.SPEC);
         ModEntities.register(modEventBus);
         ModItems.register(modEventBus);
         ModSounds.register(modEventBus);

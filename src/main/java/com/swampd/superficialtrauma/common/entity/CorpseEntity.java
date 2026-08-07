@@ -6,7 +6,9 @@ import com.swampd.superficialtrauma.common.body.DownedGeometry;
 import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
 import com.swampd.superficialtrauma.common.body.DownedPosture;
 import com.swampd.superficialtrauma.common.body.DownedFallDirection;
+import com.swampd.superficialtrauma.common.config.CorpseServerConfig;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.core.NonNullList;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
@@ -32,6 +34,7 @@ import java.util.UUID;
 public final class CorpseEntity extends LivingEntity implements Container {
     public static final int INVENTORY_SIZE = 41;
     private static final String TAG_INVENTORY = "CorpseInventory";
+    private static final String TAG_EMPTY_SINCE_GAME_TIME = "EmptySinceGameTime";
     private static final EntityDataAccessor<Optional<UUID>> OWNER_ID = SynchedEntityData.defineId(
             CorpseEntity.class,
             EntityDataSerializers.OPTIONAL_UUID
@@ -69,6 +72,7 @@ public final class CorpseEntity extends LivingEntity implements Container {
             EntityDataSerializers.STRING
     );
     private final NonNullList<ItemStack> inventory = NonNullList.withSize(INVENTORY_SIZE, ItemStack.EMPTY);
+    private long emptySinceGameTime = EmptyCorpseLifecycle.NOT_EMPTY;
 
     public CorpseEntity(EntityType<? extends CorpseEntity> entityType, Level level) {
         super(entityType, level);
@@ -157,6 +161,10 @@ public final class CorpseEntity extends LivingEntity implements Container {
         setDeltaMovement(0.0D, 0.0D, 0.0D);
         setAirSupply(getMaxAirSupply());
         setHealth(1.0F);
+        if (!level().isClientSide && advanceEmptyLifecycle()) {
+            discard();
+            return;
+        }
         updateCorpseBoundingBox();
     }
 
@@ -167,7 +175,17 @@ public final class CorpseEntity extends LivingEntity implements Container {
 
     @Override
     public boolean isPushable() {
-        return false;
+        return CorpseServerConfig.collisionEnabled();
+    }
+
+    @Override
+    public boolean canBeCollidedWith() {
+        return CorpseServerConfig.collisionEnabled();
+    }
+
+    @Override
+    public void push(double x, double y, double z) {
+        // A collidable corpse pushes the other entity away while remaining anchored.
     }
 
     @Override
@@ -221,6 +239,9 @@ public final class CorpseEntity extends LivingEntity implements Container {
         inventory.set(slot, stack);
         if (!stack.isEmpty() && stack.getCount() > getMaxStackSize()) {
             stack.setCount(getMaxStackSize());
+        }
+        if (!stack.isEmpty()) {
+            resetEmptyRemovalTimer();
         }
         setChanged();
     }
@@ -292,6 +313,9 @@ public final class CorpseEntity extends LivingEntity implements Container {
         CompoundTag inventoryTag = new CompoundTag();
         ContainerHelper.saveAllItems(inventoryTag, inventory);
         tag.put(TAG_INVENTORY, inventoryTag);
+        if (emptySinceGameTime >= 0L) {
+            tag.putLong(TAG_EMPTY_SINCE_GAME_TIME, emptySinceGameTime);
+        }
     }
 
     @Override
@@ -305,6 +329,9 @@ public final class CorpseEntity extends LivingEntity implements Container {
         if (tag.contains(TAG_INVENTORY, CompoundTag.TAG_COMPOUND)) {
             ContainerHelper.loadAllItems(tag.getCompound(TAG_INVENTORY), inventory);
         }
+        emptySinceGameTime = tag.contains(TAG_EMPTY_SINCE_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                ? Math.max(0L, tag.getLong(TAG_EMPTY_SINCE_GAME_TIME))
+                : EmptyCorpseLifecycle.NOT_EMPTY;
     }
 
     @Override
@@ -314,6 +341,27 @@ public final class CorpseEntity extends LivingEntity implements Container {
 
     private void updateCorpseBoundingBox() {
         setBoundingBox(DownedGeometry.boundingBox(this, downedPose()));
+    }
+
+    private boolean advanceEmptyLifecycle() {
+        EmptyCorpseLifecycle.Progression progression = EmptyCorpseLifecycle.advance(
+                CorpseServerConfig.emptyRemovalEnabled(),
+                isEmpty(),
+                emptySinceGameTime,
+                level().getGameTime(),
+                CorpseServerConfig.emptyLifetimeTicks()
+        );
+        if (progression.emptySinceGameTime() != emptySinceGameTime) {
+            emptySinceGameTime = progression.emptySinceGameTime();
+            setChanged();
+        }
+        return progression.shouldRemove();
+    }
+
+    private void resetEmptyRemovalTimer() {
+        if (emptySinceGameTime >= 0L) {
+            emptySinceGameTime = EmptyCorpseLifecycle.NOT_EMPTY;
+        }
     }
 
     private static int inventorySlot(EquipmentSlot slot) {

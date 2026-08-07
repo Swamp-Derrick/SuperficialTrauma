@@ -5,6 +5,8 @@ import com.swampd.superficialtrauma.common.damage.DamageDowning;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAccumulator;
 import com.swampd.superficialtrauma.common.entity.CorpseSnapshot;
+import com.swampd.superficialtrauma.common.entity.EmptyCorpseLifecycle;
+import com.swampd.superficialtrauma.common.config.CorpseServerConfig;
 import com.swampd.superficialtrauma.common.loot.CorpseEquipmentTransfer;
 import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
 import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
@@ -62,6 +64,7 @@ public final class BodyStateRoundTripTest {
         verifyDownedPostureClassification();
         verifyDownedGeometry();
         verifyCorpseSnapshotRoundTrip();
+        verifyEmptyCorpseLifecycle();
         verifyCorpseArmorUpgradeRules();
         verifyDownedPoseSnapshotAndReset();
         verifyPainTagFloorAndClamp();
@@ -1118,6 +1121,77 @@ public final class BodyStateRoundTripTest {
                         damagedDiamondChestplate
                 ),
                 "equal armor tiers must prefer protection enchantments before remaining durability"
+        );
+    }
+
+    private static void verifyEmptyCorpseLifecycle() {
+        assertEquals(
+                false,
+                CorpseServerConfig.DEFAULT_COLLISION_ENABLED,
+                "corpse collision must default to disabled"
+        );
+        assertEquals(
+                true,
+                CorpseServerConfig.DEFAULT_EMPTY_REMOVAL_ENABLED,
+                "empty corpse removal must default to enabled"
+        );
+        assertEquals(
+                15,
+                CorpseServerConfig.DEFAULT_EMPTY_LIFETIME_MINUTES,
+                "empty corpses must default to a fifteen-minute lifetime"
+        );
+
+        long lifetimeTicks = 15L * 60L * 20L;
+        EmptyCorpseLifecycle.Progression started = EmptyCorpseLifecycle.advance(
+                true,
+                true,
+                EmptyCorpseLifecycle.NOT_EMPTY,
+                1_000L,
+                lifetimeTicks
+        );
+        assertEquals(1_000L, started.emptySinceGameTime(), "an empty corpse must start its timer once");
+        assertEquals(false, started.shouldRemove(), "a newly empty corpse must remain");
+
+        EmptyCorpseLifecycle.Progression beforeDeadline = EmptyCorpseLifecycle.advance(
+                true,
+                true,
+                started.emptySinceGameTime(),
+                1_000L + lifetimeTicks - 1L,
+                lifetimeTicks
+        );
+        assertEquals(false, beforeDeadline.shouldRemove(), "the lifetime must use an inclusive deadline");
+        EmptyCorpseLifecycle.Progression atDeadline = EmptyCorpseLifecycle.advance(
+                true,
+                true,
+                started.emptySinceGameTime(),
+                1_000L + lifetimeTicks,
+                lifetimeTicks
+        );
+        assertEquals(true, atDeadline.shouldRemove(), "an empty corpse must be removed at the deadline");
+
+        EmptyCorpseLifecycle.Progression refilled = EmptyCorpseLifecycle.advance(
+                true,
+                false,
+                started.emptySinceGameTime(),
+                2_000L,
+                lifetimeTicks
+        );
+        assertEquals(
+                EmptyCorpseLifecycle.NOT_EMPTY,
+                refilled.emptySinceGameTime(),
+                "refilling a corpse must cancel the empty timer"
+        );
+        EmptyCorpseLifecycle.Progression disabled = EmptyCorpseLifecycle.advance(
+                false,
+                true,
+                started.emptySinceGameTime(),
+                2_000L,
+                lifetimeTicks
+        );
+        assertEquals(
+                EmptyCorpseLifecycle.NOT_EMPTY,
+                disabled.emptySinceGameTime(),
+                "disabling cleanup must cancel an existing empty timer"
         );
     }
 

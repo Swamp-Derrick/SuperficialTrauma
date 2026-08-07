@@ -33,6 +33,22 @@ Dedicated-server startup uses the same property. The first local run creates `ru
 
 See [COMPATIBILITY.md](COMPATIBILITY.md) for the pinned filenames, mod IDs, versions, and checksums.
 
+## Corpse server configuration
+
+Opening a world creates `serverconfig/superficialtrauma-server.toml` inside that world's save directory.
+Dedicated servers use `<world>/serverconfig/superficialtrauma-server.toml`.
+
+```toml
+[corpse]
+collisionEnabled = false
+removeEmptyCorpses = true
+emptyCorpseLifetimeMinutes = 15
+```
+
+Disabling collision only removes physical entity collision; the corpse remains targetable for looting.
+The empty-corpse timer starts when all 41 inventory slots are empty, survives save/reload, and resets if the
+corpse receives an item again. Disabling `removeEmptyCorpses` cancels active empty-corpse timers.
+
 ## Project status
 
 Phase 0's first vertical slice is implemented:
