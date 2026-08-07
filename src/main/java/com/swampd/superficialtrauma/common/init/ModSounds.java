@@ -33,6 +33,8 @@ public final class ModSounds {
     public static final RegistryObject<SoundEvent> START_SURGERY = registerMedicalAction("start_surgery");
     public static final RegistryObject<SoundEvent> FLASHLIGHT_CLICK = registerMedicalAction("flashlight_click");
     public static final RegistryObject<SoundEvent> PAPER_WORK = registerMedicalAction("paper_work");
+    public static final RegistryObject<SoundEvent> TOURNIQUET = registerMedicalAction("tourniquet");
+    public static final RegistryObject<SoundEvent> ICE_BAG = registerMedicalAction("ice_bag");
 
     private ModSounds() {
     }

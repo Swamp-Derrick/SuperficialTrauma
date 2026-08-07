@@ -288,6 +288,12 @@ public final class TreatmentService {
         if (procedure.isWoundPacking()) {
             return MedicalActionSound.PACKING;
         }
+        if (procedure.isTourniquet()) {
+            return MedicalActionSound.TOURNIQUET;
+        }
+        if (procedure.isIcePack()) {
+            return MedicalActionSound.ICE_BAG;
+        }
         return procedure.covering() == null ? null : MedicalActionSound.CLOTH_WRAPPING;
     }
 

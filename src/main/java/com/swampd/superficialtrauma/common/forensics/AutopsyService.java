@@ -75,7 +75,8 @@ public final class AutopsyService {
             examiner.displayClientMessage(Component.translatable("message.superficialtrauma.autopsy.skill_missing"), true);
             return;
         }
-        if (isAlreadyRevealed(corpse, action)) {
+        long gameTime = examiner.serverLevel().getGameTime();
+        if (isActionUnavailable(corpse, action, gameTime)) {
             sendReport(examiner, corpse, session, false);
             return;
         }
@@ -94,7 +95,7 @@ public final class AutopsyService {
 
         session.activeAction = action;
         session.actionStartPosition = examiner.position();
-        session.actionEndGameTime = examiner.serverLevel().getGameTime() + action.durationTicks();
+        session.actionEndGameTime = gameTime + action.durationTicks();
         MedicalActionSoundService.start(
                 examiner,
                 null,
@@ -145,7 +146,7 @@ public final class AutopsyService {
             if (gameTime >= session.actionEndGameTime) {
                 AutopsyAction completed = session.activeAction;
                 if (completed == AutopsyAction.PENLIGHT) {
-                    corpse.revealDeathTime();
+                    corpse.revealDeathTime(gameTime);
                 } else if (completed == AutopsyAction.CHECKLIST) {
                     corpse.revealDetailedAutopsy();
                 }
@@ -186,7 +187,6 @@ public final class AutopsyService {
                 .orElse(false);
         AutopsyReport report = AutopsyReport.create(
                 corpse,
-                gameTime,
                 knowsForensics,
                 hasItem(examiner, ModItems.PUPIL_PENLIGHT.get()),
                 hasItem(examiner, ModItems.CHECKLIST.get()),
@@ -215,9 +215,9 @@ public final class AutopsyService {
         return BodyStateCapability.get(examiner).map(bodyState -> bodyState.canAct()).orElse(false);
     }
 
-    private static boolean isAlreadyRevealed(CorpseEntity corpse, AutopsyAction action) {
+    private static boolean isActionUnavailable(CorpseEntity corpse, AutopsyAction action, long gameTime) {
         return action == AutopsyAction.PENLIGHT
-                ? corpse.deathTimeRevealed()
+                ? !corpse.canExaminePupils(gameTime)
                 : action == AutopsyAction.CHECKLIST && corpse.detailedAutopsyRevealed();
     }
 

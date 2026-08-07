@@ -22,6 +22,7 @@ public record AutopsyReport(
         boolean examinerKnowsForensics,
         boolean examinerHasPenlight,
         boolean examinerHasChecklist,
+        long penlightCooldownEndGameTime,
         AutopsyAction activeAction,
         long actionEndGameTime
 ) {
@@ -34,6 +35,7 @@ public record AutopsyReport(
     private static final String TAG_KNOWS_FORENSICS = "ExaminerKnowsForensics";
     private static final String TAG_HAS_PENLIGHT = "ExaminerHasPenlight";
     private static final String TAG_HAS_CHECKLIST = "ExaminerHasChecklist";
+    private static final String TAG_PENLIGHT_COOLDOWN_END = "PenlightCooldownEndGameTime";
     private static final String TAG_ACTIVE_ACTION = "ActiveAction";
     private static final String TAG_ACTION_END = "ActionEndGameTime";
 
@@ -41,6 +43,7 @@ public record AutopsyReport(
         ownerName = ownerName == null || ownerName.isBlank() ? "Unknown" : ownerName;
         deathAgeTicks = deathAgeTicks < 0L ? -1L : deathAgeTicks;
         visibleWounds = visibleWounds == null ? List.of() : List.copyOf(visibleWounds);
+        penlightCooldownEndGameTime = Math.max(-1L, penlightCooldownEndGameTime);
         activeAction = activeAction == null ? AutopsyAction.NONE : activeAction;
         actionEndGameTime = activeAction == AutopsyAction.NONE ? -1L : Math.max(0L, actionEndGameTime);
         if (!detailedAutopsyRevealed) {
@@ -50,7 +53,6 @@ public record AutopsyReport(
 
     public static AutopsyReport create(
             CorpseEntity corpse,
-            long gameTime,
             boolean examinerKnowsForensics,
             boolean examinerHasPenlight,
             boolean examinerHasChecklist,
@@ -63,9 +65,7 @@ public record AutopsyReport(
         int firstVisible = Math.max(0, chronological.size() - maximumVisible);
         List<WoundHistoryEntry> newestFirst = new ArrayList<>(chronological.subList(firstVisible, chronological.size()));
         Collections.reverse(newestFirst);
-        long deathAge = corpse.deathTimeRevealed()
-                ? Math.max(0L, gameTime - corpse.snapshot().deathGameTime())
-                : -1L;
+        long deathAge = corpse.deathAgeAtLastPupilInspection();
         return new AutopsyReport(
                 corpse.getId(),
                 corpse.ownerName(),
@@ -76,6 +76,7 @@ public record AutopsyReport(
                 examinerKnowsForensics,
                 examinerHasPenlight,
                 examinerHasChecklist,
+                corpse.penlightCooldownEndGameTime(),
                 activeAction,
                 actionEndGameTime
         );
@@ -98,6 +99,7 @@ public record AutopsyReport(
         tag.putBoolean(TAG_KNOWS_FORENSICS, examinerKnowsForensics);
         tag.putBoolean(TAG_HAS_PENLIGHT, examinerHasPenlight);
         tag.putBoolean(TAG_HAS_CHECKLIST, examinerHasChecklist);
+        tag.putLong(TAG_PENLIGHT_COOLDOWN_END, penlightCooldownEndGameTime);
         tag.putString(TAG_ACTIVE_ACTION, activeAction.serializedName());
         tag.putLong(TAG_ACTION_END, actionEndGameTime);
         return tag;
@@ -127,6 +129,9 @@ public record AutopsyReport(
                 tag.getBoolean(TAG_KNOWS_FORENSICS),
                 tag.getBoolean(TAG_HAS_PENLIGHT),
                 tag.getBoolean(TAG_HAS_CHECKLIST),
+                tag.contains(TAG_PENLIGHT_COOLDOWN_END, Tag.TAG_ANY_NUMERIC)
+                        ? tag.getLong(TAG_PENLIGHT_COOLDOWN_END)
+                        : -1L,
                 AutopsyAction.fromSerializedName(tag.getString(TAG_ACTIVE_ACTION)),
                 tag.contains(TAG_ACTION_END, Tag.TAG_ANY_NUMERIC) ? tag.getLong(TAG_ACTION_END) : -1L
         );

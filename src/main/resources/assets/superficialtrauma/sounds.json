@@ -43,5 +43,15 @@
     "sounds": [
       "superficialtrauma:paper_work"
     ]
+  },
+  "tourniquet": {
+    "sounds": [
+      "superficialtrauma:tourniquet"
+    ]
+  },
+  "ice_bag": {
+    "sounds": [
+      "superficialtrauma:ice_bag"
+    ]
   }
 }

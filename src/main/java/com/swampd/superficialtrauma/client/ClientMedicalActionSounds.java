@@ -70,6 +70,8 @@ public final class ClientMedicalActionSounds {
             case START_SURGERY -> ModSounds.START_SURGERY.get();
             case FLASHLIGHT_CLICK -> ModSounds.FLASHLIGHT_CLICK.get();
             case PAPER_WORK -> ModSounds.PAPER_WORK.get();
+            case TOURNIQUET -> ModSounds.TOURNIQUET.get();
+            case ICE_BAG -> ModSounds.ICE_BAG.get();
         };
     }
 

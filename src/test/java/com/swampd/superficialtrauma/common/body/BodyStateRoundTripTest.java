@@ -1175,6 +1175,7 @@ public final class BodyStateRoundTripTest {
                 true,
                 true,
                 true,
+                -1L,
                 AutopsyAction.NONE,
                 -1L
         );
@@ -1199,13 +1200,16 @@ public final class BodyStateRoundTripTest {
                 true,
                 true,
                 true,
+                1_500L,
                 AutopsyAction.CHECKLIST,
                 900L
         );
         AutopsyReport restored = AutopsyReport.load(detailedReport.save());
         assertEquals(hiddenHit, restored.downingHit(), "completed detailed examination must preserve downing evidence");
+        assertEquals(1_200L, restored.deathAgeTicks(), "pupil examination timestamp must survive packet NBT");
         assertEquals(AutopsyAction.CHECKLIST, restored.activeAction(), "autopsy action state must survive packet NBT");
         assertEquals(900L, restored.actionEndGameTime(), "autopsy countdown deadline must survive packet NBT");
+        assertEquals(1_500L, restored.penlightCooldownEndGameTime(), "penlight cooldown must survive packet NBT");
     }
 
     private static void verifyEmptyCorpseLifecycle() {

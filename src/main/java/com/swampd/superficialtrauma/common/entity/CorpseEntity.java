@@ -38,7 +38,10 @@ public final class CorpseEntity extends LivingEntity implements Container {
     private static final String TAG_INVENTORY = "CorpseInventory";
     private static final String TAG_EMPTY_SINCE_GAME_TIME = "EmptySinceGameTime";
     private static final String TAG_DEATH_TIME_REVEALED = "DeathTimeRevealed";
+    private static final String TAG_DEATH_TIME_INSPECTION_GAME_TIME = "DeathTimeInspectionGameTime";
+    private static final String TAG_PENLIGHT_COOLDOWN_END_GAME_TIME = "PenlightCooldownEndGameTime";
     private static final String TAG_DETAILED_AUTOPSY_REVEALED = "DetailedAutopsyRevealed";
+    public static final long PENLIGHT_REEXAMINATION_COOLDOWN_TICKS = 30L * 20L;
     private static final EntityDataAccessor<Optional<UUID>> OWNER_ID = SynchedEntityData.defineId(
             CorpseEntity.class,
             EntityDataSerializers.OPTIONAL_UUID
@@ -80,6 +83,8 @@ public final class CorpseEntity extends LivingEntity implements Container {
     private List<WoundHistoryEntry> forensicWoundHistory = List.of();
     private DowningHitRecord forensicDowningHit;
     private boolean deathTimeRevealed;
+    private long deathTimeInspectionGameTime = -1L;
+    private long penlightCooldownEndGameTime = -1L;
     private boolean detailedAutopsyRevealed;
 
     public CorpseEntity(EntityType<? extends CorpseEntity> entityType, Level level) {
@@ -150,11 +155,27 @@ public final class CorpseEntity extends LivingEntity implements Container {
         return detailedAutopsyRevealed;
     }
 
-    public boolean revealDeathTime() {
-        if (deathTimeRevealed) {
+    public long deathAgeAtLastPupilInspection() {
+        return deathTimeRevealed && deathTimeInspectionGameTime >= 0L
+                ? Math.max(0L, deathTimeInspectionGameTime - entityData.get(DEATH_GAME_TIME))
+                : -1L;
+    }
+
+    public long penlightCooldownEndGameTime() {
+        return penlightCooldownEndGameTime;
+    }
+
+    public boolean canExaminePupils(long gameTime) {
+        return penlightCooldownEndGameTime < 0L || gameTime >= penlightCooldownEndGameTime;
+    }
+
+    public boolean revealDeathTime(long gameTime) {
+        if (!canExaminePupils(gameTime)) {
             return false;
         }
         deathTimeRevealed = true;
+        deathTimeInspectionGameTime = Math.max(entityData.get(DEATH_GAME_TIME), gameTime);
+        penlightCooldownEndGameTime = gameTime + PENLIGHT_REEXAMINATION_COOLDOWN_TICKS;
         setChanged();
         return true;
     }
@@ -363,6 +384,12 @@ public final class CorpseEntity extends LivingEntity implements Container {
             tag.putLong(TAG_EMPTY_SINCE_GAME_TIME, emptySinceGameTime);
         }
         tag.putBoolean(TAG_DEATH_TIME_REVEALED, deathTimeRevealed);
+        if (deathTimeInspectionGameTime >= 0L) {
+            tag.putLong(TAG_DEATH_TIME_INSPECTION_GAME_TIME, deathTimeInspectionGameTime);
+        }
+        if (penlightCooldownEndGameTime >= 0L) {
+            tag.putLong(TAG_PENLIGHT_COOLDOWN_END_GAME_TIME, penlightCooldownEndGameTime);
+        }
         tag.putBoolean(TAG_DETAILED_AUTOPSY_REVEALED, detailedAutopsyRevealed);
     }
 
@@ -381,6 +408,12 @@ public final class CorpseEntity extends LivingEntity implements Container {
                 ? Math.max(0L, tag.getLong(TAG_EMPTY_SINCE_GAME_TIME))
                 : EmptyCorpseLifecycle.NOT_EMPTY;
         deathTimeRevealed = tag.getBoolean(TAG_DEATH_TIME_REVEALED);
+        deathTimeInspectionGameTime = tag.contains(TAG_DEATH_TIME_INSPECTION_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                ? Math.max(0L, tag.getLong(TAG_DEATH_TIME_INSPECTION_GAME_TIME))
+                : deathTimeRevealed ? Math.max(entityData.get(DEATH_GAME_TIME), level().getGameTime()) : -1L;
+        penlightCooldownEndGameTime = tag.contains(TAG_PENLIGHT_COOLDOWN_END_GAME_TIME, Tag.TAG_ANY_NUMERIC)
+                ? Math.max(0L, tag.getLong(TAG_PENLIGHT_COOLDOWN_END_GAME_TIME))
+                : -1L;
         detailedAutopsyRevealed = tag.getBoolean(TAG_DETAILED_AUTOPSY_REVEALED);
     }
 

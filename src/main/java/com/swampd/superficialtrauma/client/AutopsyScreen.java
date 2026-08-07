@@ -259,6 +259,21 @@ public final class AutopsyScreen extends Screen {
                     textWidth,
                     ACCENT_COLOR
             );
+        } else {
+            long cooldownTicks = penlightCooldownRemainingTicks();
+            if (cooldownTicks > 0L) {
+                drawWrapped(
+                        graphics,
+                        Component.translatable(
+                                "screen.superficialtrauma.autopsy.penlight_cooldown",
+                                (cooldownTicks + 19L) / 20L
+                        ),
+                        x,
+                        statusY,
+                        textWidth,
+                        MUTED_COLOR
+                );
+            }
         }
     }
 
@@ -267,14 +282,31 @@ public final class AutopsyScreen extends Screen {
             return;
         }
         boolean idle = report.activeAction() == AutopsyAction.NONE;
+        long cooldownTicks = penlightCooldownRemainingTicks();
+        penlightButton.setMessage(cooldownTicks > 0L
+                ? Component.translatable(
+                        "screen.superficialtrauma.autopsy.penlight_button_cooldown",
+                        (cooldownTicks + 19L) / 20L
+                )
+                : Component.translatable("screen.superficialtrauma.autopsy.penlight_button"));
         penlightButton.active = idle
                 && report.examinerKnowsForensics()
                 && report.examinerHasPenlight()
-                && report.deathAgeTicks() < 0L;
+                && cooldownTicks <= 0L;
         checklistButton.active = idle
                 && report.examinerKnowsForensics()
                 && report.examinerHasChecklist()
                 && !report.detailedAutopsyRevealed();
+    }
+
+    private long penlightCooldownRemainingTicks() {
+        if (report.penlightCooldownEndGameTime() < 0L) {
+            return 0L;
+        }
+        long gameTime = minecraft == null || minecraft.level == null
+                ? report.penlightCooldownEndGameTime()
+                : minecraft.level.getGameTime();
+        return Math.max(0L, report.penlightCooldownEndGameTime() - gameTime);
     }
 
     private Component weaponComponent(DowningHitRecord hit) {
