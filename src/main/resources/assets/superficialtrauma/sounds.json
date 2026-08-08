@@ -68,5 +68,20 @@
     "sounds": [
       "superficialtrauma:syringe_start"
     ]
+  },
+  "resuscitation_1": {
+    "sounds": [
+      "superficialtrauma:resuscitation_1"
+    ]
+  },
+  "resuscitation_2": {
+    "sounds": [
+      "superficialtrauma:resuscitation_2"
+    ]
+  },
+  "cpr": {
+    "sounds": [
+      "superficialtrauma:cpr"
+    ]
   }
 }

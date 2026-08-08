@@ -4,5 +4,6 @@ public enum MedicalActionSoundChannel {
     PREPARATION,
     TREATMENT,
     MEDICATION,
-    AUTOPSY
+    AUTOPSY,
+    CPR
 }

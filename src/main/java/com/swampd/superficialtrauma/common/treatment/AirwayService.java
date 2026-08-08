@@ -4,6 +4,8 @@ import com.swampd.superficialtrauma.common.body.BodyLifeState;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.init.ModItems;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSound;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSoundService;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -16,6 +18,7 @@ import java.util.UUID;
 public final class AirwayService {
     private static final double MAX_DISTANCE_SQUARED = 2.5D * 2.5D;
     private static final long OXYGEN_PULSE_TICKS = 3L * 20L;
+    private static final long SOUND_INTERVAL_TICKS = 2L * 20L;
     private static final long PUBLISH_INTERVAL_TICKS = 20L;
     private static final Map<UUID, AirwaySession> SESSION_BY_ACTOR = new HashMap<>();
     private static final Map<UUID, UUID> ACTOR_BY_PATIENT = new HashMap<>();
@@ -42,9 +45,15 @@ public final class AirwayService {
         }
         stopActor(actor.getUUID());
         long gameTime = actor.serverLevel().getGameTime();
-        AirwaySession session = new AirwaySession(patient.getUUID(), gameTime, gameTime);
+        AirwaySession session = new AirwaySession(
+                patient.getUUID(),
+                gameTime,
+                gameTime,
+                gameTime + SOUND_INTERVAL_TICKS
+        );
         SESSION_BY_ACTOR.put(actor.getUUID(), session);
         ACTOR_BY_PATIENT.put(patient.getUUID(), actor.getUUID());
+        playBreathingSound(actor, patient);
         return true;
     }
 
@@ -71,6 +80,10 @@ public final class AirwayService {
         }
 
         long gameTime = actor.serverLevel().getGameTime();
+        if (gameTime >= session.nextSoundGameTime) {
+            playBreathingSound(actor, patient);
+            session.nextSoundGameTime = gameTime + SOUND_INTERVAL_TICKS;
+        }
         long elapsedTicks = Math.max(0L, gameTime - session.lastTickGameTime);
         session.lastTickGameTime = gameTime;
         session.continuousTicks += elapsedTicks;
@@ -150,6 +163,13 @@ public final class AirwayService {
         return false;
     }
 
+    private static void playBreathingSound(ServerPlayer actor, ServerPlayer patient) {
+        MedicalActionSound sound = actor.getRandom().nextBoolean()
+                ? MedicalActionSound.RESUSCITATION_1
+                : MedicalActionSound.RESUSCITATION_2;
+        MedicalActionSoundService.playOnce(actor, patient, sound);
+    }
+
     private static void stopActor(UUID actorId) {
         AirwaySession removed = SESSION_BY_ACTOR.remove(actorId);
         if (removed != null) {
@@ -167,12 +187,19 @@ public final class AirwayService {
         private final UUID patientId;
         private long lastTickGameTime;
         private long lastPublishedGameTime;
+        private long nextSoundGameTime;
         private long continuousTicks;
 
-        private AirwaySession(UUID patientId, long lastTickGameTime, long lastPublishedGameTime) {
+        private AirwaySession(
+                UUID patientId,
+                long lastTickGameTime,
+                long lastPublishedGameTime,
+                long nextSoundGameTime
+        ) {
             this.patientId = patientId;
             this.lastTickGameTime = lastTickGameTime;
             this.lastPublishedGameTime = lastPublishedGameTime;
+            this.nextSoundGameTime = nextSoundGameTime;
         }
     }
 }

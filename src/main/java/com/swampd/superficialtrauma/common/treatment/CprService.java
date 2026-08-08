@@ -4,6 +4,9 @@ import com.swampd.superficialtrauma.common.body.BodyLifeState;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.CprResult;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSound;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSoundChannel;
+import com.swampd.superficialtrauma.common.sound.MedicalActionSoundService;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -15,6 +18,7 @@ import java.util.UUID;
 public final class CprService {
     private static final double MAX_DISTANCE_SQUARED = 2.5D * 2.5D;
     private static final long CPR_SECOND_TICKS = 20L;
+    private static final long COMPRESSION_SOUND_INTERVAL_TICKS = 11L;
     private static final Map<UUID, CprSession> SESSION_BY_ACTOR = new HashMap<>();
     private static final Map<UUID, UUID> ACTOR_BY_PATIENT = new HashMap<>();
 
@@ -40,11 +44,21 @@ public final class CprService {
         TreatmentService.cancelInvolving(actor, TreatmentCancelReason.ACTION);
         AirwayService.cancelInvolving(actor);
         DefibrillationService.cancelInvolving(actor);
-        stopActor(actor.getUUID());
+        stopActor(actor, actor.getUUID());
         long gameTime = actor.serverLevel().getGameTime();
-        CprSession session = new CprSession(patient.getUUID(), gameTime);
+        CprSession session = new CprSession(
+                patient.getUUID(),
+                gameTime,
+                gameTime + COMPRESSION_SOUND_INTERVAL_TICKS
+        );
         SESSION_BY_ACTOR.put(actor.getUUID(), session);
         ACTOR_BY_PATIENT.put(patient.getUUID(), actor.getUUID());
+        MedicalActionSoundService.start(
+                actor,
+                patient,
+                MedicalActionSoundChannel.CPR,
+                MedicalActionSound.CPR
+        );
         return true;
     }
 
@@ -55,7 +69,7 @@ public final class CprService {
         }
         ServerPlayer patient = player(actor, session.patientId);
         if (patient == null || patient.getId() == patientEntityId) {
-            stopActor(actor.getUUID());
+            stopActor(actor, actor.getUUID());
         }
     }
 
@@ -66,11 +80,20 @@ public final class CprService {
         }
         ServerPlayer patient = player(actor, session.patientId);
         if (patient == null || !canContinue(actor, patient)) {
-            stopActor(actor.getUUID());
+            stopActor(actor, actor.getUUID());
             return;
         }
 
         long gameTime = actor.serverLevel().getGameTime();
+        if (gameTime >= session.nextCompressionSoundGameTime) {
+            MedicalActionSoundService.start(
+                    actor,
+                    patient,
+                    MedicalActionSoundChannel.CPR,
+                    MedicalActionSound.CPR
+            );
+            session.nextCompressionSoundGameTime = gameTime + COMPRESSION_SOUND_INTERVAL_TICKS;
+        }
         session.continuousTicks += Math.max(0L, gameTime - session.lastTickGameTime);
         session.lastTickGameTime = gameTime;
         int completedSeconds = (int) (session.continuousTicks / CPR_SECOND_TICKS);
@@ -81,7 +104,7 @@ public final class CprService {
 
         BodyState state = BodyStateCapability.get(patient).orElse(null);
         if (state == null) {
-            stopActor(actor.getUUID());
+            stopActor(actor, actor.getUUID());
             return;
         }
         CprResult result = null;
@@ -96,7 +119,7 @@ public final class CprService {
             }
         }
         if (result == null || result.status() == CprResult.Status.INVALID) {
-            stopActor(actor.getUUID());
+            stopActor(actor, actor.getUUID());
             return;
         }
         if (result.succeeded()) {
@@ -105,17 +128,17 @@ public final class CprService {
                     ? "message.superficialtrauma.cpr.success_vf"
                     : "message.superficialtrauma.cpr.success_stable";
             actor.displayClientMessage(Component.translatable(messageKey), true);
-            stopActor(actor.getUUID());
+            stopActor(actor, actor.getUUID());
         }
         ModNetworking.syncBodyState(patient);
         InspectionService.syncPatient(patient);
     }
 
     public static void cancelInvolving(ServerPlayer player) {
-        stopActor(player.getUUID());
+        stopActor(player, player.getUUID());
         UUID actorId = ACTOR_BY_PATIENT.get(player.getUUID());
         if (actorId != null) {
-            stopActor(actorId);
+            stopActor(player, actorId);
         }
     }
 
@@ -143,10 +166,19 @@ public final class CprService {
                 .orElse(BodyLifeState.ACTIVE) == BodyLifeState.CARDIAC_ARREST;
     }
 
-    private static void stopActor(UUID actorId) {
+    private static void stopActor(ServerPlayer reference, UUID actorId) {
         CprSession removed = SESSION_BY_ACTOR.remove(actorId);
         if (removed != null) {
             ACTOR_BY_PATIENT.remove(removed.patientId, actorId);
+            ServerPlayer actor = player(reference, actorId);
+            ServerPlayer patient = player(reference, removed.patientId);
+            if (actor != null) {
+                MedicalActionSoundService.stop(
+                        actor,
+                        patient,
+                        MedicalActionSoundChannel.CPR
+                );
+            }
         }
     }
 
@@ -159,11 +191,13 @@ public final class CprService {
     private static final class CprSession {
         private final UUID patientId;
         private long lastTickGameTime;
+        private long nextCompressionSoundGameTime;
         private long continuousTicks;
 
-        private CprSession(UUID patientId, long gameTime) {
+        private CprSession(UUID patientId, long gameTime, long nextCompressionSoundGameTime) {
             this.patientId = patientId;
             this.lastTickGameTime = gameTime;
+            this.nextCompressionSoundGameTime = nextCompressionSoundGameTime;
         }
     }
 }

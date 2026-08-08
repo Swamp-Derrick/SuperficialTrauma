@@ -75,6 +75,9 @@ public final class ClientMedicalActionSounds {
             case TABLETS -> ModSounds.TABLETS.get();
             case VIAL -> ModSounds.VIAL.get();
             case SYRINGE_START -> ModSounds.SYRINGE_START.get();
+            case RESUSCITATION_1 -> ModSounds.RESUSCITATION_1.get();
+            case RESUSCITATION_2 -> ModSounds.RESUSCITATION_2.get();
+            case CPR -> ModSounds.CPR.get();
         };
     }
 
