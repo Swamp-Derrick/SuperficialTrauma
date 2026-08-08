@@ -22,9 +22,6 @@ public final class ClientMedicationState {
 
     public static void completed(MedicationType type) {
         activeMedication = null;
-        showActionBar(Component.translatable(
-                "message.superficialtrauma.medication.completed." + type.serializedName()
-        ));
     }
 
     public static boolean isActive() {

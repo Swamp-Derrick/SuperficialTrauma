@@ -171,8 +171,6 @@ public final class BodyStateEvents {
                 DownedHitbox.update(serverPlayer, bodyState);
             }
             notifyShockState(serverPlayer, bodyState, result, gameTime);
-            notifyDownedState(serverPlayer, result);
-            notifyAwakeningState(serverPlayer, awakening);
             if (bodyState.lifeState() == BodyLifeState.BRAIN_DEAD) {
                 if (result.changed() || infusion.changed() || awakening.changed() || poseCaptured || shotgunVolleyResolved) {
                     ModNetworking.syncBodyState(serverPlayer);
@@ -214,29 +212,6 @@ public final class BodyStateEvents {
         GiveUpService.clearAll();
     }
 
-    private static void notifyDownedState(ServerPlayer player, BodyProgressionResult result) {
-        if (result.becameBrainDead()) {
-            player.displayClientMessage(
-                    Component.translatable("message.superficialtrauma.brain_death"),
-                    true
-            );
-        }
-    }
-
-    private static void notifyAwakeningState(ServerPlayer player, AwakeningProgression progression) {
-        if (progression.started()) {
-            player.displayClientMessage(
-                    Component.translatable("message.superficialtrauma.awakening_started"),
-                    true
-            );
-        } else if (progression.completed()) {
-            player.displayClientMessage(
-                    Component.translatable("message.superficialtrauma.awakening_completed"),
-                    true
-            );
-        }
-    }
-
     private static void triggerTrueDeath(ServerPlayer player, BodyState bodyState) {
         if (!player.isAlive()) {
             return;
@@ -258,13 +233,6 @@ public final class BodyStateEvents {
                     : "message.superficialtrauma.traumatic_shock_incapacitated";
             player.displayClientMessage(
                     Component.translatable(messageKey),
-                    true
-            );
-            return;
-        }
-        if (result.shockWarningCancelled()) {
-            player.displayClientMessage(
-                    Component.translatable("message.superficialtrauma.shock_warning_cancelled"),
                     true
             );
             return;

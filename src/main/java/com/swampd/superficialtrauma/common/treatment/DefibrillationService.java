@@ -44,25 +44,15 @@ public final class DefibrillationService {
         if (!(actor.serverLevel().getEntity(patientEntityId) instanceof ServerPlayer patient)
                 || energy == null
                 || !canTreat(actor, patient)) {
-            actor.displayClientMessage(Component.translatable(
-                    "message.superficialtrauma.defibrillation.invalid_target"
-            ), true);
             return false;
         }
         UUID existingActor = ACTOR_BY_PATIENT.get(patient.getUUID());
         if (existingActor != null && !existingActor.equals(actor.getUUID())) {
-            actor.displayClientMessage(Component.translatable(
-                    "message.superficialtrauma.defibrillation.patient_busy"
-            ), true);
             return false;
         }
 
         int defibrillatorSlot = findChargedDefibrillator(actor, energy.joules());
         if (defibrillatorSlot < 0) {
-            actor.displayClientMessage(Component.translatable(
-                    "message.superficialtrauma.defibrillation.energy_missing",
-                    energy.joules()
-            ), true);
             return false;
         }
 
@@ -94,10 +84,6 @@ public final class DefibrillationService {
         SESSION_BY_ACTOR.put(actor.getUUID(), session);
         ACTOR_BY_PATIENT.put(patient.getUUID(), actor.getUUID());
         ModNetworking.syncDefibrillatorCharging(actor, true);
-        actor.displayClientMessage(Component.translatable(
-                "message.superficialtrauma.defibrillation.charging",
-                energy.joules()
-        ), true);
         return true;
     }
 
@@ -114,9 +100,6 @@ public final class DefibrillationService {
         long gameTime = actor.serverLevel().getGameTime();
         if (gameTime < session.readyGameTime) {
             cancelActor(actor.getUUID());
-            actor.displayClientMessage(Component.translatable(
-                    "message.superficialtrauma.defibrillation.charge_incomplete"
-            ), true);
             return;
         }
         if (!isSessionValid(actor, patient, session)) {
@@ -131,10 +114,6 @@ public final class DefibrillationService {
         if (!defibrillator.is(ModItems.DEFIBRILLATOR.get())
                 || DefibrillatorItem.getEnergy(defibrillator) < session.energy.joules()) {
             cancelActor(actor.getUUID());
-            actor.displayClientMessage(Component.translatable(
-                    "message.superficialtrauma.defibrillation.energy_missing",
-                    session.energy.joules()
-            ), true);
             return;
         }
         discharge(actor, patient, session, defibrillator);
@@ -169,17 +148,7 @@ public final class DefibrillationService {
         if (!defibrillator.is(ModItems.DEFIBRILLATOR.get())
                 || DefibrillatorItem.getEnergy(defibrillator) < session.energy.joules()) {
             cancelActor(actor.getUUID());
-            actor.displayClientMessage(Component.translatable(
-                    "message.superficialtrauma.defibrillation.energy_missing",
-                    session.energy.joules()
-            ), true);
             return;
-        }
-        if (actor.serverLevel().getGameTime() >= session.readyGameTime && !session.readyNotified) {
-            session.readyNotified = true;
-            actor.displayClientMessage(Component.translatable(
-                    "message.superficialtrauma.defibrillation.ready"
-            ), true);
         }
     }
 
@@ -253,14 +222,6 @@ public final class DefibrillationService {
         if (result.succeeded()) {
             state.recordResuscitationContributor(actor.getUUID(), actor.getGameProfile().getName());
         }
-        String messageKey = switch (result.status()) {
-            case RESTORED_CIRCULATION -> "message.superficialtrauma.defibrillation.success";
-            case FAILED -> "message.superficialtrauma.defibrillation.failed";
-            case UNSAFE_FAILURE_BRAIN_DEATH ->
-                    "message.superficialtrauma.defibrillation.unsafe_brain_death";
-            case INVALID -> "message.superficialtrauma.defibrillation.invalid_target";
-        };
-        actor.displayClientMessage(Component.translatable(messageKey), true);
         ModNetworking.syncBodyState(patient);
         InspectionService.syncPatient(patient);
     }
@@ -402,8 +363,6 @@ public final class DefibrillationService {
         private final Vec3 patientStart;
         private final int selectedSlot;
         private final int defibrillatorSourceSlot;
-        private boolean readyNotified;
-
         private DefibrillationSession(
                 UUID actorId,
                 UUID patientId,

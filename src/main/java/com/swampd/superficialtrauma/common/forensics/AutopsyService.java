@@ -58,7 +58,6 @@ public final class AutopsyService {
                 || action == null
                 || action == AutopsyAction.NONE
                 || !canInspect(examiner, corpse, MAX_OPEN_DISTANCE_SQUARED, true)) {
-            examiner.displayClientMessage(Component.translatable("message.superficialtrauma.autopsy.invalid"), true);
             return;
         }
         if (session == null || !session.corpseId.equals(corpse.getUUID())) {
@@ -82,7 +81,6 @@ public final class AutopsyService {
         }
         Item requiredItem = requiredItem(action);
         if (requiredItem == null || !hasItem(examiner, requiredItem)) {
-            examiner.displayClientMessage(Component.translatable("message.superficialtrauma.autopsy.item_missing"), true);
             return;
         }
         if (SESSIONS.entrySet().stream().anyMatch(entry ->
@@ -103,10 +101,6 @@ public final class AutopsyService {
                 soundFor(action)
         );
         sendReport(examiner, corpse, session, false);
-        examiner.displayClientMessage(
-                Component.translatable("message.superficialtrauma.autopsy.started." + action.serializedName()),
-                true
-        );
     }
 
     public static void close(ServerPlayer examiner, int corpseEntityId) {
@@ -153,10 +147,6 @@ public final class AutopsyService {
                 stopAutopsySound(examiner);
                 session.clearAction();
                 sendReport(examiner, corpse, session, false);
-                examiner.displayClientMessage(
-                        Component.translatable("message.superficialtrauma.autopsy.completed." + completed.serializedName()),
-                        true
-                );
                 return;
             }
         }

@@ -28,9 +28,6 @@ public final class CprService {
     public static boolean start(ServerPlayer actor, int patientEntityId) {
         if (!(actor.serverLevel().getEntity(patientEntityId) instanceof ServerPlayer patient)
                 || !canContinue(actor, patient)) {
-            actor.displayClientMessage(Component.translatable(
-                    "message.superficialtrauma.cpr.invalid_target"
-            ), true);
             return false;
         }
         UUID existingActor = ACTOR_BY_PATIENT.get(patient.getUUID());
@@ -124,10 +121,6 @@ public final class CprService {
         }
         if (result.succeeded()) {
             state.recordResuscitationContributor(actor.getUUID(), actor.getGameProfile().getName());
-            String messageKey = result.status() == CprResult.Status.VENTRICULAR_FIBRILLATION
-                    ? "message.superficialtrauma.cpr.success_vf"
-                    : "message.superficialtrauma.cpr.success_stable";
-            actor.displayClientMessage(Component.translatable(messageKey), true);
             stopActor(actor, actor.getUUID());
         }
         ModNetworking.syncBodyState(patient);

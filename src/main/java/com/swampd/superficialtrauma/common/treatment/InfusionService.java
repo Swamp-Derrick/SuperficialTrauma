@@ -64,10 +64,6 @@ public final class InfusionService {
         ModNetworking.syncBodyState(patient);
         InspectionService.syncPatient(patient);
         MedicalActionSoundService.playOnce(actor, patient, MedicalActionSound.LIQUID_POUCH);
-        actor.displayClientMessage(
-                Component.translatable("message.superficialtrauma.infusion.started", Component.translatable(type.translationKey())),
-                true
-        );
         return true;
     }
 

@@ -31,12 +31,6 @@ public final class ClientTreatmentState {
 
     public static void completed(TreatmentProcedure procedure, TreatmentAction action) {
         activeTreatment = null;
-        showActionBar(Component.translatable(
-                "message.superficialtrauma.treatment.completed."
-                        + action.serializedName()
-                        + "."
-                        + procedure.serializedName()
-        ));
     }
 
     public static boolean isActive() {
