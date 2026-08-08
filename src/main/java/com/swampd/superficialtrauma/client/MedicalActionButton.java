@@ -10,7 +10,6 @@ import net.minecraft.world.item.ItemStack;
 
 final class MedicalActionButton extends AbstractButton {
     private final Item item;
-    private final Component tooltip;
     private final Runnable onPress;
 
     MedicalActionButton(
@@ -23,7 +22,6 @@ final class MedicalActionButton extends AbstractButton {
     ) {
         super(x, y, 22, 22, message);
         this.item = item;
-        this.tooltip = tooltip;
         this.onPress = onPress;
     }
 
@@ -64,6 +62,8 @@ final class MedicalActionButton extends AbstractButton {
     }
 
     Component tooltip() {
-        return tooltip;
+        return active
+                ? getMessage()
+                : Component.translatable("screen.superficialtrauma.health.item_not_held");
     }
 }

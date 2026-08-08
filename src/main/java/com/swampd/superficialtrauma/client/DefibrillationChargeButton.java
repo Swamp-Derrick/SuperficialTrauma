@@ -25,7 +25,6 @@ final class DefibrillationChargeButton extends AbstractButton {
     private final Supplier<VisualState> visualState;
     private final DoubleSupplier progress;
     private final Supplier<Component> label;
-    private final Supplier<Component> tooltip;
 
     DefibrillationChargeButton(
             int x,
@@ -34,15 +33,13 @@ final class DefibrillationChargeButton extends AbstractButton {
             Runnable onPress,
             Supplier<VisualState> visualState,
             DoubleSupplier progress,
-            Supplier<Component> label,
-            Supplier<Component> tooltip
+            Supplier<Component> label
     ) {
         super(x, y, width, 24, Component.empty());
         this.onPress = onPress;
         this.visualState = visualState;
         this.progress = progress;
         this.label = label;
-        this.tooltip = tooltip;
     }
 
     @Override
@@ -100,7 +97,9 @@ final class DefibrillationChargeButton extends AbstractButton {
     }
 
     Component tooltip() {
-        return tooltip.get();
+        return active || visualState.get() != VisualState.IDLE
+                ? ModItems.DEFIBRILLATOR.get().getDescription()
+                : Component.translatable("screen.superficialtrauma.health.item_not_held");
     }
 
     @Override

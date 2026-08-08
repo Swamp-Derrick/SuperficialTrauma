@@ -18,6 +18,7 @@
   "screen.superficialtrauma.health.not_applicable": "—",
   "screen.superficialtrauma.health.admin_debug_view": "Admin: Diagnostics",
   "screen.superficialtrauma.health.admin_standard_view": "Admin: Standard view",
+  "screen.superficialtrauma.health.item_not_held": "You are not carrying this item",
   "screen.superficialtrauma.health.vanilla_health": "Vanilla health",
   "screen.superficialtrauma.health.life_state": "Life state",
   "screen.superficialtrauma.health.pain": "Pain",

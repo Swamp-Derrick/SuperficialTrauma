@@ -18,6 +18,7 @@
   "screen.superficialtrauma.health.not_applicable": "—",
   "screen.superficialtrauma.health.admin_debug_view": "管理员：调试信息",
   "screen.superficialtrauma.health.admin_standard_view": "管理员：标准信息",
+  "screen.superficialtrauma.health.item_not_held": "你未持有此物品",
   "screen.superficialtrauma.health.vanilla_health": "原版生命",
   "screen.superficialtrauma.health.life_state": "生命状态",
   "screen.superficialtrauma.health.pain": "疼痛",

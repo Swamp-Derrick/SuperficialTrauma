@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.client;
 
 import com.swampd.superficialtrauma.common.body.DefibrillationEnergy;
+import com.swampd.superficialtrauma.common.init.ModItems;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -97,11 +98,9 @@ final class DefibrillationEnergySlider extends AbstractSliderButton {
     }
 
     Component tooltip() {
-        return Component.translatable(
-                "screen.superficialtrauma.health.defibrillation_slider_tooltip",
-                energy.joules(),
-                (int) Math.round(energy.successChance() * 100.0D)
-        );
+        return active
+                ? ModItems.DEFIBRILLATOR.get().getDescription()
+                : Component.translatable("screen.superficialtrauma.health.item_not_held");
     }
 
     private static int indexOf(DefibrillationEnergy energy) {

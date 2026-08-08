@@ -656,7 +656,7 @@ public final class HealthScreen extends Screen {
             return 0.0F;
         }
         if (rhythm == ElectrocardiogramRhythm.FIBRILLATION) {
-            double shifted = horizontalPosition + time * 1.35D;
+            double shifted = horizontalPosition + Math.floor(time * 1.35D);
             return (float) (
                     Math.sin(shifted * 0.51D) * 0.42D
                             + Math.sin(shifted * 1.19D + 0.8D) * 0.27D
@@ -667,7 +667,8 @@ public final class HealthScreen extends Screen {
         float period = rhythm == ElectrocardiogramRhythm.TACHYCARDIA
                 ? Math.max(12.0F, 18.0F - disorientationLevel * 1.5F)
                 : 28.0F;
-        float phase = positiveFraction((horizontalPosition + time * 0.55F) / period);
+        float scrollingOffset = (float) Math.floor(time * 0.55F);
+        float phase = positiveFraction((horizontalPosition + scrollingOffset) / period);
         float waveform = heartbeatSample(phase);
         return rhythm == ElectrocardiogramRhythm.TACHYCARDIA ? waveform * 0.9F : waveform;
     }
@@ -937,7 +938,9 @@ public final class HealthScreen extends Screen {
                     middleAvailableWidth
             );
             case MEDICATION -> drawMedicationColumn(graphics, state, x, y + 22, availableWidth, availableHeight);
-            case EMERGENCY -> drawEmergencyColumn(graphics, state, x, y + 22, availableWidth, availableHeight);
+            case EMERGENCY -> {
+                // Emergency buttons carry their own progress state; no persistent prose is drawn below them.
+            }
         }
     }
 
@@ -949,14 +952,8 @@ public final class HealthScreen extends Screen {
             int availableWidth,
             int availableHeight
     ) {
-        int buttonsPerRow = treatmentButtonsPerRow(availableWidth);
-        int buttonRows = (5 + buttonsPerRow - 1) / buttonsPerRow;
-        if (!state.canAct()) {
-            buttonRows += (2 + buttonsPerRow - 1) / buttonsPerRow;
-        }
-        int textY = y + buttonRows * TREATMENT_BUTTON_STEP + 6;
-        Component text;
-        int color;
+        Component text = null;
+        int color = MUTED_COLOR;
         if (ClientMedicationState.isActive()) {
             text = Component.translatable(
                     "screen.superficialtrauma.health.medication_action_active",
@@ -971,69 +968,17 @@ public final class HealthScreen extends Screen {
                         oneDecimal(state.infusionRemainingTicks(currentGameTime()) / 20.0F)
                 );
             color = GOOD_COLOR;
-        } else {
-            int paracetamolDoses = state.activeDoseCount(MedicationType.PARACETAMOL);
-            int morphineDoses = state.activeDoseCount(MedicationType.MORPHINE);
-            int metoprololDoses = state.activeDoseCount(MedicationType.METOPROLOL);
-            text = paracetamolDoses > 0 || morphineDoses > 0 || metoprololDoses > 0
-                    ? Component.translatable(
-                            "screen.superficialtrauma.health.medication_doses",
-                            paracetamolDoses,
-                            morphineDoses,
-                            metoprololDoses
-                    )
-                    : Component.translatable("screen.superficialtrauma.health.medication_available");
-            color = paracetamolDoses > 0 || morphineDoses > 0 || metoprololDoses > 0
-                    ? GOOD_COLOR
-                    : MUTED_COLOR;
         }
-        drawWrappedWithin(graphics, text, x + 4, textY, availableWidth - 8,
-                color, y + availableHeight - 18);
-    }
-
-    private void drawEmergencyColumn(
-            GuiGraphics graphics,
-            BodyState state,
-            int x,
-            int y,
-            int availableWidth,
-            int availableHeight
-    ) {
-        long gameTime = currentGameTime();
-        Component text;
-        int color;
-        if (state.lifeState() == BodyLifeState.CARDIAC_ARREST) {
-            text = Component.translatable(
-                    "screen.superficialtrauma.health.cpr_status",
-                    state.accumulatedCprSeconds(),
-                    oneDecimal((float) (state.currentCprSuccessChance() * 100.0D)),
-                    oneDecimal(state.downedDangerRemainingTicks(gameTime) / 20.0F)
-            );
-            color = cprHeld ? GOOD_COLOR : WARN_COLOR;
-        } else if (state.lifeState() == BodyLifeState.VENTRICULAR_FIBRILLATION) {
-            DefibrillationChargeButton.VisualState visualState = defibrillationVisualState();
-            text = Component.translatable(
-                    visualState == DefibrillationChargeButton.VisualState.READY
-                            ? "screen.superficialtrauma.health.defibrillation_ready"
-                            : visualState == DefibrillationChargeButton.VisualState.CHARGING
-                            ? "screen.superficialtrauma.health.defibrillation_charging"
-                            : "screen.superficialtrauma.health.defibrillation_status",
-                    oneDecimal(state.ventricularFibrillationRemainingTicks(gameTime) / 20.0F),
-                    oneDecimal(state.downedDangerRemainingTicks(gameTime) / 20.0F),
-                    defibrillatorEnergy(),
-                    attemptedDefibrillationText(state)
-            );
-            color = DANGER_COLOR;
-        } else {
-            text = Component.translatable(
-                    assistedBreathingHeld
-                            ? "screen.superficialtrauma.health.assisted_breathing_active"
-                            : "screen.superficialtrauma.health.assisted_breathing_available"
-            );
-            color = assistedBreathingHeld ? GOOD_COLOR : MUTED_COLOR;
+        if (text != null) {
+            int buttonsPerRow = treatmentButtonsPerRow(availableWidth);
+            int buttonRows = (5 + buttonsPerRow - 1) / buttonsPerRow;
+            if (!state.canAct()) {
+                buttonRows += (2 + buttonsPerRow - 1) / buttonsPerRow;
+            }
+            int textY = y + buttonRows * TREATMENT_BUTTON_STEP + 6;
+            drawWrappedWithin(graphics, text, x + 4, textY, availableWidth - 8,
+                    color, y + availableHeight - 18);
         }
-        drawWrappedWithin(graphics, text, x + 4, y + 84, availableWidth - 8,
-                color, y + availableHeight - 18);
     }
 
     private void drawTreatmentColumn(
@@ -1045,56 +990,6 @@ public final class HealthScreen extends Screen {
             int availableHeight,
             int middleAvailableWidth
     ) {
-        List<WoundRow> visibleRows = visibleWoundRows(
-                state,
-                availableHeight,
-                middleAvailableWidth,
-                availableWidth
-        );
-        int rowY = y + 16;
-        for (WoundRow row : visibleRows) {
-            WoundInstance wound = row.wound();
-            if (wound.covering().isApplied()
-                    || wound.woundPackingApplied()
-                    || wound.tourniquetApplied()) {
-                int buttonRows = treatmentButtonRows(
-                        availableWidth,
-                        visibleTreatmentTypes(wound).size()
-                );
-                int statusY = rowY + TREATMENT_BUTTON_TOP + buttonRows * TREATMENT_BUTTON_STEP;
-                List<String> statusParts = new ArrayList<>();
-                if (wound.covering().isApplied()) {
-                    statusParts.add(Component.translatable(
-                            "screen.superficialtrauma.health.covering_status",
-                            Component.translatable(wound.covering().translationKey()),
-                            oneDecimal(wound.baseHealingPerSecond())
-                    ).getString());
-                }
-                if (wound.woundPackingApplied()) {
-                    statusParts.add(Component.translatable(
-                            "screen.superficialtrauma.health.wound_packing_status"
-                    ).getString());
-                }
-                if (wound.tourniquetApplied()) {
-                    statusParts.add(Component.translatable(
-                            "screen.superficialtrauma.health.tourniquet_status",
-                            formatDuration(wound.tourniquetAccumulatedTicks())
-                    ).getString());
-                }
-                Component status = Component.literal(String.join(" · ", statusParts));
-                if (statusY + font.lineHeight <= rowY + row.height()) {
-                    graphics.drawString(
-                            font,
-                            font.plainSubstrByWidth(status.getString(), Math.max(20, availableWidth - 8)),
-                            x + 4,
-                            statusY,
-                            GOOD_COLOR,
-                            false
-                    );
-                }
-            }
-            rowY += row.height();
-        }
         if (ClientTreatmentState.isActive()) {
             ClientTreatmentState.ActiveTreatment active = ClientTreatmentState.activeTreatment();
             drawWrappedWithin(
@@ -1429,7 +1324,7 @@ public final class HealthScreen extends Screen {
                 x,
                 y,
                 item,
-                Component.translatable(type.translationKey()),
+                item.getDescription(),
                 tooltip,
                 () -> ModNetworking.requestInfusion(displayedEntityId(), type)
         );
@@ -1442,7 +1337,7 @@ public final class HealthScreen extends Screen {
                 layout.rightX + 10,
                 layout.innerY + 6 + 22,
                 ModItems.MANUAL_RESUSCITATOR.get(),
-                Component.translatable("screen.superficialtrauma.health.assisted_breathing"),
+                ModItems.MANUAL_RESUSCITATOR.get().getDescription(),
                 Component.translatable("screen.superficialtrauma.health.assisted_breathing_tooltip"),
                 this::beginAssistedBreathing
         );
@@ -1477,8 +1372,7 @@ public final class HealthScreen extends Screen {
                 this::beginDefibrillation,
                 this::defibrillationVisualState,
                 this::defibrillationChargeProgress,
-                this::defibrillationChargeLabel,
-                () -> defibrillationChargeTooltip(state)
+                this::defibrillationChargeLabel
         ));
         defibrillationChargeButton.active = defibrillationHeld
                 || canDefibrillate(state, selectedDefibrillationEnergy);
@@ -1672,39 +1566,6 @@ public final class HealthScreen extends Screen {
         };
     }
 
-    private Component defibrillationChargeTooltip(BodyState state) {
-        if (!inspectingOtherPlayer || !actorCanAct()) {
-            return Component.translatable("screen.superficialtrauma.health.defibrillation_unavailable");
-        }
-        if (!actorHasFirstAidSkill()) {
-            return Component.translatable("screen.superficialtrauma.health.defibrillation_requires_skill");
-        }
-        if (state.lifeState() != BodyLifeState.VENTRICULAR_FIBRILLATION) {
-            return Component.translatable("screen.superficialtrauma.health.defibrillation_requires_vf");
-        }
-        if (!patientInAssistedBreathingRange()) {
-            return Component.translatable("screen.superficialtrauma.health.defibrillation_requires_range");
-        }
-        int energy = defibrillatorEnergy();
-        if (energy < selectedDefibrillationEnergy.joules()) {
-            return Component.translatable(
-                    "screen.superficialtrauma.health.defibrillation_requires_energy",
-                    selectedDefibrillationEnergy.joules(),
-                    energy
-            );
-        }
-        boolean escalationComplete = state.hasAttemptedDefibrillation(DefibrillationEnergy.J150)
-                && state.hasAttemptedDefibrillation(DefibrillationEnergy.J200);
-        boolean unsafe = selectedDefibrillationEnergy.isUnsafeWithoutEscalation() && !escalationComplete;
-        return Component.translatable(
-                unsafe
-                        ? "screen.superficialtrauma.health.defibrillation_unsafe_tooltip"
-                        : "screen.superficialtrauma.health.defibrillation_tooltip",
-                selectedDefibrillationEnergy.joules(),
-                (int) Math.round(selectedDefibrillationEnergy.successChance() * 100.0D)
-        );
-    }
-
     private int defibrillatorEnergy() {
         if (minecraft == null || minecraft.player == null) {
             return 0;
@@ -1717,16 +1578,6 @@ public final class HealthScreen extends Screen {
             }
         }
         return maximum;
-    }
-
-    private static String attemptedDefibrillationText(BodyState state) {
-        List<String> attempted = new ArrayList<>();
-        for (DefibrillationEnergy energy : DefibrillationEnergy.values()) {
-            if (state.hasAttemptedDefibrillation(energy)) {
-                attempted.add(energy.joules() + " J");
-            }
-        }
-        return attempted.isEmpty() ? "-" : String.join(", ", attempted);
     }
 
     private void addTreatmentButton(
