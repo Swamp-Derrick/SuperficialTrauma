@@ -309,9 +309,6 @@ public final class MedicationService {
         if (state == null || state.lifeState() == BodyLifeState.BRAIN_DEAD) {
             return false;
         }
-        if (type == MedicationType.METOPROLOL && actor != patient) {
-            return false;
-        }
         if (type == MedicationType.NALOXONE && !state.hasActiveOpioidDose()) {
             return false;
         }

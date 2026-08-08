@@ -1273,11 +1273,9 @@ public final class HealthScreen extends Screen {
                 }
                 case METOPROLOL -> {
                     active = actorCanAct()
-                            && !inspectingOtherPlayer
                             && state.canAct()
                             && countItem(ModItems.METOPROLOL.get()) > 0;
                     missingRequiredItem = actorCanAct()
-                            && !inspectingOtherPlayer
                             && state.canAct()
                             && countItem(item) <= 0;
                     onPress = () -> ModNetworking.requestMedication(
