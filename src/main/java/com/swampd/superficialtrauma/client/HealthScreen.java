@@ -237,10 +237,11 @@ public final class HealthScreen extends Screen {
                 break;
             }
         }
-        if (defibrillationEnergySlider != null && defibrillationEnergySlider.isHovered()) {
-            graphics.renderTooltip(font, defibrillationEnergySlider.tooltip(), mouseX, mouseY);
-        } else if (defibrillationChargeButton != null && defibrillationChargeButton.isHovered()) {
-            graphics.renderTooltip(font, defibrillationChargeButton.tooltip(), mouseX, mouseY);
+        if (defibrillationChargeButton != null && defibrillationChargeButton.isHovered()) {
+            Component tooltip = defibrillationChargeButton.tooltip();
+            if (!tooltip.getString().isEmpty()) {
+                graphics.renderTooltip(font, tooltip, mouseX, mouseY);
+            }
         }
     }
 
@@ -1361,7 +1362,8 @@ public final class HealthScreen extends Screen {
                 this::beginDefibrillation,
                 this::defibrillationVisualState,
                 this::defibrillationChargeProgress,
-                this::defibrillationChargeLabel
+                this::defibrillationChargeLabel,
+                this::defibrillationDisabledTooltip
         ));
         defibrillationChargeButton.active = defibrillationHeld
                 || canDefibrillate(state, selectedDefibrillationEnergy);
@@ -1557,6 +1559,26 @@ public final class HealthScreen extends Screen {
             );
             case READY -> Component.translatable("screen.superficialtrauma.health.defibrillation_release");
         };
+    }
+
+    private Component defibrillationDisabledTooltip() {
+        BodyState state = displayedState();
+        if (!actorHasFirstAidSkill()) {
+            return Component.translatable(
+                    "screen.superficialtrauma.health.defibrillation_requires_skill"
+            );
+        }
+        if (state.lifeState() != BodyLifeState.VENTRICULAR_FIBRILLATION) {
+            return Component.translatable(
+                    "screen.superficialtrauma.health.defibrillation_requires_vf"
+            );
+        }
+        if (defibrillatorEnergy() < selectedDefibrillationEnergy.joules()) {
+            return Component.translatable(
+                    "screen.superficialtrauma.health.defibrillation_requires_energy"
+            );
+        }
+        return Component.empty();
     }
 
     private int defibrillatorEnergy() {
