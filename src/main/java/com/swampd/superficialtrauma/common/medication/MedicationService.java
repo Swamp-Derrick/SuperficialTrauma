@@ -59,7 +59,7 @@ public final class MedicationService {
             );
             return false;
         }
-        if (type == MedicationType.MORPHINE) {
+        if (type.route() == MedicationRoute.INJECTION) {
             InjectionPreparation preparation = PREPARATION_BY_ACTOR.get(actor.getUUID());
             if (preparation == null || !preparation.patientId().equals(patient.getUUID())) {
                 actor.displayClientMessage(
@@ -111,9 +111,7 @@ public final class MedicationService {
                 || TreatmentService.isActorTreating(actor.getUUID())
                 || isPatientReceiving(patient.getUUID())
                 || TreatmentService.isPatientBeingTreated(patient.getUUID())
-                || !isEligibleActor(actor)
-                || !isEligiblePatient(actor, patient, MedicationType.MORPHINE)
-                || !hasRequiredItems(actor, MedicationType.MORPHINE)) {
+                || !canPrepareInjection(actor, patient)) {
             stopInjectionPreparation(actor);
             return;
         }
@@ -215,9 +213,7 @@ public final class MedicationService {
                 || TreatmentService.isActorTreating(actor.getUUID())
                 || isPatientReceiving(patient.getUUID())
                 || TreatmentService.isPatientBeingTreated(patient.getUUID())
-                || !isEligibleActor(actor)
-                || !isEligiblePatient(actor, patient, MedicationType.MORPHINE)
-                || !hasRequiredItems(actor, MedicationType.MORPHINE)) {
+                || !canPrepareInjection(actor, patient)) {
             stopInjectionPreparation(actor);
         }
     }
@@ -313,6 +309,12 @@ public final class MedicationService {
         if (state == null || state.lifeState() == BodyLifeState.BRAIN_DEAD) {
             return false;
         }
+        if (type == MedicationType.METOPROLOL && actor != patient) {
+            return false;
+        }
+        if (type == MedicationType.NALOXONE && !state.hasActiveOpioidDose()) {
+            return false;
+        }
         return type.route() == MedicationRoute.INJECTION || state.canAct();
     }
 
@@ -321,15 +323,24 @@ public final class MedicationService {
             case PARACETAMOL -> hasItem(actor, ModItems.PARACETAMOL.get());
             case MORPHINE -> hasItem(actor, ModItems.SYRINGE.get())
                     && hasItem(actor, ModItems.MORPHINE_VIAL.get());
+            case NALOXONE -> hasItem(actor, ModItems.SYRINGE.get())
+                    && hasItem(actor, ModItems.NALOXONE.get());
+            case METOPROLOL -> hasItem(actor, ModItems.METOPROLOL.get());
         };
     }
 
     private static void consumeRequiredItems(ServerPlayer actor, MedicationType type) {
-        if (type == MedicationType.PARACETAMOL) {
-            consumeOne(actor, ModItems.PARACETAMOL.get());
-        } else {
-            consumeOne(actor, ModItems.SYRINGE.get());
-            consumeOne(actor, ModItems.MORPHINE_VIAL.get());
+        switch (type) {
+            case PARACETAMOL -> consumeOne(actor, ModItems.PARACETAMOL.get());
+            case MORPHINE -> {
+                consumeOne(actor, ModItems.SYRINGE.get());
+                consumeOne(actor, ModItems.MORPHINE_VIAL.get());
+            }
+            case NALOXONE -> {
+                consumeOne(actor, ModItems.SYRINGE.get());
+                consumeOne(actor, ModItems.NALOXONE.get());
+            }
+            case METOPROLOL -> consumeOne(actor, ModItems.METOPROLOL.get());
         }
         actor.getInventory().setChanged();
         actor.inventoryMenu.broadcastChanges();
@@ -357,9 +368,25 @@ public final class MedicationService {
     }
 
     private static MedicalActionSound soundFor(MedicationType type) {
-        return type == MedicationType.PARACETAMOL
-                ? MedicalActionSound.TABLETS
-                : MedicalActionSound.VIAL;
+        return switch (type) {
+            case PARACETAMOL, METOPROLOL -> MedicalActionSound.TABLETS;
+            case MORPHINE, NALOXONE -> MedicalActionSound.VIAL;
+        };
+    }
+
+    private static boolean canPrepareInjection(ServerPlayer actor, ServerPlayer patient) {
+        if (!isEligibleActor(actor)) {
+            return false;
+        }
+        BodyState state = BodyStateCapability.get(patient).orElse(null);
+        if (state == null || state.lifeState() == BodyLifeState.BRAIN_DEAD) {
+            return false;
+        }
+        boolean morphineAvailable = isEligiblePatient(actor, patient, MedicationType.MORPHINE)
+                && hasRequiredItems(actor, MedicationType.MORPHINE);
+        boolean naloxoneAvailable = isEligiblePatient(actor, patient, MedicationType.NALOXONE)
+                && hasRequiredItems(actor, MedicationType.NALOXONE);
+        return morphineAvailable || naloxoneAvailable;
     }
 
     private static ServerPlayer player(ServerPlayer reference, UUID playerId) {

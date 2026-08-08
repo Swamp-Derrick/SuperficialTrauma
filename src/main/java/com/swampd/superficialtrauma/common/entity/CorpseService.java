@@ -60,7 +60,8 @@ public final class CorpseService {
                 player.serverLevel().getGameTime(),
                 pose,
                 bodyState == null ? java.util.List.of() : bodyState.woundHistory(),
-                bodyState == null ? null : bodyState.downingHitRecord().orElse(null)
+                bodyState == null ? null : bodyState.downingHitRecord().orElse(null),
+                bodyState != null && bodyState.voluntaryDeath()
         );
         corpse.initialize(snapshot, player.getX(), player.getY(), player.getZ());
         if (captureInventory) {

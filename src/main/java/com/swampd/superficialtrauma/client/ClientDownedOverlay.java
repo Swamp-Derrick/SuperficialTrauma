@@ -5,6 +5,8 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 
+import java.util.Locale;
+
 public final class ClientDownedOverlay {
     private static final int MAX_BACKGROUND_ALPHA = 255;
     private static final float FADE_DELAY_PROGRESS = 0.15F;
@@ -38,25 +40,57 @@ public final class ClientDownedOverlay {
         int textAlpha = Mth.clamp(Math.round(255.0F * textProgress), 4, 255);
         int primaryColor = textAlpha << 24 | 0x00E8E8E8;
         int secondaryColor = textAlpha << 24 | 0x00A8A8A8;
+        int warningColor = textAlpha << 24 | 0x00D8A84E;
         int centerY = height / 2;
+        var state = ClientBodyState.snapshot();
+        long gameTime = minecraft.level == null ? 0L : minecraft.level.getGameTime();
 
         graphics.drawCenteredString(
                 minecraft.font,
                 Component.translatable("screen.superficialtrauma.downed.title"),
                 width / 2,
-                centerY - 12,
+                centerY - 28,
                 primaryColor
         );
         graphics.drawCenteredString(
                 minecraft.font,
                 Component.translatable(
                         "life_state.superficialtrauma."
-                                + ClientBodyState.snapshot().lifeState().serializedName()
+                                + state.lifeState().serializedName()
+                ),
+                width / 2,
+                centerY - 12,
+                secondaryColor
+        );
+        graphics.drawCenteredString(
+                minecraft.font,
+                Component.translatable(
+                        "screen.superficialtrauma.downed.total_countdown",
+                        String.format(
+                                Locale.ROOT,
+                                "%.1f",
+                                state.totalDownedDangerRemainingTicks(gameTime) / 20.0F
+                        )
                 ),
                 width / 2,
                 centerY + 4,
                 secondaryColor
         );
+        if (giveUpEligible(state.lifeState())) {
+            Component giveUpText = ClientGiveUpState.isActive()
+                    ? Component.translatable(
+                            "screen.superficialtrauma.downed.give_up_progress",
+                            String.format(Locale.ROOT, "%.1f", ClientGiveUpState.remainingSeconds())
+                    )
+                    : Component.translatable("screen.superficialtrauma.downed.give_up_hint");
+            graphics.drawCenteredString(
+                    minecraft.font,
+                    giveUpText,
+                    width / 2,
+                    centerY + 20,
+                    warningColor
+            );
+        }
         graphics.drawCenteredString(
                 minecraft.font,
                 Component.translatable("screen.superficialtrauma.downed.health_hint"),
@@ -76,5 +110,14 @@ public final class ClientDownedOverlay {
     private static float smoothStep(float value) {
         float clamped = Mth.clamp(value, 0.0F, 1.0F);
         return clamped * clamped * (3.0F - 2.0F * clamped);
+    }
+
+    private static boolean giveUpEligible(
+            com.swampd.superficialtrauma.common.body.BodyLifeState lifeState
+    ) {
+        return switch (lifeState) {
+            case INCAPACITATED, CARDIAC_ARREST, VENTRICULAR_FIBRILLATION -> true;
+            case ACTIVE, AWAKENING, BRAIN_DEAD -> false;
+        };
     }
 }

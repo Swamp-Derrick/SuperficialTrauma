@@ -45,6 +45,15 @@ public enum WoundTag {
         };
     }
 
+    public int disorientationLevel() {
+        return switch (this) {
+            case DISORIENTATION_1 -> 1;
+            case DISORIENTATION_2 -> 2;
+            case DISORIENTATION_3 -> 3;
+            default -> 0;
+        };
+    }
+
     public static WoundTag fromSerializedName(String name) {
         for (WoundTag tag : values()) {
             if (tag.serializedName().equals(name)) {

@@ -30,6 +30,7 @@ public final class ClientForgeEvents {
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase == TickEvent.Phase.START) {
+            ClientGiveUpInput.tick();
             ClientDownedInput.suppressKeyActions();
             return;
         }
@@ -122,6 +123,7 @@ public final class ClientForgeEvents {
         ClientAutopsyState.clear();
         ClientTreatmentState.clear();
         ClientMedicationState.clear();
+        ClientGiveUpInput.clear();
         ClientDownedPoses.clear();
         ClientBloodLossOverlay.clear();
     }

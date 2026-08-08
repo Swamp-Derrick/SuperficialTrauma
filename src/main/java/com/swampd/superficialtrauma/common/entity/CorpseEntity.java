@@ -82,6 +82,7 @@ public final class CorpseEntity extends LivingEntity implements Container {
     private long emptySinceGameTime = EmptyCorpseLifecycle.NOT_EMPTY;
     private List<WoundHistoryEntry> forensicWoundHistory = List.of();
     private DowningHitRecord forensicDowningHit;
+    private boolean voluntaryDeath;
     private boolean deathTimeRevealed;
     private long deathTimeInspectionGameTime = -1L;
     private long penlightCooldownEndGameTime = -1L;
@@ -120,6 +121,7 @@ public final class CorpseEntity extends LivingEntity implements Container {
         entityData.set(FALL_DIRECTION, snapshot.downedPose().fallDirection().serializedName());
         forensicWoundHistory = snapshot.woundHistory();
         forensicDowningHit = snapshot.downingHitRecord();
+        voluntaryDeath = snapshot.voluntaryDeath();
         moveTo(x, y, z, snapshot.downedPose().bodyYaw(), 0.0F);
         setYBodyRot(snapshot.downedPose().bodyYaw());
         setYHeadRot(snapshot.downedPose().bodyYaw());
@@ -135,7 +137,8 @@ public final class CorpseEntity extends LivingEntity implements Container {
                 entityData.get(DEATH_GAME_TIME),
                 downedPose(),
                 forensicWoundHistory,
-                forensicDowningHit
+                forensicDowningHit,
+                voluntaryDeath
         );
     }
 
@@ -145,6 +148,10 @@ public final class CorpseEntity extends LivingEntity implements Container {
 
     public Optional<DowningHitRecord> forensicDowningHit() {
         return Optional.ofNullable(forensicDowningHit);
+    }
+
+    public boolean voluntaryDeath() {
+        return voluntaryDeath;
     }
 
     public boolean deathTimeRevealed() {

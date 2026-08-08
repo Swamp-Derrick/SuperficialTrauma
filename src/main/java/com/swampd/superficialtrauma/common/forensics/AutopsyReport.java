@@ -19,6 +19,7 @@ public record AutopsyReport(
         List<WoundHistoryEntry> visibleWounds,
         boolean detailedAutopsyRevealed,
         DowningHitRecord downingHit,
+        boolean suspectedMyocardialInfarction,
         boolean examinerKnowsForensics,
         boolean examinerHasPenlight,
         boolean examinerHasChecklist,
@@ -32,6 +33,7 @@ public record AutopsyReport(
     private static final String TAG_VISIBLE_WOUNDS = "VisibleWounds";
     private static final String TAG_DETAILED = "DetailedAutopsyRevealed";
     private static final String TAG_DOWNING_HIT = "DowningHit";
+    private static final String TAG_SUSPECTED_MYOCARDIAL_INFARCTION = "SuspectedMyocardialInfarction";
     private static final String TAG_KNOWS_FORENSICS = "ExaminerKnowsForensics";
     private static final String TAG_HAS_PENLIGHT = "ExaminerHasPenlight";
     private static final String TAG_HAS_CHECKLIST = "ExaminerHasChecklist";
@@ -48,6 +50,7 @@ public record AutopsyReport(
         actionEndGameTime = activeAction == AutopsyAction.NONE ? -1L : Math.max(0L, actionEndGameTime);
         if (!detailedAutopsyRevealed) {
             downingHit = null;
+            suspectedMyocardialInfarction = false;
         }
     }
 
@@ -73,6 +76,7 @@ public record AutopsyReport(
                 newestFirst,
                 detailed,
                 detailed ? corpse.forensicDowningHit().orElse(null) : null,
+                detailed && corpse.voluntaryDeath(),
                 examinerKnowsForensics,
                 examinerHasPenlight,
                 examinerHasChecklist,
@@ -96,6 +100,7 @@ public record AutopsyReport(
         if (downingHit != null) {
             tag.put(TAG_DOWNING_HIT, downingHit.serializeNBT());
         }
+        tag.putBoolean(TAG_SUSPECTED_MYOCARDIAL_INFARCTION, suspectedMyocardialInfarction);
         tag.putBoolean(TAG_KNOWS_FORENSICS, examinerKnowsForensics);
         tag.putBoolean(TAG_HAS_PENLIGHT, examinerHasPenlight);
         tag.putBoolean(TAG_HAS_CHECKLIST, examinerHasChecklist);
@@ -126,6 +131,7 @@ public record AutopsyReport(
                 wounds,
                 detailed,
                 hit,
+                detailed && tag.getBoolean(TAG_SUSPECTED_MYOCARDIAL_INFARCTION),
                 tag.getBoolean(TAG_KNOWS_FORENSICS),
                 tag.getBoolean(TAG_HAS_PENLIGHT),
                 tag.getBoolean(TAG_HAS_CHECKLIST),

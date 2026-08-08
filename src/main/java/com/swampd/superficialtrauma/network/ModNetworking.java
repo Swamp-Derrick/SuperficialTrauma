@@ -44,6 +44,8 @@ import com.swampd.superficialtrauma.network.packet.TreatmentPreparationSoundC2SP
 import com.swampd.superficialtrauma.network.packet.StartMedicationC2SPacket;
 import com.swampd.superficialtrauma.network.packet.MedicationPreparationC2SPacket;
 import com.swampd.superficialtrauma.network.packet.MedicationSessionS2CPacket;
+import com.swampd.superficialtrauma.network.packet.GiveUpHoldC2SPacket;
+import com.swampd.superficialtrauma.network.packet.GiveUpSessionS2CPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkDirection;
@@ -57,7 +59,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "20";
+    private static final String PROTOCOL_VERSION = "21";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -198,6 +200,22 @@ public final class ModNetworking {
                 MedicationSessionS2CPacket::encode,
                 MedicationSessionS2CPacket::decode,
                 MedicationSessionS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                GiveUpHoldC2SPacket.class,
+                GiveUpHoldC2SPacket::encode,
+                GiveUpHoldC2SPacket::decode,
+                GiveUpHoldC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                GiveUpSessionS2CPacket.class,
+                GiveUpSessionS2CPacket::encode,
+                GiveUpSessionS2CPacket::decode,
+                GiveUpSessionS2CPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT)
         );
         CHANNEL.registerMessage(
@@ -387,6 +405,10 @@ public final class ModNetworking {
         CHANNEL.sendToServer(new MedicationPreparationC2SPacket(patientEntityId, active));
     }
 
+    public static void setGiveUpHolding(boolean holding) {
+        CHANNEL.sendToServer(new GiveUpHoldC2SPacket(holding));
+    }
+
     public static void setAssistedBreathing(int patientEntityId, boolean active) {
         CHANNEL.sendToServer(new AirwayActionC2SPacket(patientEntityId, active));
     }
@@ -539,6 +561,27 @@ public final class ModNetworking {
         CHANNEL.send(
                 PacketDistributor.PLAYER.with(() -> actor),
                 MedicationSessionS2CPacket.completed(patientEntityId, session.type())
+        );
+    }
+
+    public static void sendGiveUpStarted(ServerPlayer player, long endsGameTime) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> player),
+                GiveUpSessionS2CPacket.started(endsGameTime)
+        );
+    }
+
+    public static void sendGiveUpCancelled(ServerPlayer player) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> player),
+                GiveUpSessionS2CPacket.cancelled()
+        );
+    }
+
+    public static void sendGiveUpCompleted(ServerPlayer player) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> player),
+                GiveUpSessionS2CPacket.completed()
         );
     }
 

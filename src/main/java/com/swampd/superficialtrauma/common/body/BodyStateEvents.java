@@ -57,6 +57,7 @@ public final class BodyStateEvents {
     @SubscribeEvent
     public static void onPlayerClone(PlayerEvent.Clone event) {
         ShotgunVolleyAggregator.clearPlayer(event.getOriginal().getUUID());
+        GiveUpService.forgetPlayer(event.getOriginal().getUUID());
         event.getOriginal().reviveCaps();
         BodyStateCapability.get(event.getOriginal()).ifPresent(oldState ->
                 BodyStateCapability.get(event.getEntity()).ifPresent(newState -> {
@@ -81,6 +82,7 @@ public final class BodyStateEvents {
         ShotgunVolleyAggregator.clearPlayer(event.getEntity().getUUID());
         LootingService.forgetPlayer(event.getEntity().getUUID());
         AutopsyService.forgetPlayer(event.getEntity().getUUID());
+        GiveUpService.forgetPlayer(event.getEntity().getUUID());
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
             BodyStateCapability.get(serverPlayer).ifPresent(bodyState ->
                     bodyState.pauseBodyProgression(serverPlayer.serverLevel().getGameTime())
@@ -133,6 +135,7 @@ public final class BodyStateEvents {
         long gameTime = serverPlayer.serverLevel().getGameTime();
         LootingService.closeIfInvalid(serverPlayer);
         AutopsyService.tick(serverPlayer);
+        GiveUpService.tick(serverPlayer);
         BodyStateCapability.get(serverPlayer).ifPresent(bodyState -> {
             boolean shotgunVolleyResolved = ShotgunVolleyAggregator.resolveReady(
                     serverPlayer,
@@ -208,6 +211,7 @@ public final class BodyStateEvents {
         ShotgunVolleyAggregator.clearAll();
         LootingService.clearAll();
         AutopsyService.clearAll();
+        GiveUpService.clearAll();
     }
 
     private static void notifyDownedState(ServerPlayer player, BodyProgressionResult result) {

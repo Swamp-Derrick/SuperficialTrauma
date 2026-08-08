@@ -61,6 +61,14 @@ public final class ModItems {
             "morphine_vial",
             () -> new Item(new Item.Properties().stacksTo(16))
     );
+    public static final RegistryObject<Item> NALOXONE = ITEMS.register(
+            "naloxone",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
+    public static final RegistryObject<Item> METOPROLOL = ITEMS.register(
+            "metoprolol",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
     public static final RegistryObject<Item> MANUAL_RESUSCITATOR = ITEMS.register(
             "manual_resuscitator",
             () -> new Item(new Item.Properties().stacksTo(1))

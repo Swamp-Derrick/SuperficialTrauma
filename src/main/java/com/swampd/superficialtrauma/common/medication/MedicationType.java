@@ -3,31 +3,75 @@ package com.swampd.superficialtrauma.common.medication;
 import java.util.Locale;
 
 public enum MedicationType {
-    PARACETAMOL(MedicationRoute.ORAL, 50L, 3L * 60L * 20L, 4.0F, 1.0F),
-    MORPHINE(MedicationRoute.INJECTION, 5L * 20L, 3L * 60L * 20L, 6.0F, 2.0F);
+    PARACETAMOL(
+            MedicationRoute.ORAL,
+            MedicationFamily.NON_OPIOID,
+            50L,
+            3L * 60L * 20L,
+            4.0F,
+            1.0F,
+            0
+    ),
+    MORPHINE(
+            MedicationRoute.INJECTION,
+            MedicationFamily.OPIOID,
+            5L * 20L,
+            3L * 60L * 20L,
+            6.0F,
+            2.0F,
+            0
+    ),
+    NALOXONE(
+            MedicationRoute.INJECTION,
+            MedicationFamily.OPIOID_ANTAGONIST,
+            5L * 20L,
+            0L,
+            0.0F,
+            0.0F,
+            0
+    ),
+    METOPROLOL(
+            MedicationRoute.ORAL,
+            MedicationFamily.BETA_BLOCKER,
+            50L,
+            5L * 60L * 20L,
+            4.0F,
+            0.0F,
+            2
+    );
 
     private final MedicationRoute route;
+    private final MedicationFamily family;
     private final long actionDurationTicks;
     private final long effectDurationTicks;
     private final float concentration;
     private final float painReduction;
+    private final int disorientationReduction;
 
     MedicationType(
             MedicationRoute route,
+            MedicationFamily family,
             long actionDurationTicks,
             long effectDurationTicks,
             float concentration,
-            float painReduction
+            float painReduction,
+            int disorientationReduction
     ) {
         this.route = route;
+        this.family = family;
         this.actionDurationTicks = actionDurationTicks;
         this.effectDurationTicks = effectDurationTicks;
         this.concentration = concentration;
         this.painReduction = painReduction;
+        this.disorientationReduction = Math.max(0, disorientationReduction);
     }
 
     public MedicationRoute route() {
         return route;
+    }
+
+    public MedicationFamily family() {
+        return family;
     }
 
     public long actionDurationTicks() {
@@ -44,6 +88,18 @@ public enum MedicationType {
 
     public float painReduction() {
         return painReduction;
+    }
+
+    public int disorientationReduction() {
+        return disorientationReduction;
+    }
+
+    public boolean createsActiveDose() {
+        return effectDurationTicks > 0L;
+    }
+
+    public boolean isOpioid() {
+        return family == MedicationFamily.OPIOID;
     }
 
     public String serializedName() {

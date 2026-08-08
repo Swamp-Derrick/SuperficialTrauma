@@ -63,6 +63,8 @@ public final class BodyStateRoundTripTest {
         verifyCprAndDefibrillation();
         verifyInfusionProgression();
         verifyMedicationLayersAndOverdose();
+        verifyNaloxoneAndMetoprolol();
+        verifyGiveUpAndTotalCountdown();
         verifyTraumaticShockAwakeningAndRetryCooldown();
         verifyHemorrhagicShockAwakeningRequirements();
         verifyDownedPostureClassification();
@@ -422,6 +424,80 @@ public final class BodyStateRoundTripTest {
         assertFloatEquals(20.0F, overdose.bloodDrugConcentration(), "five paracetamol layers must reach the overdose threshold");
         assertEquals(BodyLifeState.INCAPACITATED, overdose.lifeState(), "concentration twenty must incapacitate an active patient");
         assertEquals(CollapseReason.OVERDOSE, overdose.collapseReason(), "drug collapse must retain the overdose reason");
+
+        overdose.advanceBodyProgression(3_600L);
+        assertFloatEquals(16.0F, overdose.bloodDrugConcentration(), "overdose recovery must not start while concentration remains above eight");
+        assertEquals(false, overdose.advanceAwakening(1.0F, 3_600L).changed(), "concentration sixteen must not begin overdose awakening");
+        overdose.advanceBodyProgression(3_602L);
+        assertFloatEquals(8.0F, overdose.bloodDrugConcentration(), "independent dose metabolism must eventually reach the awakening threshold");
+        assertEquals(true, overdose.advanceAwakening(1.0F, 3_602L).started(), "overdose awakening must begin at concentration eight");
+    }
+
+    private static void verifyNaloxoneAndMetoprolol() {
+        BodyState mixedOverdose = new BodyState();
+        mixedOverdose.applyMedication(MedicationType.MORPHINE, 0L);
+        mixedOverdose.applyMedication(MedicationType.MORPHINE, 1L);
+        mixedOverdose.applyMedication(MedicationType.PARACETAMOL, 2L);
+        mixedOverdose.applyMedication(MedicationType.PARACETAMOL, 3L);
+        assertFloatEquals(20.0F, mixedOverdose.bloodDrugConcentration(), "mixed opioid and non-opioid doses must stack into an overdose");
+        assertEquals(true, mixedOverdose.applyMedication(MedicationType.NALOXONE, 4L), "naloxone must clear active opioid doses");
+        assertEquals(0, mixedOverdose.activeDoseCount(MedicationType.MORPHINE), "naloxone must remove every morphine layer");
+        assertEquals(2, mixedOverdose.activeDoseCount(MedicationType.PARACETAMOL), "naloxone must leave non-opioid medicine untouched");
+        assertFloatEquals(8.0F, mixedOverdose.bloodDrugConcentration(), "naloxone must recalculate concentration from remaining non-opioid layers");
+        assertFloatEquals(2.0F, mixedOverdose.medicationPainReduction(), "naloxone must remove morphine analgesia without cancelling paracetamol");
+        assertEquals(true, mixedOverdose.advanceAwakening(1.0F, 4L).started(), "naloxone-reduced concentration eight must permit overdose awakening");
+
+        BodyState nonOpioidOverdose = new BodyState();
+        for (int index = 0; index < 5; index++) {
+            nonOpioidOverdose.applyMedication(MedicationType.PARACETAMOL, index);
+        }
+        assertEquals(false, nonOpioidOverdose.applyMedication(MedicationType.NALOXONE, 5L), "naloxone must do nothing when no opioid layer exists");
+        assertFloatEquals(20.0F, nonOpioidOverdose.bloodDrugConcentration(), "naloxone must not lower non-opioid overdose concentration");
+
+        BodyState disorientation = new BodyState();
+        WoundInstance shotgunWound = requireWound(disorientation.applyGunshotDamage(
+                WoundType.GUNSHOT_SHOTGUN,
+                8.0F,
+                0,
+                3.0D,
+                false,
+                0L
+        ));
+        assertEquals(3, disorientation.effectiveDisorientationLevel(shotgunWound), "untreated close shotgun trauma must retain disorientation three");
+        assertEquals(true, disorientation.applyMedication(MedicationType.METOPROLOL, 1L), "metoprolol must create a five-minute active layer");
+        assertEquals(1, disorientation.effectiveDisorientationLevel(shotgunWound), "one metoprolol layer must reduce disorientation by two levels");
+        disorientation.applyMedication(MedicationType.METOPROLOL, 2L);
+        assertEquals(0, disorientation.effectiveDisorientationLevel(shotgunWound), "stacked metoprolol reduction must clamp at zero");
+        disorientation.advanceBodyProgression(6_002L);
+        assertEquals(3, disorientation.effectiveDisorientationLevel(shotgunWound), "metoprolol reduction must end after five minutes");
+    }
+
+    private static void verifyGiveUpAndTotalCountdown() {
+        BodyState active = new BodyState();
+        assertEquals(false, active.giveUp(), "an active player must not be able to give up");
+
+        BodyState awakening = new BodyState();
+        awakening.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 0L);
+        assertEquals(true, awakening.advanceAwakening(6.0F, 0L).started(), "test patient must enter awakening");
+        assertEquals(false, awakening.giveUp(), "a player in awakening must not be able to give up");
+
+        BodyState downed = new BodyState();
+        downed.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 100L);
+        assertEquals(
+                Math.round(BodyState.INITIAL_INCAPACITATED_BLOOD_OXYGEN
+                        * BodyState.BLOOD_OXYGEN_POINT_DURATION_TICKS)
+                        + BodyState.CARDIAC_ARREST_DURATION_TICKS,
+                downed.totalDownedDangerRemainingTicks(100L),
+                "incapacitated overlay must combine the remaining incapacitated and cardiac-arrest phases"
+        );
+        assertEquals(true, downed.giveUp(), "an incapacitated player must be able to give up");
+        assertEquals(BodyLifeState.BRAIN_DEAD, downed.lifeState(), "giving up must immediately enter brain death");
+        assertEquals(true, downed.voluntaryDeath(), "giving up must leave permanent voluntary-death evidence");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(downed.serializeNBT());
+        assertEquals(true, restored.voluntaryDeath(), "voluntary-death evidence must survive player NBT round trip");
+        assertEquals(BodyLifeState.BRAIN_DEAD, restored.lifeState(), "give-up brain death must survive player NBT round trip");
     }
 
     private static void verifyTraumaticShockAwakeningAndRetryCooldown() {
@@ -1127,7 +1203,8 @@ public final class BodyStateRoundTripTest {
                         DownedFallDirection.LEFT
                 ),
                 List.of(forensicWound),
-                downingHit
+                downingHit,
+                true
         );
         CompoundTag saved = original.save();
         assertEquals(
@@ -1153,6 +1230,7 @@ public final class BodyStateRoundTripTest {
         assertEquals(original.downedPose(), restored.downedPose(), "corpse NBT must preserve downed pose");
         assertEquals(List.of(forensicWound), restored.woundHistory(), "corpse NBT must freeze wound history");
         assertEquals(downingHit, restored.downingHitRecord(), "corpse NBT must freeze the incapacitating hit");
+        assertEquals(true, restored.voluntaryDeath(), "corpse NBT must preserve voluntary-death forensic evidence");
         assertFloatEquals(
                 -52.5F,
                 DownedGeometry.groundYaw(restored.downedPose()),
@@ -1219,6 +1297,7 @@ public final class BodyStateRoundTripTest {
                 true,
                 true,
                 true,
+                true,
                 -1L,
                 AutopsyAction.NONE,
                 -1L
@@ -1233,6 +1312,7 @@ public final class BodyStateRoundTripTest {
                 basicReport.save().contains("DowningHit", Tag.TAG_COMPOUND),
                 "unrevealed downing evidence must not be sent over the network"
         );
+        assertEquals(false, basicReport.suspectedMyocardialInfarction(), "voluntary-death evidence must remain hidden before detailed autopsy");
 
         AutopsyReport detailedReport = new AutopsyReport(
                 17,
@@ -1244,12 +1324,14 @@ public final class BodyStateRoundTripTest {
                 true,
                 true,
                 true,
+                true,
                 1_500L,
                 AutopsyAction.CHECKLIST,
                 900L
         );
         AutopsyReport restored = AutopsyReport.load(detailedReport.save());
         assertEquals(hiddenHit, restored.downingHit(), "completed detailed examination must preserve downing evidence");
+        assertEquals(true, restored.suspectedMyocardialInfarction(), "detailed autopsy must preserve the voluntary-death finding");
         assertEquals(1_200L, restored.deathAgeTicks(), "pupil examination timestamp must survive packet NBT");
         assertEquals(AutopsyAction.CHECKLIST, restored.activeAction(), "autopsy action state must survive packet NBT");
         assertEquals(900L, restored.actionEndGameTime(), "autopsy countdown deadline must survive packet NBT");

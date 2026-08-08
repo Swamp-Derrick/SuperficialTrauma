@@ -24,9 +24,10 @@ public record CorpseSnapshot(
         long deathGameTime,
         DownedPoseSnapshot downedPose,
         List<WoundHistoryEntry> woundHistory,
-        DowningHitRecord downingHitRecord
+        DowningHitRecord downingHitRecord,
+        boolean voluntaryDeath
 ) {
-    public static final int CURRENT_DATA_VERSION = 4;
+    public static final int CURRENT_DATA_VERSION = 5;
     private static final String TAG_DATA_VERSION = "DataVersion";
     private static final String TAG_OWNER_ID = "OwnerId";
     private static final String TAG_OWNER_NAME = "OwnerName";
@@ -39,6 +40,7 @@ public record CorpseSnapshot(
     private static final String TAG_FALL_DIRECTION = "FallDirection";
     private static final String TAG_WOUND_HISTORY = "WoundHistory";
     private static final String TAG_DOWNING_HIT = "DowningHit";
+    private static final String TAG_VOLUNTARY_DEATH = "VoluntaryDeath";
 
     public CorpseSnapshot {
         ownerId = ownerId == null ? new UUID(0L, 0L) : ownerId;
@@ -76,6 +78,7 @@ public record CorpseSnapshot(
         if (downingHitRecord != null) {
             tag.put(TAG_DOWNING_HIT, downingHitRecord.serializeNBT());
         }
+        tag.putBoolean(TAG_VOLUNTARY_DEATH, voluntaryDeath);
         return tag;
     }
 
@@ -111,7 +114,8 @@ public record CorpseSnapshot(
                 deathGameTime,
                 pose,
                 history,
-                downingHit
+                downingHit,
+                tag.getBoolean(TAG_VOLUNTARY_DEATH)
         );
     }
 }

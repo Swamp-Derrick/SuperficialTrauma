@@ -175,6 +175,19 @@ public final class AutopsyScreen extends Screen {
         y += 5;
         if (report.detailedAutopsyRevealed()) {
             y = renderDowningEvidence(graphics, x, y, textWidth, report.downingHit());
+            if (report.suspectedMyocardialInfarction()) {
+                y += 9;
+                drawWrapped(
+                        graphics,
+                        Component.translatable(
+                                "screen.superficialtrauma.autopsy.suspected_myocardial_infarction"
+                        ),
+                        x,
+                        y,
+                        textWidth,
+                        ACCENT_COLOR
+                );
+            }
         } else {
             drawWrapped(
                     graphics,

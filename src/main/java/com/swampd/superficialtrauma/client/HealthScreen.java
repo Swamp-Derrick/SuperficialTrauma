@@ -348,7 +348,7 @@ public final class HealthScreen extends Screen {
                     TEXT_COLOR
             );
         } else {
-            long dangerTicks = state.downedDangerRemainingTicks(gameTime);
+            long dangerTicks = state.totalDownedDangerRemainingTicks(gameTime);
             lineY = drawValue(
                     graphics,
                     x,
@@ -508,7 +508,7 @@ public final class HealthScreen extends Screen {
                     TEXT_COLOR,
                     false
             );
-            String tagSummary = woundTagSummary(wound, state.movementBleedingActive());
+            String tagSummary = woundTagSummary(wound, state);
             if (!tagSummary.isEmpty()) {
                 int tagY = cardY + 28;
                 for (FormattedCharSequence line : woundTagLines(tagSummary, availableWidth)) {
@@ -571,7 +571,7 @@ public final class HealthScreen extends Screen {
         return y + 13;
     }
 
-    private String woundTagSummary(WoundInstance wound, boolean movementBleedingActive) {
+    private String woundTagSummary(WoundInstance wound, BodyState state) {
         List<String> labels = new ArrayList<>();
         boolean hasBleedingTag = wound.woundTags().stream().anyMatch(tag -> tag.bleedingLevel() > 0);
         if (wound.covering().isApplied()) {
@@ -584,7 +584,7 @@ public final class HealthScreen extends Screen {
             labels.add(Component.translatable("tourniquet.superficialtrauma.applied").getString());
         }
 
-        int effectiveBleedingLevel = wound.bleedingLevel(movementBleedingActive);
+        int effectiveBleedingLevel = wound.bleedingLevel(state.movementBleedingActive());
         if (effectiveBleedingLevel > 0) {
             labels.add(Component.translatable(
                     "wound_tag.superficialtrauma.bleeding_" + effectiveBleedingLevel
@@ -600,6 +600,15 @@ public final class HealthScreen extends Screen {
                 continue;
             }
             if (tag == WoundTag.INFECTED_1 && wound.covering().isApplied()) {
+                continue;
+            }
+            if (tag.disorientationLevel() > 0) {
+                int effectiveLevel = state.effectiveDisorientationLevel(wound);
+                if (effectiveLevel > 0) {
+                    labels.add(Component.translatable(
+                            "wound_tag.superficialtrauma.disorientation_" + effectiveLevel
+                    ).getString());
+                }
                 continue;
             }
             labels.add(Component.translatable("wound_tag.superficialtrauma." + tag.serializedName()).getString());
@@ -640,7 +649,7 @@ public final class HealthScreen extends Screen {
             int availableHeight
     ) {
         int buttonsPerRow = treatmentButtonsPerRow(availableWidth);
-        int buttonRows = (3 + buttonsPerRow - 1) / buttonsPerRow;
+        int buttonRows = (5 + buttonsPerRow - 1) / buttonsPerRow;
         if (!state.canAct()) {
             buttonRows += (2 + buttonsPerRow - 1) / buttonsPerRow;
         }
@@ -664,14 +673,18 @@ public final class HealthScreen extends Screen {
         } else {
             int paracetamolDoses = state.activeDoseCount(MedicationType.PARACETAMOL);
             int morphineDoses = state.activeDoseCount(MedicationType.MORPHINE);
-            text = paracetamolDoses > 0 || morphineDoses > 0
+            int metoprololDoses = state.activeDoseCount(MedicationType.METOPROLOL);
+            text = paracetamolDoses > 0 || morphineDoses > 0 || metoprololDoses > 0
                     ? Component.translatable(
                             "screen.superficialtrauma.health.medication_doses",
                             paracetamolDoses,
-                            morphineDoses
+                            morphineDoses,
+                            metoprololDoses
                     )
                     : Component.translatable("screen.superficialtrauma.health.medication_available");
-            color = paracetamolDoses > 0 || morphineDoses > 0 ? GOOD_COLOR : MUTED_COLOR;
+            color = paracetamolDoses > 0 || morphineDoses > 0 || metoprololDoses > 0
+                    ? GOOD_COLOR
+                    : MUTED_COLOR;
         }
         drawWrappedWithin(graphics, text, x + 4, textY, availableWidth - 8,
                 color, y + availableHeight - 18);
@@ -953,19 +966,35 @@ public final class HealthScreen extends Screen {
                 anyMedicalActionActive
         );
         addMedicationItemButton(
-                startX + 1 % buttonsPerRow * TREATMENT_BUTTON_STEP,
-                drugY + 1 / buttonsPerRow * TREATMENT_BUTTON_STEP,
+                startX + (1 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                drugY + (1 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 state,
                 ModItems.PARACETAMOL.get(),
                 MedicationButtonType.PARACETAMOL,
                 anyMedicalActionActive
         );
         addMedicationItemButton(
-                startX + 2 % buttonsPerRow * TREATMENT_BUTTON_STEP,
-                drugY + 2 / buttonsPerRow * TREATMENT_BUTTON_STEP,
+                startX + (2 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                drugY + (2 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 state,
                 ModItems.MORPHINE_VIAL.get(),
                 MedicationButtonType.MORPHINE,
+                anyMedicalActionActive
+        );
+        addMedicationItemButton(
+                startX + (3 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                drugY + (3 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                state,
+                ModItems.NALOXONE.get(),
+                MedicationButtonType.NALOXONE,
+                anyMedicalActionActive
+        );
+        addMedicationItemButton(
+                startX + (4 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                drugY + (4 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                state,
+                ModItems.METOPROLOL.get(),
+                MedicationButtonType.METOPROLOL,
                 anyMedicalActionActive
         );
     }
@@ -988,16 +1017,26 @@ public final class HealthScreen extends Screen {
         } else if (medicationPreparation != null) {
             if (buttonType == MedicationButtonType.MORPHINE
                     && medicationPreparation.patientEntityId() == displayedEntityId()) {
-                active = medicationPreparationStillValid(state);
+                active = medicationPreparationStillValid(state)
+                        && countItem(ModItems.MORPHINE_VIAL.get()) > 0;
                 tooltip = Component.translatable("screen.superficialtrauma.health.morphine_finish_tooltip");
-                onPress = this::submitPreparedMorphine;
+                onPress = () -> submitPreparedMedication(MedicationType.MORPHINE);
+            } else if (buttonType == MedicationButtonType.NALOXONE
+                    && medicationPreparation.patientEntityId() == displayedEntityId()) {
+                active = medicationPreparationStillValid(state)
+                        && state.hasActiveOpioidDose()
+                        && countItem(ModItems.NALOXONE.get()) > 0;
+                tooltip = state.hasActiveOpioidDose()
+                        ? Component.translatable("screen.superficialtrauma.health.naloxone_finish_tooltip")
+                        : Component.translatable("screen.superficialtrauma.health.naloxone_no_opioids");
+                onPress = () -> submitPreparedMedication(MedicationType.NALOXONE);
             } else {
                 tooltip = Component.translatable("screen.superficialtrauma.health.medication_preparation_locked");
             }
         } else {
             switch (buttonType) {
                 case SYRINGE -> {
-                    active = canPrepareMorphine(state);
+                    active = canPrepareInjection(state);
                     tooltip = Component.translatable("screen.superficialtrauma.health.syringe_tooltip");
                     onPress = this::beginMedicationPreparation;
                 }
@@ -1016,6 +1055,24 @@ public final class HealthScreen extends Screen {
                 case MORPHINE -> tooltip = Component.translatable(
                         "screen.superficialtrauma.health.morphine_requires_syringe"
                 );
+                case NALOXONE -> tooltip = state.hasActiveOpioidDose()
+                        ? Component.translatable("screen.superficialtrauma.health.naloxone_requires_syringe")
+                        : Component.translatable("screen.superficialtrauma.health.naloxone_no_opioids");
+                case METOPROLOL -> {
+                    active = actorCanAct()
+                            && !inspectingOtherPlayer
+                            && state.canAct()
+                            && countItem(ModItems.METOPROLOL.get()) > 0;
+                    tooltip = inspectingOtherPlayer
+                            ? Component.translatable("screen.superficialtrauma.health.metoprolol_self_only")
+                            : state.canAct()
+                            ? Component.translatable("screen.superficialtrauma.health.metoprolol_tooltip")
+                            : Component.translatable("screen.superficialtrauma.health.oral_medication_blocked");
+                    onPress = () -> ModNetworking.requestMedication(
+                            displayedEntityId(),
+                            MedicationType.METOPROLOL
+                    );
+                }
                 default -> tooltip = Component.empty();
             }
         }
@@ -1659,7 +1716,7 @@ public final class HealthScreen extends Screen {
     private void beginMedicationPreparation() {
         BodyState state = displayedState();
         Vec3 patientPosition = displayedPatientPosition();
-        if (patientPosition == null || !canPrepareMorphine(state)) {
+        if (patientPosition == null || !canPrepareInjection(state)) {
             return;
         }
         clearPreparation();
@@ -1669,27 +1726,28 @@ public final class HealthScreen extends Screen {
         rebuildTreatmentButtons();
     }
 
-    private void submitPreparedMorphine() {
+    private void submitPreparedMedication(MedicationType type) {
         int patientEntityId = displayedEntityId();
         // Keep the server-side first-step token until the ordered start packet consumes it.
         // Sending a separate cancellation here would let the second packet arrive without
         // proof that the syringe step was completed.
         medicationPreparation = null;
-        ModNetworking.requestMedication(patientEntityId, MedicationType.MORPHINE);
+        ModNetworking.requestMedication(patientEntityId, type);
         rebuildTreatmentButtons();
     }
 
-    private boolean canPrepareMorphine(BodyState state) {
+    private boolean canPrepareInjection(BodyState state) {
         return actorCanAct()
                 && state.lifeState() != BodyLifeState.BRAIN_DEAD
                 && countItem(ModItems.SYRINGE.get()) > 0
-                && countItem(ModItems.MORPHINE_VIAL.get()) > 0;
+                && (countItem(ModItems.MORPHINE_VIAL.get()) > 0
+                || (state.hasActiveOpioidDose() && countItem(ModItems.NALOXONE.get()) > 0));
     }
 
     private boolean medicationPreparationStillValid(BodyState state) {
         return medicationPreparation != null
                 && medicationPreparation.patientEntityId() == displayedEntityId()
-                && canPrepareMorphine(state);
+                && canPrepareInjection(state);
     }
 
     private boolean patientMovedSinceMedicationPreparation() {
@@ -1806,7 +1864,7 @@ public final class HealthScreen extends Screen {
             int woundAvailableWidth,
             int treatmentAvailableWidth
     ) {
-        String tagSummary = woundTagSummary(wound, displayedState().movementBleedingActive());
+        String tagSummary = woundTagSummary(wound, displayedState());
         int tagLines = tagSummary.isEmpty() ? 0 : woundTagLines(tagSummary, woundAvailableWidth).size();
         int woundContentHeight = MINIMUM_WOUND_ROW_HEIGHT + Math.max(0, tagLines - 1) * 11;
         int treatmentContentHeight = TREATMENT_BUTTON_TOP
@@ -1872,7 +1930,7 @@ public final class HealthScreen extends Screen {
         );
         String promptKey;
         if (medicationPreparation != null) {
-            promptKey = "screen.superficialtrauma.health.morphine_preparation_prompt";
+            promptKey = "screen.superficialtrauma.health.injection_preparation_prompt";
         } else if (preparation != null && preparation.kind() == PreparationKind.DEBRIDEMENT) {
             promptKey = "screen.superficialtrauma.health.debridement_preparation_prompt";
         } else {
@@ -2093,7 +2151,9 @@ public final class HealthScreen extends Screen {
     private enum MedicationButtonType {
         SYRINGE,
         PARACETAMOL,
-        MORPHINE
+        MORPHINE,
+        NALOXONE,
+        METOPROLOL
     }
 
     private enum PanelMode {
