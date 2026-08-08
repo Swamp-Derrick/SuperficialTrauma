@@ -221,13 +221,19 @@ public final class HealthScreen extends Screen {
         super.render(graphics, mouseX, mouseY, partialTick);
         for (TreatmentItemButton button : treatmentButtons) {
             if (button.isHovered()) {
-                graphics.renderTooltip(font, button.tooltip(), mouseX, mouseY);
+                Component tooltip = button.tooltip();
+                if (!tooltip.getString().isEmpty()) {
+                    graphics.renderTooltip(font, tooltip, mouseX, mouseY);
+                }
                 break;
             }
         }
         for (MedicalActionButton button : medicalActionButtons) {
             if (button.isHovered()) {
-                graphics.renderTooltip(font, button.tooltip(), mouseX, mouseY);
+                Component tooltip = button.tooltip();
+                if (!tooltip.getString().isEmpty()) {
+                    graphics.renderTooltip(font, tooltip, mouseX, mouseY);
+                }
                 break;
             }
         }
@@ -1220,72 +1226,64 @@ public final class HealthScreen extends Screen {
             boolean anyMedicalActionActive
     ) {
         boolean active = false;
-        Component tooltip;
+        boolean missingRequiredItem = false;
         Runnable onPress = () -> {
         };
 
         if (anyMedicalActionActive) {
-            tooltip = Component.translatable("screen.superficialtrauma.health.medication_busy_tooltip");
+            // Busy buttons remain disabled without implying that their item is missing.
         } else if (medicationPreparation != null) {
             if (buttonType == MedicationButtonType.MORPHINE
                     && medicationPreparation.patientEntityId() == displayedEntityId()) {
                 active = medicationPreparationStillValid(state)
                         && countItem(ModItems.MORPHINE_VIAL.get()) > 0;
-                tooltip = Component.translatable("screen.superficialtrauma.health.morphine_finish_tooltip");
+                missingRequiredItem = countItem(item) <= 0;
                 onPress = () -> submitPreparedMedication(MedicationType.MORPHINE);
             } else if (buttonType == MedicationButtonType.NALOXONE
                     && medicationPreparation.patientEntityId() == displayedEntityId()) {
                 active = medicationPreparationStillValid(state)
                         && state.hasActiveOpioidDose()
                         && countItem(ModItems.NALOXONE.get()) > 0;
-                tooltip = state.hasActiveOpioidDose()
-                        ? Component.translatable("screen.superficialtrauma.health.naloxone_finish_tooltip")
-                        : Component.translatable("screen.superficialtrauma.health.naloxone_no_opioids");
+                missingRequiredItem = state.hasActiveOpioidDose() && countItem(item) <= 0;
                 onPress = () -> submitPreparedMedication(MedicationType.NALOXONE);
-            } else {
-                tooltip = Component.translatable("screen.superficialtrauma.health.medication_preparation_locked");
             }
         } else {
             switch (buttonType) {
                 case SYRINGE -> {
                     active = canPrepareInjection(state);
-                    tooltip = Component.translatable("screen.superficialtrauma.health.syringe_tooltip");
+                    missingRequiredItem = actorCanAct()
+                            && state.lifeState() != BodyLifeState.BRAIN_DEAD
+                            && countItem(item) <= 0
+                            && (countItem(ModItems.MORPHINE_VIAL.get()) > 0
+                            || (state.hasActiveOpioidDose() && countItem(ModItems.NALOXONE.get()) > 0));
                     onPress = this::beginMedicationPreparation;
                 }
                 case PARACETAMOL -> {
                     active = actorCanAct()
                             && state.canAct()
                             && countItem(ModItems.PARACETAMOL.get()) > 0;
-                    tooltip = state.canAct()
-                            ? Component.translatable("screen.superficialtrauma.health.paracetamol_tooltip")
-                            : Component.translatable("screen.superficialtrauma.health.oral_medication_blocked");
+                    missingRequiredItem = actorCanAct() && state.canAct() && countItem(item) <= 0;
                     onPress = () -> ModNetworking.requestMedication(
                             displayedEntityId(),
                             MedicationType.PARACETAMOL
                     );
                 }
-                case MORPHINE -> tooltip = Component.translatable(
-                        "screen.superficialtrauma.health.morphine_requires_syringe"
-                );
-                case NALOXONE -> tooltip = state.hasActiveOpioidDose()
-                        ? Component.translatable("screen.superficialtrauma.health.naloxone_requires_syringe")
-                        : Component.translatable("screen.superficialtrauma.health.naloxone_no_opioids");
+                case MORPHINE, NALOXONE -> {
+                }
                 case METOPROLOL -> {
                     active = actorCanAct()
                             && !inspectingOtherPlayer
                             && state.canAct()
                             && countItem(ModItems.METOPROLOL.get()) > 0;
-                    tooltip = inspectingOtherPlayer
-                            ? Component.translatable("screen.superficialtrauma.health.metoprolol_self_only")
-                            : state.canAct()
-                            ? Component.translatable("screen.superficialtrauma.health.metoprolol_tooltip")
-                            : Component.translatable("screen.superficialtrauma.health.oral_medication_blocked");
+                    missingRequiredItem = actorCanAct()
+                            && !inspectingOtherPlayer
+                            && state.canAct()
+                            && countItem(item) <= 0;
                     onPress = () -> ModNetworking.requestMedication(
                             displayedEntityId(),
                             MedicationType.METOPROLOL
                     );
                 }
-                default -> tooltip = Component.empty();
             }
         }
 
@@ -1294,7 +1292,7 @@ public final class HealthScreen extends Screen {
                 y,
                 item,
                 item.getDescription(),
-                tooltip,
+                missingRequiredItem,
                 onPress
         );
         button.active = active;
@@ -1302,26 +1300,20 @@ public final class HealthScreen extends Screen {
     }
 
     private void addInfusionButton(int x, int y, BodyState state, InfusionType type, Item item) {
-        boolean active = inspectingOtherPlayer
+        boolean otherwiseAvailable = inspectingOtherPlayer
                 && actorCanAct()
                 && !ClientTreatmentState.isActive()
                 && !ClientMedicationState.isActive()
                 && !state.canAct()
                 && state.lifeState() != BodyLifeState.BRAIN_DEAD
-                && !state.hasActiveInfusion()
-                && countItem(item) > 0;
-        Component tooltip = Component.translatable(
-                "screen.superficialtrauma.health.infusion_tooltip",
-                Component.translatable(type.translationKey()),
-                oneDecimal(type.healingPerPulse()),
-                BodyState.INFUSION_DURATION_TICKS / 20L
-        );
+                && !state.hasActiveInfusion();
+        boolean active = otherwiseAvailable && countItem(item) > 0;
         MedicalActionButton button = new MedicalActionButton(
                 x,
                 y,
                 item,
                 item.getDescription(),
-                tooltip,
+                otherwiseAvailable && countItem(item) <= 0,
                 () -> ModNetworking.requestInfusion(displayedEntityId(), type)
         );
         button.active = active;
@@ -1334,7 +1326,8 @@ public final class HealthScreen extends Screen {
                 layout.innerY + 6 + 22,
                 ModItems.MANUAL_RESUSCITATOR.get(),
                 ModItems.MANUAL_RESUSCITATOR.get().getDescription(),
-                Component.translatable("screen.superficialtrauma.health.assisted_breathing_tooltip"),
+                canAssistBreathingWithoutItem(state)
+                        && countItem(ModItems.MANUAL_RESUSCITATOR.get()) <= 0,
                 this::beginAssistedBreathing
         );
         button.active = canAssistBreathing(state);
@@ -1380,7 +1373,7 @@ public final class HealthScreen extends Screen {
                 y,
                 net.minecraft.world.item.Items.RED_DYE,
                 Component.translatable("screen.superficialtrauma.health.cpr"),
-                Component.translatable("screen.superficialtrauma.health.cpr_tooltip"),
+                false,
                 this::beginCpr
         );
         button.active = canPerformCpr(state);
@@ -1388,14 +1381,18 @@ public final class HealthScreen extends Screen {
     }
 
     private boolean canAssistBreathing(BodyState state) {
+        return canAssistBreathingWithoutItem(state)
+                && countItem(ModItems.MANUAL_RESUSCITATOR.get()) > 0;
+    }
+
+    private boolean canAssistBreathingWithoutItem(BodyState state) {
         return inspectingOtherPlayer
                 && actorCanAct()
                 && patientInAssistedBreathingRange()
                 && (state.lifeState() == BodyLifeState.INCAPACITATED
                 || state.lifeState() == BodyLifeState.AWAKENING
                 || state.lifeState() == BodyLifeState.CARDIAC_ARREST
-                || state.lifeState() == BodyLifeState.VENTRICULAR_FIBRILLATION)
-                && countItem(ModItems.MANUAL_RESUSCITATOR.get()) > 0;
+                || state.lifeState() == BodyLifeState.VENTRICULAR_FIBRILLATION);
     }
 
     private boolean canPerformCpr(BodyState state) {
@@ -1586,14 +1583,14 @@ public final class HealthScreen extends Screen {
     ) {
         boolean active = false;
         boolean removal = false;
+        boolean missingRequiredItem = false;
         Component message = Component.translatable(type.translationKey());
-        Component tooltip;
         Runnable onPress = () -> {
         };
 
         TreatmentProcedure appliedProcedure = TreatmentProcedure.forCovering(wound.covering());
         if (anyTreatmentActive) {
-            tooltip = Component.translatable("screen.superficialtrauma.health.treatment_busy_tooltip");
+            // Busy buttons remain disabled without implying that their item is missing.
         } else if (preparation != null) {
             if (preparation.matches(patientEntityId, wound.id())
                     && preparation.kind() == PreparationKind.BANDAGE
@@ -1601,10 +1598,7 @@ public final class HealthScreen extends Screen {
                     || type == TreatmentType.SELF_ADHESIVE_BANDAGE)) {
                 TreatmentProcedure procedure = TreatmentProcedure.bandageCombination(type);
                 active = procedure != null && hasRequiredItems(procedure);
-                tooltip = Component.translatable(
-                        "screen.superficialtrauma.health.treatment_combo_finish_tooltip",
-                        Component.translatable(type.translationKey())
-                );
+                missingRequiredItem = countItem(type) <= 0;
                 if (procedure != null) {
                     onPress = () -> submitPreparedTreatment(patientEntityId, wound.id(), procedure);
                 }
@@ -1615,13 +1609,10 @@ public final class HealthScreen extends Screen {
                 active = actorHasSurgerySkill()
                         && procedure.isApplicable(wound, TreatmentAction.APPLY)
                         && hasRequiredItems(procedure);
-                tooltip = Component.translatable(
-                        "screen.superficialtrauma.health.debridement_finish_tooltip",
-                        procedure.durationTicks() / 20L
-                );
+                missingRequiredItem = actorHasSurgerySkill()
+                        && procedure.isApplicable(wound, TreatmentAction.APPLY)
+                        && countItem(type) <= 0;
                 onPress = () -> submitPreparedTreatment(patientEntityId, wound.id(), procedure);
-            } else {
-                tooltip = Component.translatable("screen.superficialtrauma.health.treatment_preparation_locked");
             }
         } else if (type == TreatmentType.MEDICAL_GAUZE) {
             TreatmentProcedure procedure = TreatmentProcedure.WOUND_PACKING;
@@ -1629,11 +1620,6 @@ public final class HealthScreen extends Screen {
                 active = true;
                 removal = true;
                 message = Component.translatable(TreatmentAction.REMOVE.translationKey(procedure));
-                tooltip = Component.translatable(
-                        "screen.superficialtrauma.health.treatment_remove_tooltip",
-                        message,
-                        procedure.durationTicks() / 20L
-                );
                 onPress = () -> ModNetworking.requestTreatment(
                         patientEntityId,
                         wound.id(),
@@ -1642,7 +1628,8 @@ public final class HealthScreen extends Screen {
                 );
             } else {
                 active = procedure.isApplicable(wound, TreatmentAction.APPLY) && hasRequiredItems(procedure);
-                tooltip = Component.translatable("screen.superficialtrauma.health.medical_gauze_tooltip");
+                missingRequiredItem = procedure.isApplicable(wound, TreatmentAction.APPLY)
+                        && countItem(type) <= 0;
                 onPress = () -> ModNetworking.requestTreatment(
                         patientEntityId,
                         wound.id(),
@@ -1656,11 +1643,6 @@ public final class HealthScreen extends Screen {
                 active = true;
                 removal = true;
                 message = Component.translatable(TreatmentAction.REMOVE.translationKey(procedure));
-                tooltip = Component.translatable(
-                        "screen.superficialtrauma.health.tourniquet_remove_tooltip",
-                        procedure.durationTicks() / 20L,
-                        formatDuration(wound.tourniquetAccumulatedTicks())
-                );
                 onPress = () -> ModNetworking.requestTreatment(
                         patientEntityId,
                         wound.id(),
@@ -1672,14 +1654,9 @@ public final class HealthScreen extends Screen {
                 active = skillAvailable
                         && procedure.isApplicable(wound, TreatmentAction.APPLY)
                         && hasRequiredItems(procedure);
-                tooltip = skillAvailable
-                        ? Component.translatable(
-                                "screen.superficialtrauma.health.tourniquet_tooltip",
-                                procedure.durationTicks() / 20L
-                        )
-                        : Component.translatable(
-                                "screen.superficialtrauma.health.first_aid_skill_required"
-                        );
+                missingRequiredItem = skillAvailable
+                        && procedure.isApplicable(wound, TreatmentAction.APPLY)
+                        && countItem(type) <= 0;
                 onPress = () -> ModNetworking.requestTreatment(
                         patientEntityId,
                         wound.id(),
@@ -1694,11 +1671,6 @@ public final class HealthScreen extends Screen {
                 message = Component.translatable(
                         TreatmentAction.REMOVE.translationKey(appliedProcedure)
                 );
-                tooltip = Component.translatable(
-                        "screen.superficialtrauma.health.treatment_remove_tooltip",
-                        message,
-                        appliedProcedure.durationTicks() / 20L
-                );
                 TreatmentProcedure procedure = appliedProcedure;
                 onPress = () -> ModNetworking.requestTreatment(
                         patientEntityId,
@@ -1706,18 +1678,13 @@ public final class HealthScreen extends Screen {
                         procedure,
                         TreatmentAction.REMOVE
                 );
-            } else {
-                tooltip = Component.translatable(
-                        "screen.superficialtrauma.health.treatment_blocked_by_covering",
-                        Component.translatable(wound.covering().translationKey())
-                );
             }
         } else {
             switch (type) {
                 case TEMPORARY_DRESSING -> {
                     TreatmentProcedure procedure = TreatmentProcedure.TEMPORARY_DRESSING;
                     active = hasRequiredItems(procedure);
-                    tooltip = singleTreatmentTooltip(type);
+                    missingRequiredItem = countItem(type) <= 0;
                     onPress = () -> ModNetworking.requestTreatment(
                             patientEntityId,
                             wound.id(),
@@ -1729,22 +1696,19 @@ public final class HealthScreen extends Screen {
                     active = countItem(TreatmentType.BANDAGE) > 0
                             && (countItem(TreatmentType.MEDICAL_TAPE) > 0
                             || countItem(TreatmentType.SELF_ADHESIVE_BANDAGE) > 0);
-                    tooltip = Component.translatable("screen.superficialtrauma.health.bandage_combo_tooltip");
+                    missingRequiredItem = countItem(type) <= 0;
                     onPress = () -> beginPreparation(
                             patientEntityId,
                             wound.id(),
                             PreparationKind.BANDAGE
                     );
                 }
-                case MEDICAL_TAPE -> tooltip = Component.translatable(
-                        "screen.superficialtrauma.health.medical_tape_requires_bandage"
-                );
+                case MEDICAL_TAPE -> {
+                }
                 case SELF_ADHESIVE_BANDAGE -> {
                     TreatmentProcedure procedure = TreatmentProcedure.SELF_ADHESIVE_BANDAGE;
                     active = hasRequiredItems(procedure);
-                    tooltip = Component.translatable(
-                            "screen.superficialtrauma.health.self_adhesive_bandage_tooltip"
-                    );
+                    missingRequiredItem = countItem(type) <= 0;
                     onPress = () -> ModNetworking.requestTreatment(
                             patientEntityId,
                             wound.id(),
@@ -1756,10 +1720,8 @@ public final class HealthScreen extends Screen {
                     TreatmentProcedure procedure = TreatmentProcedure.ICE_PACK;
                     active = procedure.isApplicable(wound, TreatmentAction.APPLY)
                             && hasRequiredItems(procedure);
-                    tooltip = Component.translatable(
-                            "screen.superficialtrauma.health.ice_pack_tooltip",
-                            procedure.durationTicks() / 20L
-                    );
+                    missingRequiredItem = procedure.isApplicable(wound, TreatmentAction.APPLY)
+                            && countItem(type) <= 0;
                     onPress = () -> ModNetworking.requestTreatment(
                             patientEntityId,
                             wound.id(),
@@ -1767,37 +1729,25 @@ public final class HealthScreen extends Screen {
                             TreatmentAction.APPLY
                     );
                 }
-                case TOURNIQUET -> tooltip = Component.empty();
-                case SALINE_SOLUTION -> tooltip = Component.translatable(
-                        "screen.superficialtrauma.health.saline_requires_surgical_kit"
-                );
+                case TOURNIQUET, SALINE_SOLUTION -> {
+                }
                 case SURGICAL_KIT -> {
                     TreatmentProcedure procedure = TreatmentProcedure.DEBRIDEMENT;
                     boolean skillAvailable = actorHasSurgerySkill();
                     active = skillAvailable
                             && procedure.isApplicable(wound, TreatmentAction.APPLY)
                             && hasRequiredItems(procedure);
-                    if (!skillAvailable) {
-                        tooltip = Component.translatable(
-                                "screen.superficialtrauma.health.surgery_skill_required"
-                        );
-                    } else if (!procedure.isApplicable(wound, TreatmentAction.APPLY)) {
-                        tooltip = Component.translatable(
-                                "screen.superficialtrauma.health.debridement_not_available"
-                        );
-                    } else {
-                        tooltip = Component.translatable(
-                                "screen.superficialtrauma.health.debridement_begin_tooltip",
-                                procedure.durationTicks() / 20L
-                        );
-                    }
+                    missingRequiredItem = skillAvailable
+                            && procedure.isApplicable(wound, TreatmentAction.APPLY)
+                            && countItem(type) <= 0;
                     onPress = () -> beginPreparation(
                             patientEntityId,
                             wound.id(),
                             PreparationKind.DEBRIDEMENT
                     );
                 }
-                default -> tooltip = Component.empty();
+                default -> {
+                }
             }
         }
 
@@ -1807,20 +1757,11 @@ public final class HealthScreen extends Screen {
                 type,
                 removal,
                 message,
-                tooltip,
+                missingRequiredItem,
                 onPress
         );
         button.active = active;
         treatmentButtons.add(addRenderableWidget(button));
-    }
-
-    private Component singleTreatmentTooltip(TreatmentType type) {
-        return Component.translatable(
-                "screen.superficialtrauma.health.treatment_tooltip",
-                Component.translatable(type.translationKey()),
-                1,
-                type.requiredItem().getDescription()
-        );
     }
 
     private boolean actorHasSurgerySkill() {
@@ -1829,11 +1770,6 @@ public final class HealthScreen extends Screen {
 
     private boolean actorHasFirstAidSkill() {
         return ClientBodyState.hasReceivedSnapshot() && ClientBodyState.snapshot().hasFirstAidSkill();
-    }
-
-    private static String formatDuration(long ticks) {
-        long totalSeconds = Math.max(0L, ticks / 20L);
-        return String.format(Locale.ROOT, "%d:%02d", totalSeconds / 60L, totalSeconds % 60L);
     }
 
     private static List<TreatmentType> visibleTreatmentTypes(WoundInstance wound) {

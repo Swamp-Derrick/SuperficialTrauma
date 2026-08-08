@@ -11,6 +11,7 @@ import net.minecraft.world.item.ItemStack;
 final class TreatmentItemButton extends AbstractButton {
     private final TreatmentType treatmentType;
     private final boolean removal;
+    private final boolean missingRequiredItem;
     private final Runnable onPress;
 
     TreatmentItemButton(
@@ -19,12 +20,13 @@ final class TreatmentItemButton extends AbstractButton {
             TreatmentType treatmentType,
             boolean removal,
             Component message,
-            Component tooltip,
+            boolean missingRequiredItem,
             Runnable onPress
     ) {
         super(x, y, 22, 22, message);
         this.treatmentType = treatmentType;
         this.removal = removal;
+        this.missingRequiredItem = missingRequiredItem;
         this.onPress = onPress;
     }
 
@@ -72,6 +74,8 @@ final class TreatmentItemButton extends AbstractButton {
     Component tooltip() {
         return active
                 ? treatmentType.requiredItem().getDescription()
-                : Component.translatable("screen.superficialtrauma.health.item_not_held");
+                : missingRequiredItem
+                        ? Component.translatable("screen.superficialtrauma.health.item_not_held")
+                        : Component.empty();
     }
 }
