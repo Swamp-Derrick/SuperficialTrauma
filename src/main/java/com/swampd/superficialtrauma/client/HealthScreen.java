@@ -1120,17 +1120,13 @@ public final class HealthScreen extends Screen {
             adminDebugView = false;
             return;
         }
-        Component label = Component.translatable(
-                adminDebugView
-                        ? "screen.superficialtrauma.health.admin_standard_view"
-                        : "screen.superficialtrauma.health.admin_debug_view"
-        );
-        int buttonWidth = Math.min(126, Math.max(82, font.width(label) + 12));
+        Component label = Component.literal("DEV");
+        int buttonWidth = font.width(label) + 8;
         addRenderableWidget(Button.builder(label, ignored -> {
                     adminDebugView = !adminDebugView;
                     rebuildTreatmentButtons();
                 })
-                .bounds(6, Math.max(6, height - 26), buttonWidth, 20)
+                .bounds(4, Math.max(4, height - 18), buttonWidth, 14)
                 .build());
     }
 
