@@ -69,6 +69,10 @@ public final class ModItems {
             "metoprolol",
             () -> new Item(new Item.Properties().stacksTo(16))
     );
+    public static final RegistryObject<Item> STETHOSCOPE = ITEMS.register(
+            "stethoscope",
+            () -> new Item(new Item.Properties().stacksTo(1))
+    );
     public static final RegistryObject<Item> MANUAL_RESUSCITATOR = ITEMS.register(
             "manual_resuscitator",
             () -> new Item(new Item.Properties().stacksTo(1))

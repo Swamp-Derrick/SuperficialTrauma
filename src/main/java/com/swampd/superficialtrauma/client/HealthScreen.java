@@ -5,6 +5,8 @@ import com.swampd.superficialtrauma.common.body.BodyLifeState;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.InfusionType;
 import com.swampd.superficialtrauma.common.body.DefibrillationEnergy;
+import com.swampd.superficialtrauma.common.body.HealthStatus;
+import com.swampd.superficialtrauma.common.body.PainSensation;
 import com.swampd.superficialtrauma.common.damage.DamageWindow;
 import com.swampd.superficialtrauma.common.init.ModItems;
 import com.swampd.superficialtrauma.common.item.DefibrillatorItem;
@@ -20,6 +22,7 @@ import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
@@ -68,6 +71,7 @@ public final class HealthScreen extends Screen {
     private long defibrillationReadyGameTime = -1L;
     private DefibrillationEnergySlider defibrillationEnergySlider;
     private DefibrillationChargeButton defibrillationChargeButton;
+    private boolean adminDebugView;
 
     public HealthScreen() {
         super(Component.translatable("screen.superficialtrauma.health.title"));
@@ -189,7 +193,8 @@ public final class HealthScreen extends Screen {
                 layout.innerY + 6,
                 layout.leftWidth - 12,
                 displayedHealth(),
-                displayedMaximumHealth()
+                displayedMaximumHealth(),
+                partialTick
         );
         drawWoundColumn(
                 graphics,
@@ -234,6 +239,163 @@ public final class HealthScreen extends Screen {
     }
 
     private void drawWholeBodyColumn(
+            GuiGraphics graphics,
+            BodyState state,
+            int x,
+            int y,
+            int availableWidth,
+            float currentHealth,
+            float maximumHealth,
+            float partialTick
+    ) {
+        if (adminDebugView && hasAdminPermissions()) {
+            drawDebugWholeBodyColumn(
+                    graphics,
+                    state,
+                    x,
+                    y,
+                    availableWidth,
+                    currentHealth,
+                    maximumHealth
+            );
+            return;
+        }
+        drawStandardWholeBodyColumn(
+                graphics,
+                state,
+                x,
+                y,
+                availableWidth,
+                currentHealth,
+                partialTick
+        );
+    }
+
+    private void drawStandardWholeBodyColumn(
+            GuiGraphics graphics,
+            BodyState state,
+            int x,
+            int y,
+            int availableWidth,
+            float currentHealth,
+            float partialTick
+    ) {
+        graphics.drawString(
+                font,
+                Component.translatable("screen.superficialtrauma.health.vital_signs"),
+                x,
+                y,
+                TITLE_COLOR,
+                false
+        );
+
+        int lineY = y + 16;
+        graphics.drawString(
+                font,
+                Component.translatable("screen.superficialtrauma.health.electrocardiogram"),
+                x,
+                lineY,
+                MUTED_COLOR,
+                false
+        );
+        int electrocardiogramY = lineY + 11;
+        drawElectrocardiogram(
+                graphics,
+                state,
+                x,
+                electrocardiogramY,
+                availableWidth,
+                36,
+                partialTick
+        );
+        lineY = electrocardiogramY + 43;
+
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.life",
+                oneDecimal(currentHealth),
+                healthStatusColor(HealthStatus.from(currentHealth, !state.canAct()))
+        );
+        HealthStatus healthStatus = HealthStatus.from(currentHealth, !state.canAct());
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.status",
+                Component.translatable(healthStatus.translationKey()).getString(),
+                healthStatusColor(healthStatus)
+        );
+
+        PainSensation painSensation = PainSensation.from(state.pain());
+        if (painSensation != PainSensation.NONE) {
+            lineY = drawValue(
+                    graphics,
+                    x,
+                    lineY,
+                    availableWidth,
+                    "screen.superficialtrauma.health.pain_sensation",
+                    Component.translatable(painSensation.translationKey()).getString(),
+                    painSensationColor(painSensation)
+            );
+        }
+
+        lineY += 7;
+        if (!hasStethoscope()) {
+            drawWrappedWithin(
+                    graphics,
+                    Component.translatable("screen.superficialtrauma.health.stethoscope_required"),
+                    x,
+                    lineY,
+                    availableWidth,
+                    MUTED_COLOR,
+                    y + 224
+            );
+            return;
+        }
+
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.infection_index",
+                Integer.toString(Math.max(0, (int) Math.floor(state.infection()))),
+                state.infection() >= 20.0F ? DANGER_COLOR : TEXT_COLOR
+        );
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.drug_concentration",
+                Integer.toString(Math.max(0, Math.round(state.bloodDrugConcentration()))),
+                state.bloodDrugConcentration() >= BodyState.OVERDOSE_THRESHOLD
+                        ? DANGER_COLOR
+                        : TEXT_COLOR
+        );
+
+        String countdown = state.canAct()
+                ? Component.translatable("screen.superficialtrauma.health.not_applicable").getString()
+                : Component.translatable(
+                        "screen.superficialtrauma.health.danger_countdown_value",
+                        oneDecimal(state.totalDownedDangerRemainingTicks(currentGameTime()) / 20.0F)
+                ).getString();
+        drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.death_countdown",
+                countdown,
+                state.canAct() ? MUTED_COLOR : DANGER_COLOR
+        );
+    }
+
+    private void drawDebugWholeBodyColumn(
             GuiGraphics graphics,
             BodyState state,
             int x,
@@ -420,6 +582,145 @@ public final class HealthScreen extends Screen {
                 Integer.toString(state.dataVersion()),
                 MUTED_COLOR
         );
+    }
+
+    private void drawElectrocardiogram(
+            GuiGraphics graphics,
+            BodyState state,
+            int x,
+            int y,
+            int width,
+            int height,
+            float partialTick
+    ) {
+        graphics.fill(x, y, x + width, y + height, 0xE00C1714);
+        drawBorder(graphics, x, y, width, height, 0xFF385149);
+
+        int plotLeft = x + 2;
+        int plotRight = x + width - 2;
+        int plotTop = y + 2;
+        int plotBottom = y + height - 2;
+        int baseline = (plotTop + plotBottom) / 2;
+        for (int gridX = plotLeft + 7; gridX < plotRight; gridX += 8) {
+            graphics.fill(gridX, plotTop, gridX + 1, plotBottom, 0x3035633F);
+        }
+        for (int gridY = plotTop + 7; gridY < plotBottom; gridY += 8) {
+            graphics.fill(plotLeft, gridY, plotRight, gridY + 1, 0x3035633F);
+        }
+
+        ElectrocardiogramRhythm rhythm = electrocardiogramRhythm(state);
+        float time = currentGameTime() + partialTick;
+        int amplitude = Math.max(4, (plotBottom - plotTop) / 2 - 2);
+        int previousY = baseline;
+        for (int pixelX = plotLeft; pixelX < plotRight; pixelX++) {
+            float sample = electrocardiogramSample(
+                    rhythm,
+                    pixelX - plotLeft,
+                    time,
+                    maximumEffectiveDisorientation(state)
+            );
+            int sampleY = baseline - Math.round(sample * amplitude);
+            sampleY = Math.max(plotTop, Math.min(plotBottom - 1, sampleY));
+            int minimumY = Math.min(previousY, sampleY);
+            int maximumY = Math.max(previousY, sampleY);
+            graphics.fill(pixelX, minimumY, pixelX + 1, maximumY + 1, 0xFF72E292);
+            previousY = sampleY;
+        }
+    }
+
+    private ElectrocardiogramRhythm electrocardiogramRhythm(BodyState state) {
+        return switch (state.lifeState()) {
+            case CARDIAC_ARREST, BRAIN_DEAD -> ElectrocardiogramRhythm.FLATLINE;
+            case VENTRICULAR_FIBRILLATION -> ElectrocardiogramRhythm.FIBRILLATION;
+            default -> maximumEffectiveDisorientation(state) > 0
+                    ? ElectrocardiogramRhythm.TACHYCARDIA
+                    : ElectrocardiogramRhythm.NORMAL;
+        };
+    }
+
+    private int maximumEffectiveDisorientation(BodyState state) {
+        int maximum = 0;
+        for (WoundInstance wound : state.wounds()) {
+            maximum = Math.max(maximum, state.effectiveDisorientationLevel(wound));
+        }
+        return maximum;
+    }
+
+    private static float electrocardiogramSample(
+            ElectrocardiogramRhythm rhythm,
+            int horizontalPosition,
+            float time,
+            int disorientationLevel
+    ) {
+        if (rhythm == ElectrocardiogramRhythm.FLATLINE) {
+            return 0.0F;
+        }
+        if (rhythm == ElectrocardiogramRhythm.FIBRILLATION) {
+            double shifted = horizontalPosition + time * 1.35D;
+            return (float) (
+                    Math.sin(shifted * 0.51D) * 0.42D
+                            + Math.sin(shifted * 1.19D + 0.8D) * 0.27D
+                            + Math.sin(shifted * 2.03D + 1.7D) * 0.18D
+            );
+        }
+
+        float period = rhythm == ElectrocardiogramRhythm.TACHYCARDIA
+                ? Math.max(12.0F, 18.0F - disorientationLevel * 1.5F)
+                : 28.0F;
+        float phase = positiveFraction((horizontalPosition + time * 0.55F) / period);
+        float waveform = heartbeatSample(phase);
+        return rhythm == ElectrocardiogramRhythm.TACHYCARDIA ? waveform * 0.9F : waveform;
+    }
+
+    private static float heartbeatSample(float phase) {
+        if (phase < 0.12F) {
+            return 0.0F;
+        }
+        if (phase < 0.20F) {
+            return (float) Math.sin((phase - 0.12F) / 0.08F * Math.PI) * 0.16F;
+        }
+        if (phase < 0.30F) {
+            return 0.0F;
+        }
+        if (phase < 0.34F) {
+            return -((phase - 0.30F) / 0.04F) * 0.22F;
+        }
+        if (phase < 0.37F) {
+            return -0.22F + ((phase - 0.34F) / 0.03F) * 1.22F;
+        }
+        if (phase < 0.41F) {
+            return 1.0F - ((phase - 0.37F) / 0.04F) * 1.46F;
+        }
+        if (phase < 0.47F) {
+            return -0.46F + ((phase - 0.41F) / 0.06F) * 0.46F;
+        }
+        if (phase < 0.62F) {
+            return 0.0F;
+        }
+        if (phase < 0.78F) {
+            return (float) Math.sin((phase - 0.62F) / 0.16F * Math.PI) * 0.28F;
+        }
+        return 0.0F;
+    }
+
+    private static float positiveFraction(float value) {
+        return value - (float) Math.floor(value);
+    }
+
+    private static int healthStatusColor(HealthStatus status) {
+        return switch (status) {
+            case OK, VERY_MINOR_DAMAGE -> GOOD_COLOR;
+            case MINOR_DAMAGE, MODERATE_DAMAGE -> WARN_COLOR;
+            case SEVERE_DAMAGE, TERMINAL_DAMAGE, DOWNED -> DANGER_COLOR;
+        };
+    }
+
+    private static int painSensationColor(PainSensation sensation) {
+        return switch (sensation) {
+            case NONE, MINOR_PAIN -> TEXT_COLOR;
+            case PAIN -> WARN_COLOR;
+            case SEVERE_PAIN, EXTREME_PAIN -> DANGER_COLOR;
+        };
     }
 
     private void drawWoundColumn(
@@ -846,6 +1147,7 @@ public final class HealthScreen extends Screen {
         defibrillationChargeButton = null;
         Layout layout = layout();
         addPanelModeButtons(layout);
+        addAdminDebugButton();
         if (!hasSnapshot() || minecraft == null || minecraft.player == null) {
             return;
         }
@@ -916,6 +1218,25 @@ public final class HealthScreen extends Screen {
             ));
             index++;
         }
+    }
+
+    private void addAdminDebugButton() {
+        if (!hasAdminPermissions()) {
+            adminDebugView = false;
+            return;
+        }
+        Component label = Component.translatable(
+                adminDebugView
+                        ? "screen.superficialtrauma.health.admin_standard_view"
+                        : "screen.superficialtrauma.health.admin_debug_view"
+        );
+        int buttonWidth = Math.min(126, Math.max(82, font.width(label) + 12));
+        addRenderableWidget(Button.builder(label, ignored -> {
+                    adminDebugView = !adminDebugView;
+                    rebuildTreatmentButtons();
+                })
+                .bounds(6, Math.max(6, height - 26), buttonWidth, 20)
+                .build());
     }
 
     private void switchPanelMode(PanelMode newMode) {
@@ -1223,6 +1544,16 @@ public final class HealthScreen extends Screen {
 
     private boolean actorCanAct() {
         return ClientBodyState.hasReceivedSnapshot() && ClientBodyState.snapshot().canAct();
+    }
+
+    private boolean hasAdminPermissions() {
+        return minecraft != null
+                && minecraft.player != null
+                && minecraft.player.hasPermissions(2);
+    }
+
+    private boolean hasStethoscope() {
+        return countItem(ModItems.STETHOSCOPE.get()) > 0;
     }
 
     private void beginAssistedBreathing() {
@@ -2154,6 +2485,13 @@ public final class HealthScreen extends Screen {
         MORPHINE,
         NALOXONE,
         METOPROLOL
+    }
+
+    private enum ElectrocardiogramRhythm {
+        NORMAL,
+        TACHYCARDIA,
+        FIBRILLATION,
+        FLATLINE
     }
 
     private enum PanelMode {

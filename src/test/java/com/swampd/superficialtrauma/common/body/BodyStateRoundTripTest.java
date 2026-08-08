@@ -65,6 +65,7 @@ public final class BodyStateRoundTripTest {
         verifyMedicationLayersAndOverdose();
         verifyNaloxoneAndMetoprolol();
         verifyGiveUpAndTotalCountdown();
+        verifyStandardVitalSignRanges();
         verifyTraumaticShockAwakeningAndRetryCooldown();
         verifyHemorrhagicShockAwakeningRequirements();
         verifyDownedPostureClassification();
@@ -498,6 +499,30 @@ public final class BodyStateRoundTripTest {
         restored.deserializeNBT(downed.serializeNBT());
         assertEquals(true, restored.voluntaryDeath(), "voluntary-death evidence must survive player NBT round trip");
         assertEquals(BodyLifeState.BRAIN_DEAD, restored.lifeState(), "give-up brain death must survive player NBT round trip");
+    }
+
+    private static void verifyStandardVitalSignRanges() {
+        assertEquals(HealthStatus.OK, HealthStatus.from(20.0F, false), "twenty health must be OK");
+        assertEquals(HealthStatus.OK, HealthStatus.from(18.0F, false), "eighteen must remain in the left-closed OK interval");
+        assertEquals(HealthStatus.VERY_MINOR_DAMAGE, HealthStatus.from(17.999F, false), "values below eighteen must be very minor damage");
+        assertEquals(HealthStatus.VERY_MINOR_DAMAGE, HealthStatus.from(16.0F, false), "sixteen must remain in the very-minor interval");
+        assertEquals(HealthStatus.MINOR_DAMAGE, HealthStatus.from(15.999F, false), "values below sixteen must be minor damage");
+        assertEquals(HealthStatus.MINOR_DAMAGE, HealthStatus.from(12.0F, false), "twelve must remain in the minor interval");
+        assertEquals(HealthStatus.MODERATE_DAMAGE, HealthStatus.from(11.999F, false), "values below twelve must be moderate damage");
+        assertEquals(HealthStatus.MODERATE_DAMAGE, HealthStatus.from(8.0F, false), "eight must remain in the moderate interval");
+        assertEquals(HealthStatus.SEVERE_DAMAGE, HealthStatus.from(7.999F, false), "values below eight must be severe damage");
+        assertEquals(HealthStatus.SEVERE_DAMAGE, HealthStatus.from(4.0F, false), "four must remain in the severe interval");
+        assertEquals(HealthStatus.TERMINAL_DAMAGE, HealthStatus.from(3.999F, false), "values below four must be terminal damage");
+        assertEquals(HealthStatus.DOWNED, HealthStatus.from(20.0F, true), "downed state must override the numerical health range");
+
+        assertEquals(PainSensation.NONE, PainSensation.from(0.0F), "zero pain must not display a sensation");
+        assertEquals(PainSensation.MINOR_PAIN, PainSensation.from(0.001F), "positive pain below five must be minor pain");
+        assertEquals(PainSensation.MINOR_PAIN, PainSensation.from(4.999F), "values below five must remain minor pain");
+        assertEquals(PainSensation.PAIN, PainSensation.from(5.0F), "five must enter the pain interval");
+        assertEquals(PainSensation.PAIN, PainSensation.from(11.999F), "values below twelve must remain pain");
+        assertEquals(PainSensation.SEVERE_PAIN, PainSensation.from(12.0F), "twelve must enter severe pain");
+        assertEquals(PainSensation.SEVERE_PAIN, PainSensation.from(17.999F), "values below eighteen must remain severe pain");
+        assertEquals(PainSensation.EXTREME_PAIN, PainSensation.from(18.0F), "eighteen must enter extreme pain");
     }
 
     private static void verifyTraumaticShockAwakeningAndRetryCooldown() {
