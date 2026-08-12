@@ -9,6 +9,7 @@ import com.swampd.superficialtrauma.common.body.DownedFallDirection;
 import com.swampd.superficialtrauma.common.body.DowningHitRecord;
 import com.swampd.superficialtrauma.common.body.WoundHistoryEntry;
 import com.swampd.superficialtrauma.common.config.CorpseServerConfig;
+import com.swampd.superficialtrauma.common.drag.BodyDragService;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.core.NonNullList;
@@ -27,6 +28,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.network.NetworkHooks;
 
 import java.util.List;
@@ -90,7 +92,7 @@ public final class CorpseEntity extends LivingEntity implements Container {
 
     public CorpseEntity(EntityType<? extends CorpseEntity> entityType, Level level) {
         super(entityType, level);
-        setNoGravity(true);
+        setNoGravity(false);
         setInvulnerable(true);
         setHealth(1.0F);
     }
@@ -231,8 +233,17 @@ public final class CorpseEntity extends LivingEntity implements Container {
 
     @Override
     public void tick() {
+        // Older saved corpses may still carry the previous NoGravity NBT flag.
+        setNoGravity(false);
         super.tick();
-        setDeltaMovement(0.0D, 0.0D, 0.0D);
+        if (!level().isClientSide) {
+            Vec3 pull = BodyDragService.horizontalPull(this);
+            double verticalMovement = getDeltaMovement().y;
+            setDeltaMovement(pull.x, verticalMovement, pull.z);
+            if (BodyDragService.isBeingDragged(this)) {
+                hurtMarked = true;
+            }
+        }
         setAirSupply(getMaxAirSupply());
         setHealth(1.0F);
         if (!level().isClientSide && advanceEmptyLifecycle()) {
@@ -259,7 +270,7 @@ public final class CorpseEntity extends LivingEntity implements Container {
 
     @Override
     public void push(double x, double y, double z) {
-        // A collidable corpse pushes the other entity away while remaining anchored.
+        // Ignore entity pushes while still allowing gravity and block collision to move the corpse vertically.
     }
 
     @Override

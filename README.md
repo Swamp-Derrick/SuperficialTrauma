@@ -226,6 +226,10 @@ Every classified gunshot with single-hit `D` in `[0, 4)` converts to blunt traum
 | High velocity | `A in [4, 10)` | `A in [10, +inf)`, capped here when `V <= 10` | `A in [12, +inf)` and at least one hit had `V > 10` |
 | Shotgun | `A in [4, 8)` | `A in [8, +inf)` and all contributing hits had `L > 3` | `A in [8, +inf)` and at least one hit had `L <= 3` |
 
+## Contributors
+
+Project credits are recorded in [CONTRIBUTORS.md](CONTRIBUTORS.md), including the collaboration between Swamp_D and OpenAI Codex.
+
 ## License
 
 Copyright (c) 2026 Swamp_D. All Rights Reserved. The repository may be publicly viewable, but reuse and redistribution require separate permission from the copyright holder.

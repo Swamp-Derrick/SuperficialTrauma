@@ -76,7 +76,15 @@ public final class ClientDownedInput {
         minecraft.player.setSprinting(false);
         minecraft.player.setShiftKeyDown(false);
         Vec3 movement = minecraft.player.getDeltaMovement();
-        minecraft.player.setDeltaMovement(0.0D, Math.min(0.0D, movement.y), 0.0D);
+        if (ClientBodyDragState.isBeingDragged(minecraft.player.getId())) {
+            minecraft.player.setDeltaMovement(
+                    movement.x,
+                    Math.min(0.0D, movement.y),
+                    movement.z
+            );
+        } else {
+            minecraft.player.setDeltaMovement(0.0D, Math.min(0.0D, movement.y), 0.0D);
+        }
     }
 
     public static void onPoseChanged(int playerEntityId) {

@@ -30,6 +30,15 @@ public enum MedicationType {
             0.0F,
             0
     ),
+    EPINEPHRINE(
+            MedicationRoute.INJECTION,
+            MedicationFamily.ADRENERGIC,
+            5L * 20L,
+            3L * 60L * 20L,
+            5.0F,
+            0.0F,
+            1
+    ),
     METOPROLOL(
             MedicationRoute.ORAL,
             MedicationFamily.BETA_BLOCKER,
@@ -37,7 +46,7 @@ public enum MedicationType {
             5L * 60L * 20L,
             4.0F,
             0.0F,
-            2
+            -2
     );
 
     private final MedicationRoute route;
@@ -46,7 +55,7 @@ public enum MedicationType {
     private final long effectDurationTicks;
     private final float concentration;
     private final float painReduction;
-    private final int disorientationReduction;
+    private final int heartRateShift;
 
     MedicationType(
             MedicationRoute route,
@@ -55,7 +64,7 @@ public enum MedicationType {
             long effectDurationTicks,
             float concentration,
             float painReduction,
-            int disorientationReduction
+            int heartRateShift
     ) {
         this.route = route;
         this.family = family;
@@ -63,7 +72,7 @@ public enum MedicationType {
         this.effectDurationTicks = effectDurationTicks;
         this.concentration = concentration;
         this.painReduction = painReduction;
-        this.disorientationReduction = Math.max(0, disorientationReduction);
+        this.heartRateShift = heartRateShift;
     }
 
     public MedicationRoute route() {
@@ -90,8 +99,8 @@ public enum MedicationType {
         return painReduction;
     }
 
-    public int disorientationReduction() {
-        return disorientationReduction;
+    public int heartRateShift() {
+        return heartRateShift;
     }
 
     public boolean createsActiveDose() {

@@ -246,6 +246,40 @@ public final class WoundInstance {
         return Collections.unmodifiableSet(woundTags);
     }
 
+    /**
+     * Returns the one-time whole-body heart-rate impulse caused when this wound first reaches the supplied severity.
+     * Heart-rate state is owned by BodyState; it is deliberately not retained as a wound tag.
+     */
+    public static int heartRateImpactFor(WoundType type, int severity) {
+        return switch (type) {
+            case SHARP -> severity >= 3 ? 1 : 0;
+            case GUNSHOT_LOW_VELOCITY -> switch (severity) {
+                case 2 -> 1;
+                case 3 -> 2;
+                default -> 0;
+            };
+            case GUNSHOT_HIGH_VELOCITY -> severity >= 3 ? 2 : 0;
+            case GUNSHOT_SHOTGUN -> switch (severity) {
+                case 2 -> 1;
+                case 3 -> 3;
+                default -> 0;
+            };
+            default -> 0;
+        };
+    }
+
+    /**
+     * Removes pre-v23 wound-local disorientation data and returns its former level for BodyState migration.
+     */
+    public int removeLegacyDisorientationTags() {
+        int migratedLevel = 0;
+        for (WoundTag tag : woundTags) {
+            migratedLevel = Math.max(migratedLevel, tag.disorientationLevel());
+        }
+        woundTags.removeIf(tag -> tag.disorientationLevel() > 0);
+        return migratedLevel;
+    }
+
     public long transientPainEndGameTime() {
         return transientPainEndGameTime;
     }
@@ -872,7 +906,7 @@ public final class WoundInstance {
             case SHARP -> switch (severity) {
                 case 1 -> EnumSet.of(WoundTag.PAIN_1);
                 case 2 -> EnumSet.of(WoundTag.BLEEDING_2, WoundTag.PAIN_1);
-                case 3 -> EnumSet.of(WoundTag.BLEEDING_3, WoundTag.DISORIENTATION_1, WoundTag.PAIN_3);
+                case 3 -> EnumSet.of(WoundTag.BLEEDING_3, WoundTag.PAIN_3);
                 default -> EnumSet.noneOf(WoundTag.class);
             };
             case BURN -> switch (severity) {
@@ -894,20 +928,20 @@ public final class WoundInstance {
             };
             case GUNSHOT_LOW_VELOCITY -> switch (severity) {
                 case 1 -> EnumSet.of(WoundTag.BLEEDING_1, WoundTag.PAIN_1);
-                case 2 -> EnumSet.of(WoundTag.BLEEDING_3, WoundTag.DISORIENTATION_1, WoundTag.PAIN_2);
-                case 3 -> EnumSet.of(WoundTag.BLEEDING_3, WoundTag.DISORIENTATION_2, WoundTag.PAIN_3);
+                case 2 -> EnumSet.of(WoundTag.BLEEDING_3, WoundTag.PAIN_2);
+                case 3 -> EnumSet.of(WoundTag.BLEEDING_3, WoundTag.PAIN_3);
                 default -> EnumSet.noneOf(WoundTag.class);
             };
             case GUNSHOT_HIGH_VELOCITY -> switch (severity) {
                 case 1 -> EnumSet.of(WoundTag.BLEEDING_2, WoundTag.PAIN_1);
                 case 2 -> EnumSet.of(WoundTag.BLEEDING_3, WoundTag.PAIN_1);
-                case 3 -> EnumSet.of(WoundTag.BLEEDING_4, WoundTag.DISORIENTATION_2, WoundTag.PAIN_2);
+                case 3 -> EnumSet.of(WoundTag.BLEEDING_4, WoundTag.PAIN_2);
                 default -> EnumSet.noneOf(WoundTag.class);
             };
             case GUNSHOT_SHOTGUN -> switch (severity) {
                 case 1 -> EnumSet.of(WoundTag.BLEEDING_2, WoundTag.PAIN_2);
-                case 2 -> EnumSet.of(WoundTag.BLEEDING_2, WoundTag.DISORIENTATION_1, WoundTag.PAIN_2);
-                case 3 -> EnumSet.of(WoundTag.BLEEDING_4, WoundTag.DISORIENTATION_3, WoundTag.PAIN_3);
+                case 2 -> EnumSet.of(WoundTag.BLEEDING_2, WoundTag.PAIN_2);
+                case 3 -> EnumSet.of(WoundTag.BLEEDING_4, WoundTag.PAIN_3);
                 default -> EnumSet.noneOf(WoundTag.class);
             };
         };

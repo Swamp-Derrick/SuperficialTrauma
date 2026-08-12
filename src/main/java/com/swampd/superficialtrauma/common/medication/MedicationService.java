@@ -232,7 +232,11 @@ public final class MedicationService {
             return;
         }
         boolean patientWasDowned = !state.canAct();
-        if (!state.applyMedication(session.type(), actor.serverLevel().getGameTime())) {
+        if (!state.applyMedication(
+                session.type(),
+                actor.serverLevel().getGameTime(),
+                patientWasDowned
+        )) {
             cancelActor(actor.getUUID(), MedicationCancelReason.INVALID_TARGET);
             return;
         }
@@ -322,6 +326,8 @@ public final class MedicationService {
                     && hasItem(actor, ModItems.MORPHINE_VIAL.get());
             case NALOXONE -> hasItem(actor, ModItems.SYRINGE.get())
                     && hasItem(actor, ModItems.NALOXONE.get());
+            case EPINEPHRINE -> hasItem(actor, ModItems.SYRINGE.get())
+                    && hasItem(actor, ModItems.EPINEPHRINE_INJECTION.get());
             case METOPROLOL -> hasItem(actor, ModItems.METOPROLOL.get());
         };
     }
@@ -336,6 +342,10 @@ public final class MedicationService {
             case NALOXONE -> {
                 consumeOne(actor, ModItems.SYRINGE.get());
                 consumeOne(actor, ModItems.NALOXONE.get());
+            }
+            case EPINEPHRINE -> {
+                consumeOne(actor, ModItems.SYRINGE.get());
+                consumeOne(actor, ModItems.EPINEPHRINE_INJECTION.get());
             }
             case METOPROLOL -> consumeOne(actor, ModItems.METOPROLOL.get());
         }
@@ -367,7 +377,7 @@ public final class MedicationService {
     private static MedicalActionSound soundFor(MedicationType type) {
         return switch (type) {
             case PARACETAMOL, METOPROLOL -> MedicalActionSound.TABLETS;
-            case MORPHINE, NALOXONE -> MedicalActionSound.VIAL;
+            case MORPHINE, NALOXONE, EPINEPHRINE -> MedicalActionSound.VIAL;
         };
     }
 
@@ -383,7 +393,9 @@ public final class MedicationService {
                 && hasRequiredItems(actor, MedicationType.MORPHINE);
         boolean naloxoneAvailable = isEligiblePatient(actor, patient, MedicationType.NALOXONE)
                 && hasRequiredItems(actor, MedicationType.NALOXONE);
-        return morphineAvailable || naloxoneAvailable;
+        boolean epinephrineAvailable = isEligiblePatient(actor, patient, MedicationType.EPINEPHRINE)
+                && hasRequiredItems(actor, MedicationType.EPINEPHRINE);
+        return morphineAvailable || naloxoneAvailable || epinephrineAvailable;
     }
 
     private static ServerPlayer player(ServerPlayer reference, UUID playerId) {

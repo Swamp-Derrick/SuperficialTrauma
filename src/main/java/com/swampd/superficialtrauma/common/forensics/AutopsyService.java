@@ -3,6 +3,9 @@ package com.swampd.superficialtrauma.common.forensics;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.entity.CorpseEntity;
 import com.swampd.superficialtrauma.common.init.ModItems;
+import com.swampd.superficialtrauma.common.qte.TimingQteDefinition;
+import com.swampd.superficialtrauma.common.qte.TimingQteResult;
+import com.swampd.superficialtrauma.common.qte.TimingQteService;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSound;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSoundChannel;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSoundService;
@@ -22,6 +25,22 @@ public final class AutopsyService {
     private static final double MAX_CONTINUE_DISTANCE_SQUARED = 6.0D * 6.0D;
     private static final double ACTION_MOVEMENT_TOLERANCE_SQUARED = 0.12D * 0.12D;
     private static final long PERIODIC_SYNC_TICKS = 10L;
+    private static final float CHECKLIST_QTE_CHANCE_PER_SECOND = 0.13F;
+    private static final long CHECKLIST_QTE_ROLL_INTERVAL_TICKS = 20L;
+    private static final long CHECKLIST_QTE_COOLDOWN_TICKS = 3L * 20L;
+    private static final long CHECKLIST_QTE_FAILURE_PENALTY_TICKS = 5L * 20L;
+    private static final long CHECKLIST_QTE_PERFECT_REWARD_TICKS = 2L * 20L;
+    private static final long CHECKLIST_QTE_FINAL_BUFFER_TICKS = 4L * 20L;
+    private static final int CHECKLIST_QTE_SWEEP_DURATION_TICKS = 26;
+    private static final TimingQteDefinition CHECKLIST_QTE = new TimingQteDefinition(
+            10,
+            CHECKLIST_QTE_SWEEP_DURATION_TICKS,
+            0.28F,
+            0.68F,
+            0.06F,
+            0.18F,
+            8
+    );
     private static final Map<UUID, Session> SESSIONS = new HashMap<>();
 
     private AutopsyService() {
@@ -39,6 +58,7 @@ public final class AutopsyService {
         if (session == null || !session.corpseId.equals(corpse.getUUID())) {
             if (session != null && session.activeAction != AutopsyAction.NONE) {
                 stopAutopsySound(examiner);
+                TimingQteService.cancel(examiner);
             }
             session = new Session(corpse.getUUID(), corpse.getId());
             SESSIONS.put(examiner.getUUID(), session);
@@ -94,6 +114,7 @@ public final class AutopsyService {
         session.activeAction = action;
         session.actionStartPosition = examiner.position();
         session.actionEndGameTime = gameTime + action.durationTicks();
+        session.nextQteRollGameTime = gameTime + CHECKLIST_QTE_ROLL_INTERVAL_TICKS;
         MedicalActionSoundService.start(
                 examiner,
                 null,
@@ -107,6 +128,7 @@ public final class AutopsyService {
         Session session = SESSIONS.get(examiner.getUUID());
         if (session != null && session.corpseEntityId == corpseEntityId) {
             stopAutopsySound(examiner);
+            TimingQteService.cancel(examiner);
             SESSIONS.remove(examiner.getUUID());
         }
     }
@@ -119,6 +141,7 @@ public final class AutopsyService {
         CorpseEntity corpse = findCorpse(examiner, session.corpseId);
         if (corpse == null || !canInspect(examiner, corpse, MAX_CONTINUE_DISTANCE_SQUARED, false)) {
             stopAutopsySound(examiner);
+            TimingQteService.cancel(examiner);
             SESSIONS.remove(examiner.getUUID());
             ModNetworking.closeAutopsy(examiner, session.corpseEntityId);
             return;
@@ -145,10 +168,12 @@ public final class AutopsyService {
                     corpse.revealDetailedAutopsy();
                 }
                 stopAutopsySound(examiner);
+                TimingQteService.cancel(examiner);
                 session.clearAction();
                 sendReport(examiner, corpse, session, false);
                 return;
             }
+            maybeStartChecklistQte(examiner, session, gameTime);
         }
         if (gameTime - session.lastSyncGameTime >= PERIODIC_SYNC_TICKS) {
             sendReport(examiner, corpse, session, false);
@@ -157,17 +182,64 @@ public final class AutopsyService {
 
     public static void forgetPlayer(UUID playerId) {
         SESSIONS.remove(playerId);
+        TimingQteService.forgetPlayer(playerId);
     }
 
     public static void clearAll() {
         SESSIONS.clear();
+        TimingQteService.clearAll();
     }
 
     private static void cancelAction(ServerPlayer examiner, CorpseEntity corpse, Session session) {
         stopAutopsySound(examiner);
+        TimingQteService.cancel(examiner);
         session.clearAction();
         sendReport(examiner, corpse, session, false);
         examiner.displayClientMessage(Component.translatable("message.superficialtrauma.autopsy.cancelled"), true);
+    }
+
+    private static void maybeStartChecklistQte(ServerPlayer examiner, Session session, long gameTime) {
+        if (session.activeAction != AutopsyAction.CHECKLIST
+                || TimingQteService.hasActive(examiner)
+                || gameTime < session.nextQteRollGameTime
+                || session.actionEndGameTime - gameTime <= CHECKLIST_QTE_FINAL_BUFFER_TICKS) {
+            return;
+        }
+        session.nextQteRollGameTime = gameTime + CHECKLIST_QTE_ROLL_INTERVAL_TICKS;
+        if (examiner.getRandom().nextFloat() >= CHECKLIST_QTE_CHANCE_PER_SECOND) {
+            return;
+        }
+        UUID expectedCorpseId = session.corpseId;
+        TimingQteService.start(
+                examiner,
+                CHECKLIST_QTE,
+                (player, result) -> resolveChecklistQte(player, expectedCorpseId, result)
+        );
+    }
+
+    private static void resolveChecklistQte(
+            ServerPlayer examiner,
+            UUID expectedCorpseId,
+            TimingQteResult result
+    ) {
+        Session session = SESSIONS.get(examiner.getUUID());
+        if (session == null
+                || !session.corpseId.equals(expectedCorpseId)
+                || session.activeAction != AutopsyAction.CHECKLIST) {
+            return;
+        }
+        long gameTime = examiner.serverLevel().getGameTime();
+        if (result == TimingQteResult.PERFECT) {
+            session.actionEndGameTime = Math.max(gameTime, session.actionEndGameTime
+                    - CHECKLIST_QTE_PERFECT_REWARD_TICKS);
+        } else if (result.failed()) {
+            session.actionEndGameTime += CHECKLIST_QTE_FAILURE_PENALTY_TICKS;
+        }
+        session.nextQteRollGameTime = gameTime + CHECKLIST_QTE_COOLDOWN_TICKS;
+        CorpseEntity corpse = findCorpse(examiner, session.corpseId);
+        if (corpse != null) {
+            sendReport(examiner, corpse, session, false);
+        }
     }
 
     private static void sendReport(ServerPlayer examiner, CorpseEntity corpse, Session session, boolean openScreen) {
@@ -255,6 +327,7 @@ public final class AutopsyService {
         private AutopsyAction activeAction = AutopsyAction.NONE;
         private Vec3 actionStartPosition;
         private long actionEndGameTime = -1L;
+        private long nextQteRollGameTime = Long.MAX_VALUE;
         private long lastSyncGameTime = Long.MIN_VALUE;
 
         private Session(UUID corpseId, int corpseEntityId) {
@@ -266,6 +339,7 @@ public final class AutopsyService {
             activeAction = AutopsyAction.NONE;
             actionStartPosition = null;
             actionEndGameTime = -1L;
+            nextQteRollGameTime = Long.MAX_VALUE;
         }
     }
 }

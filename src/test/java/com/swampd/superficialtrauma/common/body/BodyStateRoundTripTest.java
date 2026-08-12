@@ -11,6 +11,8 @@ import com.swampd.superficialtrauma.common.forensics.AutopsyReport;
 import com.swampd.superficialtrauma.common.config.CorpseServerConfig;
 import com.swampd.superficialtrauma.common.loot.CorpseEquipmentTransfer;
 import com.swampd.superficialtrauma.common.medication.MedicationType;
+import com.swampd.superficialtrauma.common.qte.TimingQteResult;
+import com.swampd.superficialtrauma.common.qte.TimingQteSnapshot;
 import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
 import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
 import com.swampd.superficialtrauma.common.treatment.TreatmentType;
@@ -20,6 +22,7 @@ import com.swampd.superficialtrauma.common.wound.WoundTag;
 import com.swampd.superficialtrauma.common.wound.WoundType;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
@@ -64,6 +67,7 @@ public final class BodyStateRoundTripTest {
         verifyInfusionProgression();
         verifyMedicationLayersAndOverdose();
         verifyNaloxoneAndMetoprolol();
+        verifyEpinephrineEffects();
         verifyGiveUpAndTotalCountdown();
         verifyStandardVitalSignRanges();
         verifyTraumaticShockAwakeningAndRetryCooldown();
@@ -97,6 +101,7 @@ public final class BodyStateRoundTripTest {
         verifyVersionSixDownedMigrationDefaults();
         verifyVersionSevenPoseMigrationDefaults();
         verifyWoundLimitAndActiveWindowUpdate();
+        verifyTimingQteHalfOpenRanges();
         System.out.println("Superficial Trauma BodyState self-test passed.");
     }
 
@@ -186,7 +191,8 @@ public final class BodyStateRoundTripTest {
         );
         assertEquals(3, lowWound.severity(), "A fifteen with V above ten must upgrade to severity three");
         assertEquals(true, lowWound.fragmentationEligible(), "armor-qualified context must persist on the wound");
-        assertEquals(true, lowWound.woundTags().contains(WoundTag.DISORIENTATION_2), "severity three must add disorientation two");
+        assertEquals(false, lowWound.woundTags().contains(WoundTag.DISORIENTATION_2), "heart-rate state must not remain attached to a wound");
+        assertEquals(2, state.heartRateLevel(), "severity-three low-velocity trauma must add two whole-body heart-rate levels");
         assertEquals(true, lowWound.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "severity upgrades must retain a successful debridement roll");
 
         WoundUpdateResult closeShotgun = state.applyGunshotDamage(
@@ -200,7 +206,8 @@ public final class BodyStateRoundTripTest {
         WoundInstance shotgunWound = requireWound(closeShotgun);
         assertEquals(3, shotgunWound.severity(), "L equal to three must count as a close-range shotgun wound");
         assertEquals(true, shotgunWound.closeRangeShot(), "close-range context must be recorded");
-        assertEquals(true, shotgunWound.woundTags().contains(WoundTag.DISORIENTATION_3), "close shotgun severity three must add disorientation three");
+        assertEquals(false, shotgunWound.woundTags().contains(WoundTag.DISORIENTATION_3), "shotgun heart-rate impact must not remain attached to a wound");
+        assertEquals(3, state.heartRateLevel(), "close shotgun trauma must clamp the whole-body heart-rate level at three");
 
         BodyState restored = new BodyState();
         restored.deserializeNBT(state.serializeNBT());
@@ -455,8 +462,8 @@ public final class BodyStateRoundTripTest {
         assertEquals(false, nonOpioidOverdose.applyMedication(MedicationType.NALOXONE, 5L), "naloxone must do nothing when no opioid layer exists");
         assertFloatEquals(20.0F, nonOpioidOverdose.bloodDrugConcentration(), "naloxone must not lower non-opioid overdose concentration");
 
-        BodyState disorientation = new BodyState();
-        WoundInstance shotgunWound = requireWound(disorientation.applyGunshotDamage(
+        BodyState heartRate = new BodyState();
+        WoundInstance shotgunWound = requireWound(heartRate.applyGunshotDamage(
                 WoundType.GUNSHOT_SHOTGUN,
                 8.0F,
                 0,
@@ -464,13 +471,141 @@ public final class BodyStateRoundTripTest {
                 false,
                 0L
         ));
-        assertEquals(3, disorientation.effectiveDisorientationLevel(shotgunWound), "untreated close shotgun trauma must retain disorientation three");
-        assertEquals(true, disorientation.applyMedication(MedicationType.METOPROLOL, 1L), "metoprolol must create a five-minute active layer");
-        assertEquals(1, disorientation.effectiveDisorientationLevel(shotgunWound), "one metoprolol layer must reduce disorientation by two levels");
-        disorientation.applyMedication(MedicationType.METOPROLOL, 2L);
-        assertEquals(0, disorientation.effectiveDisorientationLevel(shotgunWound), "stacked metoprolol reduction must clamp at zero");
-        disorientation.advanceBodyProgression(6_002L);
-        assertEquals(3, disorientation.effectiveDisorientationLevel(shotgunWound), "metoprolol reduction must end after five minutes");
+        assertEquals(3, heartRate.heartRateLevel(), "close shotgun trauma must create whole-body tachycardia three");
+        assertEquals(true, heartRate.applyMedication(MedicationType.METOPROLOL, 1L), "metoprolol must create a five-minute active layer");
+        assertEquals(1, heartRate.effectiveHeartRateLevel(), "one metoprolol layer must shift heart rate down by two levels");
+        heartRate.applyMedication(MedicationType.METOPROLOL, 2L);
+        assertEquals(-1, heartRate.effectiveHeartRateLevel(), "stacked metoprolol must be able to cross zero into bradycardia");
+
+        BodyState restoredHeartRate = new BodyState();
+        restoredHeartRate.deserializeNBT(heartRate.serializeNBT());
+        assertEquals(3, restoredHeartRate.heartRateLevel(), "NBT must preserve intrinsic whole-body heart rate");
+        assertEquals(-1, restoredHeartRate.effectiveHeartRateLevel(), "NBT must preserve medication-adjusted heart rate");
+
+        BodyState recovery = new BodyState();
+        recovery.setHeartRateLevelForDebug(-3, 0L);
+        recovery.advanceBodyProgression(599L);
+        assertEquals(-3, recovery.heartRateLevel(), "heart rate must wait thirty seconds before recovering");
+        recovery.advanceBodyProgression(600L);
+        assertEquals(-2, recovery.heartRateLevel(), "heart rate must recover one level after the first thirty seconds");
+        recovery.advanceBodyProgression(1_200L);
+        assertEquals(-1, recovery.heartRateLevel(), "heart rate must recover another level every thirty seconds");
+        recovery.advanceBodyProgression(1_800L);
+        assertEquals(0, recovery.heartRateLevel(), "heart rate must naturally return to zero");
+
+        CompoundTag legacyTag = heartRate.serializeNBT();
+        legacyTag.putInt("DataVersion", 22);
+        ListTag legacyWounds = legacyTag.getList("Wounds", Tag.TAG_COMPOUND);
+        ListTag legacyWoundTags = legacyWounds.getCompound(0).getList("WoundTags", Tag.TAG_STRING);
+        legacyWoundTags.add(StringTag.valueOf("disorientation_3"));
+        BodyState migratedHeartRate = new BodyState();
+        migratedHeartRate.deserializeNBT(legacyTag);
+        assertEquals(3, migratedHeartRate.heartRateLevel(), "v22 disorientation must migrate into whole-body heart rate");
+        assertEquals(false, migratedHeartRate.wounds().get(0).woundTags().stream().anyMatch(tag -> tag.disorientationLevel() > 0), "migration must remove wound-local disorientation tags");
+    }
+
+    private static void verifyEpinephrineEffects() {
+        BodyState awake = new BodyState();
+        assertEquals(
+                true,
+                awake.applyMedication(MedicationType.EPINEPHRINE, 0L, false),
+                "epinephrine must create an active three-minute dose"
+        );
+        assertFloatEquals(5.0F, awake.bloodDrugConcentration(), "each epinephrine layer must add five concentration");
+        assertEquals(1, awake.effectiveHeartRateLevel(), "each epinephrine layer must add one tachycardia level");
+        assertEquals(1, awake.activeEpinephrineSpeedDoseCount(), "an awake injection must retain its speed eligibility");
+
+        BodyState downedDose = new BodyState();
+        downedDose.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 0L);
+        assertEquals(
+                true,
+                downedDose.applyMedication(MedicationType.EPINEPHRINE, 0L, true),
+                "a downed patient must accept epinephrine"
+        );
+        assertEquals(0, downedDose.activeEpinephrineSpeedDoseCount(), "a downed injection must never grant speed after awakening");
+        BodyState restoredDose = new BodyState();
+        restoredDose.deserializeNBT(downedDose.serializeNBT());
+        assertEquals(0, restoredDose.activeEpinephrineSpeedDoseCount(), "NBT must preserve downed-dose speed exclusion");
+
+        assertDoubleEquals(
+                BodyState.cprSuccessChance(1) * 2.0D,
+                BodyState.cprSuccessChance(1, 1),
+                "one epinephrine layer must double CPR accumulation"
+        );
+        assertDoubleEquals(
+                BodyState.cprSuccessChance(1) * 3.0D,
+                BodyState.cprSuccessChance(1, 2),
+                "two epinephrine layers must triple CPR accumulation"
+        );
+
+        BodyState defibrillation = new BodyState();
+        defibrillation.forceCardiacRhythmForDebug(BodyLifeState.VENTRICULAR_FIBRILLATION, 0L);
+        defibrillation.applyMedication(MedicationType.EPINEPHRINE, 0L, true);
+        assertDoubleEquals(
+                0.40D,
+                defibrillation.defibrillationSuccessChance(DefibrillationEnergy.J150),
+                "one epinephrine layer must add ten percentage points to defibrillation"
+        );
+        assertEquals(
+                DefibrillationResult.Status.RESTORED_CIRCULATION,
+                defibrillation.applyDefibrillation(DefibrillationEnergy.J150, 0.35D, 1L).status(),
+                "the epinephrine bonus must participate in the actual defibrillation roll"
+        );
+
+        BodyState oneLayerCountdown = epinephrineCountdownState(1);
+        oneLayerCountdown.advanceBodyProgression(60L);
+        assertEquals(
+                BodyState.CARDIAC_ARREST_DURATION_TICKS - 40L,
+                oneLayerCountdown.downedDangerRemainingTicks(60L),
+                "one layer must let only forty countdown ticks pass during sixty real ticks"
+        );
+        BodyState twoLayerCountdown = epinephrineCountdownState(2);
+        twoLayerCountdown.advanceBodyProgression(60L);
+        assertEquals(
+                BodyState.CARDIAC_ARREST_DURATION_TICKS - 20L,
+                twoLayerCountdown.downedDangerRemainingTicks(60L),
+                "two layers must let only twenty countdown ticks pass during sixty real ticks"
+        );
+        BodyState threeLayerCountdown = epinephrineCountdownState(3);
+        threeLayerCountdown.advanceBodyProgression(60L);
+        assertEquals(
+                BodyState.CARDIAC_ARREST_DURATION_TICKS,
+                threeLayerCountdown.downedDangerRemainingTicks(60L),
+                "three layers must pause rather than reverse the countdown"
+        );
+
+        BodyState shock = new BodyState();
+        shock.applyDamage(WoundType.SHARP, 16.0F, 0L);
+        shock.resumeBodyProgression(0L);
+        assertEquals(true, shock.advanceBodyProgression(400L).shockWarningStarted(), "pain twenty must first start a shock warning");
+        shock.applyMedication(MedicationType.EPINEPHRINE, 401L, false);
+        assertEquals(true, shock.advanceBodyProgression(402L).shockWarningCancelled(), "active epinephrine must cancel traumatic-shock countdowns");
+        CompoundTag expiringDose = shock.serializeNBT();
+        expiringDose.getList("ActiveDrugDoses", Tag.TAG_COMPOUND)
+                .getCompound(0)
+                .putLong("ExpiresGameTime", 403L);
+        BodyState afterExpiry = new BodyState();
+        afterExpiry.deserializeNBT(expiringDose);
+        assertEquals(
+                true,
+                afterExpiry.advanceBodyProgression(403L).shockWarningStarted(),
+                "traumatic-shock warning must restart from zero after epinephrine expires"
+        );
+        assertEquals(
+                403L + BodyState.SHOCK_WARNING_DURATION_TICKS,
+                afterExpiry.shockWarningEndGameTime(),
+                "the restarted warning must receive a fresh ten seconds"
+        );
+    }
+
+    private static BodyState epinephrineCountdownState(int layers) {
+        BodyState state = new BodyState();
+        state.resumeBodyProgression(0L);
+        state.forceCardiacRhythmForDebug(BodyLifeState.CARDIAC_ARREST, 0L);
+        for (int index = 0; index < layers; index++) {
+            state.applyMedication(MedicationType.EPINEPHRINE, 0L, true);
+        }
+        return state;
     }
 
     private static void verifyGiveUpAndTotalCountdown() {
@@ -2266,6 +2401,47 @@ public final class BodyStateRoundTripTest {
         WoundInstance shockBurn = requireWound(bystanderBurn.applyDefibrillatorShockBurn(1L));
         assertEquals(2, shockBurn.severity(), "defibrillator contact must create an isolated severity-two burn");
         assertEquals(2, bystanderBurn.wounds().size(), "contact burn must not merge into an older burn wound");
+    }
+
+    private static void verifyTimingQteHalfOpenRanges() {
+        TimingQteSnapshot snapshot = new TimingQteSnapshot(
+                1,
+                100L,
+                100,
+                0.20F,
+                0.30F,
+                0.50F
+        );
+        assertEquals(
+                TimingQteResult.EARLY_FAILURE,
+                snapshot.classifyPress(19.999F),
+                "pressing before the perfect arc must fail immediately"
+        );
+        assertEquals(
+                TimingQteResult.PERFECT,
+                snapshot.classifyPress(20.0F),
+                "the perfect arc must include its left boundary"
+        );
+        assertEquals(
+                TimingQteResult.PERFECT,
+                snapshot.classifyPress(29.999F),
+                "the perfect arc must remain active before the normal boundary"
+        );
+        assertEquals(
+                TimingQteResult.SUCCESS,
+                snapshot.classifyPress(30.0F),
+                "the normal arc must include its left boundary"
+        );
+        assertEquals(
+                TimingQteResult.SUCCESS,
+                snapshot.classifyPress(49.999F),
+                "the normal arc must remain active before its right boundary"
+        );
+        assertEquals(
+                TimingQteResult.MISSED_FAILURE,
+                snapshot.classifyPress(50.0F),
+                "reaching the right boundary must count as a miss"
+        );
     }
 
     private static WoundInstance requireWound(WoundUpdateResult result) {

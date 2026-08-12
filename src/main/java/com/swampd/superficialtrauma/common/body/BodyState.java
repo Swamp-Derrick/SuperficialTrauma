@@ -27,7 +27,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 22;
+    public static final int CURRENT_DATA_VERSION = 24;
     public static final int MAX_WOUNDS = 8;
     public static final int MAX_WOUND_HISTORY = 6;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
@@ -58,6 +58,13 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     public static final float OVERDOSE_THRESHOLD = 20.0F;
     public static final float OVERDOSE_AWAKENING_THRESHOLD = 8.0F;
     public static final int MAX_ACTIVE_DRUG_DOSES = 64;
+    public static final int MIN_HEART_RATE_LEVEL = -3;
+    public static final int MAX_HEART_RATE_LEVEL = 3;
+    public static final long HEART_RATE_RECOVERY_DELAY_TICKS = 30L * 20L;
+    public static final long HEART_RATE_RECOVERY_INTERVAL_TICKS = 30L * 20L;
+    public static final int EPINEPHRINE_COUNTDOWN_SLOWDOWN_DENOMINATOR = 3;
+    public static final int MAX_EFFECTIVE_EPINEPHRINE_COUNTDOWN_LAYERS = 3;
+    public static final double EPINEPHRINE_DEFIBRILLATION_BONUS_PER_LAYER = 0.10D;
 
     private static final String TAG_DATA_VERSION = "DataVersion";
     private static final String TAG_REVISION = "Revision";
@@ -72,6 +79,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_FORENSIC_SKILL = "ForensicSkill";
     private static final String TAG_BLOOD_DRUG_CONCENTRATION = "BloodDrugConcentration";
     private static final String TAG_ACTIVE_DRUG_DOSES = "ActiveDrugDoses";
+    private static final String TAG_HEART_RATE_LEVEL = "HeartRateLevel";
+    private static final String TAG_NEXT_HEART_RATE_RECOVERY_GAME_TIME = "NextHeartRateRecoveryGameTime";
+    private static final String TAG_HEART_RATE_RECOVERY_PAUSED_AT_GAME_TIME =
+            "HeartRateRecoveryPausedAtGameTime";
     private static final String TAG_ADRENALINE_LEVEL = "AdrenalineLevel";
     private static final String TAG_BLOOD_OXYGEN = "BloodOxygen";
     private static final String TAG_BLOOD_OXYGEN_DEADLINE = "BloodOxygenDeadlineGameTime";
@@ -127,10 +138,15 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private boolean forensicSkill;
     private float bloodDrugConcentration;
     private final List<DrugDose> activeDrugDoses = new ArrayList<>();
+    private int heartRateLevel;
+    private long nextHeartRateRecoveryGameTime;
+    private long heartRateRecoveryPausedAtGameTime;
     private int adrenalineLevel;
     private float bloodOxygen;
     private long bloodOxygenDeadlineGameTime;
     private long brainDeathDeadlineGameTime;
+    private long lastEpinephrineCountdownGameTime;
+    private int epinephrineCountdownRemainder;
     private UUID cardiacArrestEventId;
     private int accumulatedCprSeconds;
     private long ventricularFibrillationEndGameTime;
@@ -388,6 +404,20 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return count;
     }
 
+    public int activeEpinephrineDoseCount() {
+        return activeDoseCount(MedicationType.EPINEPHRINE);
+    }
+
+    public int activeEpinephrineSpeedDoseCount() {
+        int count = 0;
+        for (DrugDose dose : activeDrugDoses) {
+            if (dose.type() == MedicationType.EPINEPHRINE && dose.grantsMovementSpeed()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     public float medicationPainReduction() {
         float reduction = 0.0F;
         for (DrugDose dose : activeDrugDoses) {
@@ -396,26 +426,40 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return reduction;
     }
 
-    public int medicationDisorientationReduction() {
-        int reduction = 0;
-        for (DrugDose dose : activeDrugDoses) {
-            reduction = Math.min(
-                    Integer.MAX_VALUE,
-                    reduction + dose.type().disorientationReduction()
-            );
-        }
-        return reduction;
+    public int heartRateLevel() {
+        return heartRateLevel;
     }
 
-    public int effectiveDisorientationLevel(WoundInstance wound) {
-        if (wound == null) {
-            return 0;
+    public int medicationHeartRateShift() {
+        int shift = 0;
+        for (DrugDose dose : activeDrugDoses) {
+            shift += dose.type().heartRateShift();
         }
-        int untreatedLevel = 0;
-        for (WoundTag tag : wound.woundTags()) {
-            untreatedLevel = Math.max(untreatedLevel, tag.disorientationLevel());
+        return shift;
+    }
+
+    public int effectiveHeartRateLevel() {
+        return clamp(heartRateLevel + medicationHeartRateShift(), MIN_HEART_RATE_LEVEL, MAX_HEART_RATE_LEVEL);
+    }
+
+    public long heartRateRecoveryRemainingTicks(long gameTime) {
+        if (heartRateLevel == 0 || nextHeartRateRecoveryGameTime < 0L) {
+            return 0L;
         }
-        return Math.max(0, untreatedLevel - medicationDisorientationReduction());
+        return Math.max(0L, nextHeartRateRecoveryGameTime - Math.max(0L, gameTime));
+    }
+
+    public int setHeartRateLevelForDebug(int level, long gameTime) {
+        heartRateLevel = clamp(level, MIN_HEART_RATE_LEVEL, MAX_HEART_RATE_LEVEL);
+        scheduleHeartRateRecovery(gameTime);
+        markChanged();
+        return heartRateLevel;
+    }
+
+    public int addHeartRateLevelForDebug(int delta, long gameTime) {
+        applyHeartRateImpulse(delta, gameTime);
+        markChanged();
+        return heartRateLevel;
     }
 
     public boolean hasActiveOpioidDose() {
@@ -427,6 +471,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     public boolean applyMedication(MedicationType type, long gameTime) {
+        return applyMedication(type, gameTime, !canAct());
+    }
+
+    public boolean applyMedication(MedicationType type, long gameTime, boolean appliedWhileDowned) {
         if (type == null || gameTime < 0L) {
             return false;
         }
@@ -436,7 +484,15 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         if (!type.createsActiveDose() || activeDrugDoses.size() >= MAX_ACTIVE_DRUG_DOSES) {
             return false;
         }
-        activeDrugDoses.add(new DrugDose(type, saturatingAdd(gameTime, type.effectDurationTicks())));
+        boolean grantsMovementSpeed = type != MedicationType.EPINEPHRINE || !appliedWhileDowned;
+        activeDrugDoses.add(new DrugDose(
+                type,
+                saturatingAdd(gameTime, type.effectDurationTicks()),
+                grantsMovementSpeed
+        ));
+        if (type == MedicationType.EPINEPHRINE && !canAct()) {
+            lastEpinephrineCountdownGameTime = gameTime;
+        }
         recalculateBloodDrugConcentration();
         if (bloodDrugConcentration >= OVERDOSE_THRESHOLD && lifeState == BodyLifeState.ACTIVE) {
             enterIncapacitated(CollapseReason.OVERDOSE, gameTime);
@@ -744,11 +800,19 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     public double currentCprSuccessChance() {
-        return cprSuccessChance(accumulatedCprSeconds);
+        return cprSuccessChance(accumulatedCprSeconds, activeEpinephrineDoseCount());
     }
 
     public static double cprSuccessChance(int accumulatedSeconds) {
-        return Math.min(1.0D, Math.max(0, accumulatedSeconds) * CPR_SUCCESS_CHANCE_PER_SECOND);
+        return cprSuccessChance(accumulatedSeconds, 0);
+    }
+
+    public static double cprSuccessChance(int accumulatedSeconds, int epinephrineLayers) {
+        double multiplier = 1.0D + Math.max(0, epinephrineLayers);
+        return Math.min(
+                1.0D,
+                Math.max(0, accumulatedSeconds) * CPR_SUCCESS_CHANCE_PER_SECOND * multiplier
+        );
     }
 
     public long ventricularFibrillationEndGameTime() {
@@ -768,6 +832,17 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public boolean hasAttemptedDefibrillation(DefibrillationEnergy energy) {
         return energy != null && (defibrillationAttemptMask & energy.attemptBit()) != 0;
+    }
+
+    public double defibrillationSuccessChance(DefibrillationEnergy energy) {
+        if (energy == null) {
+            return 0.0D;
+        }
+        return Math.min(
+                1.0D,
+                energy.successChance()
+                        + activeEpinephrineDoseCount() * EPINEPHRINE_DEFIBRILLATION_BONUS_PER_LAYER
+        );
     }
 
     public CprResult applyCprSecond(double successRoll, double rhythmRoll, long gameTime) {
@@ -837,7 +912,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 && hasAttemptedDefibrillation(DefibrillationEnergy.J200);
         defibrillationAttemptMask |= energy.attemptBit();
 
-        if (clampRoll(successRoll) < energy.successChance()) {
+        if (clampRoll(successRoll) < defibrillationSuccessChance(energy)) {
             restoreCirculation(gameTime);
             markChanged();
             return new DefibrillationResult(
@@ -1135,7 +1210,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
         if (activeWound.isPresent()) {
             WoundInstance wound = activeWound.get();
+            int previousHeartRateImpact = WoundInstance.heartRateImpactFor(type, wound.severity());
             wound.addAccumulatedDamage(finalDamage, gameTime);
+            int newHeartRateImpact = WoundInstance.heartRateImpactFor(type, wound.severity());
+            applyHeartRateImpulse(newHeartRateImpact - previousHeartRateImpact, gameTime);
             upsertWoundHistory(wound, gameTime, false);
             markChanged();
             return new WoundUpdateResult(WoundUpdateResult.Status.UPDATED, wound, wound.accumulatedDamage());
@@ -1180,6 +1258,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 pendingWindow.endGameTime()
         );
         wounds.add(wound);
+        applyHeartRateImpulse(WoundInstance.heartRateImpactFor(type, wound.severity()), gameTime);
         upsertWoundHistory(wound, gameTime, false);
         damageWindows.remove(type);
         markChanged();
@@ -1234,12 +1313,15 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
         if (activeWound.isPresent()) {
             WoundInstance wound = activeWound.get();
+            int previousHeartRateImpact = WoundInstance.heartRateImpactFor(type, wound.severity());
             wound.addGunshotAccumulatedDamage(
                     finalDamage,
                     fragmentationEligible,
                     closeRangeShot,
                     gameTime
             );
+            int newHeartRateImpact = WoundInstance.heartRateImpactFor(type, wound.severity());
+            applyHeartRateImpulse(newHeartRateImpact - previousHeartRateImpact, gameTime);
             upsertWoundHistory(wound, gameTime, false);
             markChanged();
             return new WoundUpdateResult(WoundUpdateResult.Status.UPDATED, wound, wound.accumulatedDamage());
@@ -1260,9 +1342,97 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 gameTime + DAMAGE_WINDOW_TICKS
         );
         wounds.add(wound);
+        applyHeartRateImpulse(WoundInstance.heartRateImpactFor(type, wound.severity()), gameTime);
         upsertWoundHistory(wound, gameTime, false);
         markChanged();
         return new WoundUpdateResult(WoundUpdateResult.Status.CREATED, wound, wound.accumulatedDamage());
+    }
+
+    private boolean applyHeartRateImpulse(int delta, long gameTime) {
+        if (delta == 0) {
+            return false;
+        }
+        int previousLevel = heartRateLevel;
+        long previousDeadline = nextHeartRateRecoveryGameTime;
+        long previousPause = heartRateRecoveryPausedAtGameTime;
+        heartRateLevel = clamp(
+                heartRateLevel + delta,
+                MIN_HEART_RATE_LEVEL,
+                MAX_HEART_RATE_LEVEL
+        );
+        scheduleHeartRateRecovery(gameTime);
+        return previousLevel != heartRateLevel
+                || previousDeadline != nextHeartRateRecoveryGameTime
+                || previousPause != heartRateRecoveryPausedAtGameTime;
+    }
+
+    private void scheduleHeartRateRecovery(long gameTime) {
+        if (heartRateLevel == 0) {
+            nextHeartRateRecoveryGameTime = -1L;
+            heartRateRecoveryPausedAtGameTime = -1L;
+            return;
+        }
+        long normalizedGameTime = Math.max(0L, gameTime);
+        nextHeartRateRecoveryGameTime = saturatingAdd(
+                normalizedGameTime,
+                HEART_RATE_RECOVERY_DELAY_TICKS
+        );
+        heartRateRecoveryPausedAtGameTime = pausesHeartRateRecovery()
+                ? normalizedGameTime
+                : -1L;
+    }
+
+    private boolean advanceHeartRateRecovery(long gameTime) {
+        if (heartRateLevel == 0) {
+            boolean changed = nextHeartRateRecoveryGameTime >= 0L
+                    || heartRateRecoveryPausedAtGameTime >= 0L;
+            nextHeartRateRecoveryGameTime = -1L;
+            heartRateRecoveryPausedAtGameTime = -1L;
+            return changed;
+        }
+
+        if (pausesHeartRateRecovery()) {
+            if (heartRateRecoveryPausedAtGameTime < 0L) {
+                heartRateRecoveryPausedAtGameTime = gameTime;
+                return true;
+            }
+            return false;
+        }
+
+        boolean changed = false;
+        if (heartRateRecoveryPausedAtGameTime >= 0L) {
+            long pausedTicks = Math.max(0L, gameTime - heartRateRecoveryPausedAtGameTime);
+            nextHeartRateRecoveryGameTime = shiftDeadline(nextHeartRateRecoveryGameTime, pausedTicks);
+            heartRateRecoveryPausedAtGameTime = -1L;
+            changed = true;
+        }
+        if (nextHeartRateRecoveryGameTime < 0L) {
+            nextHeartRateRecoveryGameTime = saturatingAdd(gameTime, HEART_RATE_RECOVERY_DELAY_TICKS);
+            return true;
+        }
+        if (gameTime < nextHeartRateRecoveryGameTime) {
+            return changed;
+        }
+
+        long elapsedIntervals = 1L
+                + (gameTime - nextHeartRateRecoveryGameTime) / HEART_RATE_RECOVERY_INTERVAL_TICKS;
+        int recoveredLevels = (int) Math.min(Math.abs(heartRateLevel), elapsedIntervals);
+        heartRateLevel -= Integer.signum(heartRateLevel) * recoveredLevels;
+        if (heartRateLevel == 0) {
+            nextHeartRateRecoveryGameTime = -1L;
+        } else {
+            nextHeartRateRecoveryGameTime = saturatingAdd(
+                    nextHeartRateRecoveryGameTime,
+                    elapsedIntervals * HEART_RATE_RECOVERY_INTERVAL_TICKS
+            );
+        }
+        return true;
+    }
+
+    private boolean pausesHeartRateRecovery() {
+        return lifeState == BodyLifeState.CARDIAC_ARREST
+                || lifeState == BodyLifeState.VENTRICULAR_FIBRILLATION
+                || lifeState == BodyLifeState.BRAIN_DEAD;
     }
 
     public void resumeBodyProgression(long gameTime) {
@@ -1270,6 +1440,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             long pausedTicks = gameTime - progressionPausedAtGameTime;
             stressEndGameTime = shiftDeadline(stressEndGameTime, pausedTicks);
             nextPainRecoveryGameTime = shiftDeadline(nextPainRecoveryGameTime, pausedTicks);
+            nextHeartRateRecoveryGameTime = shiftDeadline(nextHeartRateRecoveryGameTime, pausedTicks);
+            heartRateRecoveryPausedAtGameTime = shiftDeadline(
+                    heartRateRecoveryPausedAtGameTime,
+                    pausedTicks
+            );
             movementBleedingEndGameTime = shiftDeadline(movementBleedingEndGameTime, pausedTicks);
             shockWarningEndGameTime = shiftDeadline(shockWarningEndGameTime, pausedTicks);
             nextInfectionSettlementGameTime = shiftDeadline(nextInfectionSettlementGameTime, pausedTicks);
@@ -1280,6 +1455,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         }
         progressionPausedAtGameTime = -1L;
         lastWoundProgressionGameTime = Math.max(0L, gameTime);
+        lastEpinephrineCountdownGameTime = Math.max(0L, gameTime);
+        epinephrineCountdownRemainder = 0;
     }
 
     public void pauseBodyProgression(long gameTime) {
@@ -1319,6 +1496,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
         boolean movementBleedingStateChanged = updateMovementBleedingState(gameTime, traumaticMovement);
         boolean drugStateChanged = expireDrugDoses(gameTime);
+        drugStateChanged |= advanceEpinephrineCountdownSlowdown(gameTime);
+        boolean heartRateStateChanged = advanceHeartRateRecovery(gameTime);
 
         int expiredTransientWoundTags = 0;
         for (WoundInstance wound : wounds) {
@@ -1402,6 +1581,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 becameSeptic,
                 infectionTimerChanged,
                 drugStateChanged,
+                heartRateStateChanged,
                 becameOverdosed,
                 bleedingTimerChanged,
                 movementBleedingStateChanged,
@@ -1422,6 +1602,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             boolean becameSeptic,
             boolean infectionTimerChanged,
             boolean drugStateChanged,
+            boolean heartRateStateChanged,
             boolean becameOverdosed,
             boolean bleedingTimerChanged,
             boolean movementBleedingStateChanged,
@@ -1439,6 +1620,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 && !becameSeptic
                 && !infectionTimerChanged
                 && !drugStateChanged
+                && !heartRateStateChanged
                 && !becameOverdosed
                 && !bleedingTimerChanged
                 && !movementBleedingStateChanged
@@ -1469,6 +1651,14 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     private ShockProgression advanceTraumaticShock(long gameTime) {
         if (lifeState != BodyLifeState.ACTIVE) {
+            if (shockWarningEndGameTime >= 0L) {
+                shockWarningEndGameTime = -1L;
+                return ShockProgression.cancelled();
+            }
+            return ShockProgression.unchanged();
+        }
+
+        if (activeEpinephrineDoseCount() > 0) {
             if (shockWarningEndGameTime >= 0L) {
                 shockWarningEndGameTime = -1L;
                 return ShockProgression.cancelled();
@@ -1533,6 +1723,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         awakeningRetryGameTime = -1L;
         awakeningRecoveryEndGameTime = -1L;
         shockWarningEndGameTime = -1L;
+        lastEpinephrineCountdownGameTime = gameTime;
+        epinephrineCountdownRemainder = 0;
     }
 
     private boolean meetsAwakeningRequirements(float vanillaHealth) {
@@ -1569,6 +1761,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         defibrillationAttemptMask = 0;
         clearDownedPoseSnapshot();
         clearInfusion();
+        lastEpinephrineCountdownGameTime = -1L;
+        epinephrineCountdownRemainder = 0;
     }
 
     private void restoreCirculation(long gameTime) {
@@ -1585,6 +1779,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         defibrillationAttemptMask = 0;
         awakeningEndGameTime = -1L;
         awakeningRetryGameTime = -1L;
+        lastEpinephrineCountdownGameTime = gameTime;
+        epinephrineCountdownRemainder = 0;
     }
 
     private void enterBrainDeath() {
@@ -1597,6 +1793,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         awakeningEndGameTime = -1L;
         awakeningRetryGameTime = -1L;
         clearInfusion();
+        lastEpinephrineCountdownGameTime = -1L;
+        epinephrineCountdownRemainder = 0;
     }
 
     private void clearInfusion() {
@@ -1708,6 +1906,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         basePain = 0.0F;
         activeDrugDoses.clear();
         bloodDrugConcentration = 0.0F;
+        heartRateLevel = 0;
+        nextHeartRateRecoveryGameTime = -1L;
+        heartRateRecoveryPausedAtGameTime = -1L;
+        lastEpinephrineCountdownGameTime = -1L;
+        epinephrineCountdownRemainder = 0;
         bloodOxygen = MAX_BLOOD_OXYGEN;
         bloodOxygenDeadlineGameTime = -1L;
         brainDeathDeadlineGameTime = -1L;
@@ -1754,6 +1957,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         awakeningRecoveryEndGameTime = -1L;
         shockWarningEndGameTime = -1L;
         clearInfusion();
+        lastEpinephrineCountdownGameTime = gameTime;
+        epinephrineCountdownRemainder = 0;
         markChanged();
         return true;
     }
@@ -1942,6 +2147,51 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return true;
     }
 
+    private boolean advanceEpinephrineCountdownSlowdown(long gameTime) {
+        int effectiveLayers = Math.min(
+                MAX_EFFECTIVE_EPINEPHRINE_COUNTDOWN_LAYERS,
+                activeEpinephrineDoseCount()
+        );
+        if (canAct() || lifeState == BodyLifeState.BRAIN_DEAD || effectiveLayers <= 0) {
+            lastEpinephrineCountdownGameTime = gameTime;
+            epinephrineCountdownRemainder = 0;
+            return false;
+        }
+        if (lastEpinephrineCountdownGameTime < 0L || gameTime < lastEpinephrineCountdownGameTime) {
+            lastEpinephrineCountdownGameTime = gameTime;
+            epinephrineCountdownRemainder = 0;
+            return false;
+        }
+
+        long elapsedTicks = gameTime - lastEpinephrineCountdownGameTime;
+        lastEpinephrineCountdownGameTime = gameTime;
+        if (elapsedTicks <= 0L) {
+            return false;
+        }
+        long slowedNumerator = elapsedTicks * effectiveLayers + epinephrineCountdownRemainder;
+        long extensionTicks = slowedNumerator / EPINEPHRINE_COUNTDOWN_SLOWDOWN_DENOMINATOR;
+        epinephrineCountdownRemainder = (int) (
+                slowedNumerator % EPINEPHRINE_COUNTDOWN_SLOWDOWN_DENOMINATOR
+        );
+        if (extensionTicks <= 0L) {
+            return false;
+        }
+
+        if (lifeState == BodyLifeState.INCAPACITATED || lifeState == BodyLifeState.AWAKENING) {
+            bloodOxygenDeadlineGameTime = shiftDeadline(bloodOxygenDeadlineGameTime, extensionTicks);
+        } else if (lifeState == BodyLifeState.CARDIAC_ARREST
+                || lifeState == BodyLifeState.VENTRICULAR_FIBRILLATION) {
+            brainDeathDeadlineGameTime = shiftDeadline(brainDeathDeadlineGameTime, extensionTicks);
+            if (lifeState == BodyLifeState.VENTRICULAR_FIBRILLATION) {
+                ventricularFibrillationEndGameTime = shiftDeadline(
+                        ventricularFibrillationEndGameTime,
+                        extensionTicks
+                );
+            }
+        }
+        return true;
+    }
+
     private void recalculateBloodDrugConcentration() {
         float concentration = 0.0F;
         for (DrugDose dose : activeDrugDoses) {
@@ -1962,10 +2212,15 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         forensicSkill = false;
         activeDrugDoses.clear();
         bloodDrugConcentration = 0.0F;
+        heartRateLevel = 0;
+        nextHeartRateRecoveryGameTime = -1L;
+        heartRateRecoveryPausedAtGameTime = -1L;
         adrenalineLevel = 0;
         bloodOxygen = MAX_BLOOD_OXYGEN;
         bloodOxygenDeadlineGameTime = -1L;
         brainDeathDeadlineGameTime = -1L;
+        lastEpinephrineCountdownGameTime = -1L;
+        epinephrineCountdownRemainder = 0;
         cardiacArrestEventId = null;
         accumulatedCprSeconds = 0;
         ventricularFibrillationEndGameTime = -1L;
@@ -2025,6 +2280,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             drugDoseList.add(dose.save());
         }
         tag.put(TAG_ACTIVE_DRUG_DOSES, drugDoseList);
+        tag.putInt(TAG_HEART_RATE_LEVEL, heartRateLevel);
+        tag.putLong(TAG_NEXT_HEART_RATE_RECOVERY_GAME_TIME, nextHeartRateRecoveryGameTime);
+        tag.putLong(TAG_HEART_RATE_RECOVERY_PAUSED_AT_GAME_TIME, heartRateRecoveryPausedAtGameTime);
         tag.putInt(TAG_ADRENALINE_LEVEL, adrenalineLevel);
         tag.putFloat(TAG_BLOOD_OXYGEN, bloodOxygen);
         tag.putLong(TAG_BLOOD_OXYGEN_DEADLINE, bloodOxygenDeadlineGameTime);
@@ -2133,6 +2391,21 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             activeDrugDoses.add(DrugDose.load(drugDoseList.getCompound(index)));
         }
         recalculateBloodDrugConcentration();
+        if (storedVersion >= 23) {
+            heartRateLevel = clamp(
+                    tag.getInt(TAG_HEART_RATE_LEVEL),
+                    MIN_HEART_RATE_LEVEL,
+                    MAX_HEART_RATE_LEVEL
+            );
+            nextHeartRateRecoveryGameTime = tag.contains(
+                    TAG_NEXT_HEART_RATE_RECOVERY_GAME_TIME,
+                    Tag.TAG_ANY_NUMERIC
+            ) ? tag.getLong(TAG_NEXT_HEART_RATE_RECOVERY_GAME_TIME) : -1L;
+            heartRateRecoveryPausedAtGameTime = tag.contains(
+                    TAG_HEART_RATE_RECOVERY_PAUSED_AT_GAME_TIME,
+                    Tag.TAG_ANY_NUMERIC
+            ) ? tag.getLong(TAG_HEART_RATE_RECOVERY_PAUSED_AT_GAME_TIME) : -1L;
+        }
         adrenalineLevel = Math.max(0, tag.getInt(TAG_ADRENALINE_LEVEL));
         bloodOxygen = tag.contains(TAG_BLOOD_OXYGEN, Tag.TAG_ANY_NUMERIC)
                 ? clamp(tag.getFloat(TAG_BLOOD_OXYGEN), 0.0F, MAX_BLOOD_OXYGEN)
@@ -2205,8 +2478,29 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         }
 
         ListTag woundList = tag.getList(TAG_WOUNDS, Tag.TAG_COMPOUND);
+        int migratedLegacyHeartRateLevel = 0;
         for (int i = 0; i < woundList.size() && wounds.size() < MAX_WOUNDS; i++) {
-            wounds.add(WoundInstance.deserializeNBT(woundList.getCompound(i)));
+            WoundInstance wound = WoundInstance.deserializeNBT(woundList.getCompound(i));
+            migratedLegacyHeartRateLevel = Math.max(
+                    migratedLegacyHeartRateLevel,
+                    wound.removeLegacyDisorientationTags()
+            );
+            if (storedVersion < 23) {
+                migratedLegacyHeartRateLevel = Math.max(
+                        migratedLegacyHeartRateLevel,
+                        WoundInstance.heartRateImpactFor(wound.type(), wound.severity())
+                );
+            }
+            wounds.add(wound);
+        }
+        if (storedVersion < 23) {
+            heartRateLevel = clamp(
+                    migratedLegacyHeartRateLevel,
+                    MIN_HEART_RATE_LEVEL,
+                    MAX_HEART_RATE_LEVEL
+            );
+            nextHeartRateRecoveryGameTime = -1L;
+            heartRateRecoveryPausedAtGameTime = -1L;
         }
 
         ListTag woundHistoryList = tag.getList(TAG_WOUND_HISTORY, Tag.TAG_COMPOUND);
@@ -2294,6 +2588,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     private static float clamp(float value, float minimum, float maximum) {
+        return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    private static int clamp(int value, int minimum, int maximum) {
         return Math.max(minimum, Math.min(maximum, value));
     }
 

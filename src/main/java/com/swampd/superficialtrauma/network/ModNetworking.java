@@ -15,6 +15,8 @@ import com.swampd.superficialtrauma.common.forensics.AutopsyReport;
 import com.swampd.superficialtrauma.common.medication.MedicationCancelReason;
 import com.swampd.superficialtrauma.common.medication.MedicationSession;
 import com.swampd.superficialtrauma.common.medication.MedicationType;
+import com.swampd.superficialtrauma.common.qte.TimingQteResult;
+import com.swampd.superficialtrauma.common.qte.TimingQteSnapshot;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSound;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSoundChannel;
 import com.swampd.superficialtrauma.common.treatment.TreatmentPreparationType;
@@ -46,8 +48,14 @@ import com.swampd.superficialtrauma.network.packet.MedicationPreparationC2SPacke
 import com.swampd.superficialtrauma.network.packet.MedicationSessionS2CPacket;
 import com.swampd.superficialtrauma.network.packet.GiveUpHoldC2SPacket;
 import com.swampd.superficialtrauma.network.packet.GiveUpSessionS2CPacket;
+import com.swampd.superficialtrauma.network.packet.TimingQteResultS2CPacket;
+import com.swampd.superficialtrauma.network.packet.TimingQteStartS2CPacket;
+import com.swampd.superficialtrauma.network.packet.TimingQteSubmitC2SPacket;
+import com.swampd.superficialtrauma.network.packet.BodyDragActionC2SPacket;
+import com.swampd.superficialtrauma.network.packet.BodyDragStateS2CPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraftforge.network.NetworkDirection;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.PacketDistributor;
@@ -59,7 +67,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "22";
+    private static final String PROTOCOL_VERSION = "27";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -298,6 +306,46 @@ public final class ModNetworking {
                 CloseAutopsyS2CPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT)
         );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                TimingQteStartS2CPacket.class,
+                TimingQteStartS2CPacket::encode,
+                TimingQteStartS2CPacket::decode,
+                TimingQteStartS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                TimingQteSubmitC2SPacket.class,
+                TimingQteSubmitC2SPacket::encode,
+                TimingQteSubmitC2SPacket::decode,
+                TimingQteSubmitC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                TimingQteResultS2CPacket.class,
+                TimingQteResultS2CPacket::encode,
+                TimingQteResultS2CPacket::decode,
+                TimingQteResultS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                BodyDragActionC2SPacket.class,
+                BodyDragActionC2SPacket::encode,
+                BodyDragActionC2SPacket::decode,
+                BodyDragActionC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                BodyDragStateS2CPacket.class,
+                BodyDragStateS2CPacket::encode,
+                BodyDragStateS2CPacket::decode,
+                BodyDragStateS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
     }
 
     public static void syncBodyState(ServerPlayer player) {
@@ -370,6 +418,10 @@ public final class ModNetworking {
         CHANNEL.sendToServer(new CloseAutopsyC2SPacket(corpseEntityId));
     }
 
+    public static void submitTimingQte(int sessionId, float elapsedTicks, boolean pressed) {
+        CHANNEL.sendToServer(new TimingQteSubmitC2SPacket(sessionId, elapsedTicks, pressed));
+    }
+
     public static void closeInspection(int targetEntityId) {
         CHANNEL.sendToServer(new CloseInspectionC2SPacket(targetEntityId));
     }
@@ -407,6 +459,10 @@ public final class ModNetworking {
 
     public static void setGiveUpHolding(boolean holding) {
         CHANNEL.sendToServer(new GiveUpHoldC2SPacket(holding));
+    }
+
+    public static void setBodyDragHolding(int targetEntityId, boolean holding) {
+        CHANNEL.sendToServer(new BodyDragActionC2SPacket(targetEntityId, holding));
     }
 
     public static void setAssistedBreathing(int patientEntityId, boolean active) {
@@ -482,6 +538,24 @@ public final class ModNetworking {
         CHANNEL.send(
                 PacketDistributor.PLAYER.with(() -> examiner),
                 new CloseAutopsyS2CPacket(corpseEntityId)
+        );
+    }
+
+    public static void sendTimingQteStarted(ServerPlayer player, TimingQteSnapshot snapshot) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> player),
+                new TimingQteStartS2CPacket(snapshot)
+        );
+    }
+
+    public static void sendTimingQteResolved(
+            ServerPlayer player,
+            int sessionId,
+            TimingQteResult result
+    ) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> player),
+                new TimingQteResultS2CPacket(sessionId, result)
         );
     }
 
@@ -629,6 +703,36 @@ public final class ModNetworking {
         CHANNEL.send(
                 PacketDistributor.PLAYER.with(() -> player),
                 new BloodLossFeedbackS2CPacket(amount)
+        );
+    }
+
+    public static void syncBodyDragState(Entity target, ServerPlayer dragger, boolean active) {
+        if (target == null || dragger == null) {
+            return;
+        }
+        syncBodyDragState(target.getId(), dragger.getId(), active);
+    }
+
+    public static void syncBodyDragState(
+            int targetEntityId,
+            int draggerEntityId,
+            boolean active
+    ) {
+        CHANNEL.send(
+                PacketDistributor.ALL.noArg(),
+                new BodyDragStateS2CPacket(targetEntityId, draggerEntityId, active)
+        );
+    }
+
+    public static void syncBodyDragStateTo(
+            Entity target,
+            ServerPlayer dragger,
+            ServerPlayer receiver,
+            boolean active
+    ) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> receiver),
+                new BodyDragStateS2CPacket(target.getId(), dragger.getId(), active)
         );
     }
 

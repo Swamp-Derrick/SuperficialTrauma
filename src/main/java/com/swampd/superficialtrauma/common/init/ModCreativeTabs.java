@@ -33,10 +33,13 @@ public final class ModCreativeTabs {
                         output.accept(ModItems.PARACETAMOL.get());
                         output.accept(ModItems.MORPHINE_VIAL.get());
                         output.accept(ModItems.NALOXONE.get());
+                        output.accept(ModItems.EPINEPHRINE_INJECTION.get());
                         output.accept(ModItems.METOPROLOL.get());
                         output.accept(ModItems.STETHOSCOPE.get());
                         output.accept(ModItems.MANUAL_RESUSCITATOR.get());
                         output.accept(ModItems.DEFIBRILLATOR.get());
+                        output.accept(ModItems.DEFIBRILLATOR_STATION.get());
+                        output.accept(ModItems.MEDICAL_WORKBENCH.get());
                         output.accept(ModItems.SURGICAL_KIT.get());
                         output.accept(ModItems.PUPIL_PENLIGHT.get());
                         output.accept(ModItems.CHECKLIST.get());

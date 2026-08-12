@@ -25,7 +25,8 @@ public final class ModEntities {
             () -> EntityType.Builder.<CorpseEntity>of(CorpseEntity::new, MobCategory.MISC)
                     .sized(DownedGeometry.BODY_WIDTH, DownedGeometry.BODY_HEIGHT)
                     .clientTrackingRange(10)
-                    .updateInterval(20)
+                    .updateInterval(2)
+                    .setShouldReceiveVelocityUpdates(true)
                     .build(SuperficialTrauma.MOD_ID + ":corpse")
     );
 

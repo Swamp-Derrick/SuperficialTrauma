@@ -33,5 +33,6 @@ public final class ClientAutopsyState {
 
     public static void clear() {
         report = null;
+        ClientTimingQteState.clear();
     }
 }

@@ -6,6 +6,7 @@ import com.swampd.superficialtrauma.common.item.FirstAidSkillBookItem;
 import com.swampd.superficialtrauma.common.item.ForensicSkillBookItem;
 import com.swampd.superficialtrauma.common.item.SurgerySkillBookItem;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.BlockItem;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -65,6 +66,10 @@ public final class ModItems {
             "naloxone",
             () -> new Item(new Item.Properties().stacksTo(16))
     );
+    public static final RegistryObject<Item> EPINEPHRINE_INJECTION = ITEMS.register(
+            "epinephrine_injection",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
     public static final RegistryObject<Item> METOPROLOL = ITEMS.register(
             "metoprolol",
             () -> new Item(new Item.Properties().stacksTo(16))
@@ -104,6 +109,14 @@ public final class ModItems {
     public static final RegistryObject<Item> FORENSIC_SKILL_BOOK = ITEMS.register(
             "forensic_skill_book",
             () -> new ForensicSkillBookItem(new Item.Properties().stacksTo(1))
+    );
+    public static final RegistryObject<Item> DEFIBRILLATOR_STATION = ITEMS.register(
+            "defibrillator_station",
+            () -> new BlockItem(ModBlocks.DEFIBRILLATOR_STATION.get(), new Item.Properties())
+    );
+    public static final RegistryObject<Item> MEDICAL_WORKBENCH = ITEMS.register(
+            "medical_workbench",
+            () -> new BlockItem(ModBlocks.MEDICAL_WORKBENCH.get(), new Item.Properties())
     );
 
     private ModItems() {

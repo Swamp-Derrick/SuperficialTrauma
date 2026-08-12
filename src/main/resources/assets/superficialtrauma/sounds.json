@@ -83,5 +83,30 @@
     "sounds": [
       "superficialtrauma:cpr"
     ]
+  },
+  "heartbeat": {
+    "sounds": [
+      "superficialtrauma:heartbeat"
+    ]
+  },
+  "heavy_breathing": {
+    "sounds": [
+      "superficialtrauma:heavy_breathing"
+    ]
+  },
+  "qte_perfect": {
+    "sounds": [
+      "superficialtrauma:qte_perfect"
+    ]
+  },
+  "qte_success": {
+    "sounds": [
+      "superficialtrauma:qte_success"
+    ]
+  },
+  "qte_failed": {
+    "sounds": [
+      "superficialtrauma:qte_failed"
+    ]
   }
 }

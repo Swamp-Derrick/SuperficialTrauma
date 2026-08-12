@@ -89,6 +89,40 @@ public final class DebugCommands {
                                                 EntityArgument.getPlayer(context, "player")
                                         ))))
                 )
+                .then(Commands.literal("setheartrate")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument(
+                                        "value",
+                                        IntegerArgumentType.integer(
+                                                BodyState.MIN_HEART_RATE_LEVEL,
+                                                BodyState.MAX_HEART_RATE_LEVEL
+                                        )
+                                )
+                                .executes(DebugCommands::setOwnHeartRate))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .then(Commands.argument(
+                                                "value",
+                                                IntegerArgumentType.integer(
+                                                        BodyState.MIN_HEART_RATE_LEVEL,
+                                                        BodyState.MAX_HEART_RATE_LEVEL
+                                                )
+                                        )
+                                        .executes(context -> setHeartRate(
+                                                context,
+                                                EntityArgument.getPlayer(context, "player")
+                                        ))))
+                )
+                .then(Commands.literal("addheartrate")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("value", IntegerArgumentType.integer(-3, 3))
+                                .executes(DebugCommands::addOwnHeartRate))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .then(Commands.argument("value", IntegerArgumentType.integer(-3, 3))
+                                        .executes(context -> addHeartRate(
+                                                context,
+                                                EntityArgument.getPlayer(context, "player")
+                                        ))))
+                )
                 .then(Commands.literal("settourniquettime")
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.argument("seconds", IntegerArgumentType.integer(0, 86_400))
@@ -345,6 +379,67 @@ public final class DebugCommands {
             result.set(1);
         });
         return result.get();
+    }
+
+    private static int setOwnHeartRate(
+            CommandContext<CommandSourceStack> context
+    ) throws CommandSyntaxException {
+        return setHeartRate(context, context.getSource().getPlayerOrException());
+    }
+
+    private static int setHeartRate(CommandContext<CommandSourceStack> context, ServerPlayer player) {
+        int requestedValue = IntegerArgumentType.getInteger(context, "value");
+        AtomicInteger result = new AtomicInteger(0);
+        BodyStateCapability.get(player).ifPresent(bodyState -> {
+            int appliedValue = bodyState.setHeartRateLevelForDebug(
+                    requestedValue,
+                    player.serverLevel().getGameTime()
+            );
+            syncHeartRateDebugResult(context, player, bodyState, appliedValue, "set");
+            result.set(1);
+        });
+        return result.get();
+    }
+
+    private static int addOwnHeartRate(
+            CommandContext<CommandSourceStack> context
+    ) throws CommandSyntaxException {
+        return addHeartRate(context, context.getSource().getPlayerOrException());
+    }
+
+    private static int addHeartRate(CommandContext<CommandSourceStack> context, ServerPlayer player) {
+        int delta = IntegerArgumentType.getInteger(context, "value");
+        AtomicInteger result = new AtomicInteger(0);
+        BodyStateCapability.get(player).ifPresent(bodyState -> {
+            int appliedValue = bodyState.addHeartRateLevelForDebug(
+                    delta,
+                    player.serverLevel().getGameTime()
+            );
+            syncHeartRateDebugResult(context, player, bodyState, appliedValue, "add");
+            result.set(1);
+        });
+        return result.get();
+    }
+
+    private static void syncHeartRateDebugResult(
+            CommandContext<CommandSourceStack> context,
+            ServerPlayer player,
+            BodyState bodyState,
+            int appliedValue,
+            String operation
+    ) {
+        ModNetworking.syncBodyState(player);
+        InspectionService.syncPatient(player);
+        context.getSource().sendSuccess(
+                () -> Component.literal(
+                        player.getGameProfile().getName()
+                                + " heart-rate base=" + appliedValue
+                                + " medication=" + bodyState.medicationHeartRateShift()
+                                + " effective=" + bodyState.effectiveHeartRateLevel()
+                                + " (" + operation + ")"
+                ),
+                true
+        );
     }
 
     private static int setOwnTourniquetTime(

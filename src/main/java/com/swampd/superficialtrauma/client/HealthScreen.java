@@ -369,6 +369,15 @@ public final class HealthScreen extends Screen {
                 x,
                 lineY,
                 availableWidth,
+                "screen.superficialtrauma.health.heart_rate",
+                Component.translatable(heartRateDisplayTranslationKey(state)).getString(),
+                heartRateDisplayColor(state)
+        );
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
                 "screen.superficialtrauma.health.infection_index",
                 Integer.toString(Math.max(0, (int) Math.floor(state.infection()))),
                 state.infection() >= 20.0F ? DANGER_COLOR : TEXT_COLOR
@@ -506,6 +515,15 @@ public final class HealthScreen extends Screen {
                 oneDecimal(state.bloodDrugConcentration()),
                 TEXT_COLOR
         );
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
+                "screen.superficialtrauma.health.heart_rate_debug",
+                heartRateDebugValue(state),
+                heartRateDisplayColor(state)
+        );
         if (state.canAct()) {
             lineY = drawValue(
                     graphics,
@@ -624,7 +642,7 @@ public final class HealthScreen extends Screen {
                     rhythm,
                     pixelX - plotLeft,
                     time,
-                    maximumEffectiveDisorientation(state)
+                    state.effectiveHeartRateLevel()
             );
             int sampleY = baseline - Math.round(sample * amplitude);
             sampleY = Math.max(plotTop, Math.min(plotBottom - 1, sampleY));
@@ -639,25 +657,19 @@ public final class HealthScreen extends Screen {
         return switch (state.lifeState()) {
             case CARDIAC_ARREST, BRAIN_DEAD -> ElectrocardiogramRhythm.FLATLINE;
             case VENTRICULAR_FIBRILLATION -> ElectrocardiogramRhythm.FIBRILLATION;
-            default -> maximumEffectiveDisorientation(state) > 0
+            default -> state.effectiveHeartRateLevel() > 0
                     ? ElectrocardiogramRhythm.TACHYCARDIA
-                    : ElectrocardiogramRhythm.NORMAL;
+                    : state.effectiveHeartRateLevel() < 0
+                            ? ElectrocardiogramRhythm.BRADYCARDIA
+                            : ElectrocardiogramRhythm.NORMAL;
         };
-    }
-
-    private int maximumEffectiveDisorientation(BodyState state) {
-        int maximum = 0;
-        for (WoundInstance wound : state.wounds()) {
-            maximum = Math.max(maximum, state.effectiveDisorientationLevel(wound));
-        }
-        return maximum;
     }
 
     private static float electrocardiogramSample(
             ElectrocardiogramRhythm rhythm,
             int horizontalPosition,
             float time,
-            int disorientationLevel
+            int heartRateLevel
     ) {
         if (rhythm == ElectrocardiogramRhythm.FLATLINE) {
             return 0.0F;
@@ -671,9 +683,11 @@ public final class HealthScreen extends Screen {
             );
         }
 
-        float period = rhythm == ElectrocardiogramRhythm.TACHYCARDIA
-                ? Math.max(12.0F, 18.0F - disorientationLevel * 1.5F)
-                : 28.0F;
+        float period = switch (rhythm) {
+            case TACHYCARDIA -> Math.max(12.0F, 19.5F - heartRateLevel * 2.0F);
+            case BRADYCARDIA -> 28.0F + Math.abs(heartRateLevel) * 8.0F;
+            default -> 28.0F;
+        };
         float scrollingOffset = (float) Math.floor(time * 0.55F);
         float phase = positiveFraction((horizontalPosition + scrollingOffset) / period);
         float waveform = heartbeatSample(phase);
@@ -729,6 +743,63 @@ public final class HealthScreen extends Screen {
             case PAIN -> WARN_COLOR;
             case SEVERE_PAIN, EXTREME_PAIN -> DANGER_COLOR;
         };
+    }
+
+    private static String heartRateTranslationKey(int level) {
+        int clampedLevel = Math.max(
+                BodyState.MIN_HEART_RATE_LEVEL,
+                Math.min(BodyState.MAX_HEART_RATE_LEVEL, level)
+        );
+        return "heart_rate.superficialtrauma." + switch (clampedLevel) {
+            case -3 -> "bradycardia_3";
+            case -2 -> "bradycardia_2";
+            case -1 -> "bradycardia_1";
+            case 1 -> "tachycardia_1";
+            case 2 -> "tachycardia_2";
+            case 3 -> "tachycardia_3";
+            default -> "normal";
+        };
+    }
+
+    private static String heartRateDisplayTranslationKey(BodyState state) {
+        return switch (state.lifeState()) {
+            case CARDIAC_ARREST -> "life_state.superficialtrauma.cardiac_arrest";
+            case VENTRICULAR_FIBRILLATION -> "life_state.superficialtrauma.ventricular_fibrillation";
+            case BRAIN_DEAD -> "life_state.superficialtrauma.brain_dead";
+            default -> heartRateTranslationKey(state.effectiveHeartRateLevel());
+        };
+    }
+
+    private static int heartRateDisplayColor(BodyState state) {
+        return switch (state.lifeState()) {
+            case CARDIAC_ARREST, VENTRICULAR_FIBRILLATION, BRAIN_DEAD -> DANGER_COLOR;
+            default -> heartRateColor(state.effectiveHeartRateLevel());
+        };
+    }
+
+    private static String heartRateDebugValue(BodyState state) {
+        String internalValues = state.heartRateLevel()
+                + " / " + signedInteger(state.medicationHeartRateShift())
+                + " / " + state.effectiveHeartRateLevel();
+        return switch (state.lifeState()) {
+            case CARDIAC_ARREST, VENTRICULAR_FIBRILLATION, BRAIN_DEAD ->
+                    Component.translatable(heartRateDisplayTranslationKey(state)).getString()
+                            + " | " + internalValues;
+            default -> internalValues;
+        };
+    }
+
+    private static int heartRateColor(int level) {
+        return switch (Math.abs(level)) {
+            case 3 -> DANGER_COLOR;
+            case 2 -> WARN_COLOR;
+            case 1 -> TEXT_COLOR;
+            default -> GOOD_COLOR;
+        };
+    }
+
+    private static String signedInteger(int value) {
+        return value > 0 ? "+" + value : Integer.toString(value);
     }
 
     private void drawWoundColumn(
@@ -912,12 +983,6 @@ public final class HealthScreen extends Screen {
                 continue;
             }
             if (tag.disorientationLevel() > 0) {
-                int effectiveLevel = state.effectiveDisorientationLevel(wound);
-                if (effectiveLevel > 0) {
-                    labels.add(Component.translatable(
-                            "wound_tag.superficialtrauma.disorientation_" + effectiveLevel
-                    ).getString());
-                }
                 continue;
             }
             labels.add(Component.translatable("wound_tag.superficialtrauma." + tag.serializedName()).getString());
@@ -1212,6 +1277,14 @@ public final class HealthScreen extends Screen {
                 startX + (4 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 drugY + (4 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 state,
+                ModItems.EPINEPHRINE_INJECTION.get(),
+                MedicationButtonType.EPINEPHRINE,
+                anyMedicalActionActive
+        );
+        addMedicationItemButton(
+                startX + (5 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                drugY + (5 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                state,
                 ModItems.METOPROLOL.get(),
                 MedicationButtonType.METOPROLOL,
                 anyMedicalActionActive
@@ -1247,6 +1320,12 @@ public final class HealthScreen extends Screen {
                         && countItem(ModItems.NALOXONE.get()) > 0;
                 missingRequiredItem = state.hasActiveOpioidDose() && countItem(item) <= 0;
                 onPress = () -> submitPreparedMedication(MedicationType.NALOXONE);
+            } else if (buttonType == MedicationButtonType.EPINEPHRINE
+                    && medicationPreparation.patientEntityId() == displayedEntityId()) {
+                active = medicationPreparationStillValid(state)
+                        && countItem(ModItems.EPINEPHRINE_INJECTION.get()) > 0;
+                missingRequiredItem = countItem(item) <= 0;
+                onPress = () -> submitPreparedMedication(MedicationType.EPINEPHRINE);
             }
         } else {
             switch (buttonType) {
@@ -1256,7 +1335,8 @@ public final class HealthScreen extends Screen {
                             && state.lifeState() != BodyLifeState.BRAIN_DEAD
                             && countItem(item) <= 0
                             && (countItem(ModItems.MORPHINE_VIAL.get()) > 0
-                            || (state.hasActiveOpioidDose() && countItem(ModItems.NALOXONE.get()) > 0));
+                            || (state.hasActiveOpioidDose() && countItem(ModItems.NALOXONE.get()) > 0)
+                            || countItem(ModItems.EPINEPHRINE_INJECTION.get()) > 0);
                     onPress = this::beginMedicationPreparation;
                 }
                 case PARACETAMOL -> {
@@ -1269,7 +1349,7 @@ public final class HealthScreen extends Screen {
                             MedicationType.PARACETAMOL
                     );
                 }
-                case MORPHINE, NALOXONE -> {
+                case MORPHINE, NALOXONE, EPINEPHRINE -> {
                 }
                 case METOPROLOL -> {
                     active = actorCanAct()
@@ -1875,7 +1955,8 @@ public final class HealthScreen extends Screen {
                 && state.lifeState() != BodyLifeState.BRAIN_DEAD
                 && countItem(ModItems.SYRINGE.get()) > 0
                 && (countItem(ModItems.MORPHINE_VIAL.get()) > 0
-                || (state.hasActiveOpioidDose() && countItem(ModItems.NALOXONE.get()) > 0));
+                || (state.hasActiveOpioidDose() && countItem(ModItems.NALOXONE.get()) > 0)
+                || countItem(ModItems.EPINEPHRINE_INJECTION.get()) > 0);
     }
 
     private boolean medicationPreparationStillValid(BodyState state) {
@@ -2287,12 +2368,14 @@ public final class HealthScreen extends Screen {
         PARACETAMOL,
         MORPHINE,
         NALOXONE,
+        EPINEPHRINE,
         METOPROLOL
     }
 
     private enum ElectrocardiogramRhythm {
         NORMAL,
         TACHYCARDIA,
+        BRADYCARDIA,
         FIBRILLATION,
         FLATLINE
     }

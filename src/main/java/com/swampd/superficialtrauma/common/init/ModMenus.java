@@ -1,6 +1,8 @@
 package com.swampd.superficialtrauma.common.init;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
+import com.swampd.superficialtrauma.common.block.DefibrillatorStationMenu;
+import com.swampd.superficialtrauma.common.block.MedicalWorkbenchMenu;
 import com.swampd.superficialtrauma.common.loot.LootTargetMenu;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraftforge.common.extensions.IForgeMenuType;
@@ -17,6 +19,14 @@ public final class ModMenus {
     public static final RegistryObject<MenuType<LootTargetMenu>> LOOT_TARGET = MENUS.register(
             "loot_target",
             () -> IForgeMenuType.create(LootTargetMenu::fromNetwork)
+    );
+    public static final RegistryObject<MenuType<DefibrillatorStationMenu>> DEFIBRILLATOR_STATION = MENUS.register(
+            "defibrillator_station",
+            () -> IForgeMenuType.create(DefibrillatorStationMenu::fromNetwork)
+    );
+    public static final RegistryObject<MenuType<MedicalWorkbenchMenu>> MEDICAL_WORKBENCH = MENUS.register(
+            "medical_workbench",
+            () -> IForgeMenuType.create(MedicalWorkbenchMenu::fromNetwork)
     );
 
     private ModMenus() {

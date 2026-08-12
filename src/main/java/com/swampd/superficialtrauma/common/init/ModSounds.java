@@ -41,6 +41,11 @@ public final class ModSounds {
     public static final RegistryObject<SoundEvent> RESUSCITATION_1 = registerMedicalAction("resuscitation_1");
     public static final RegistryObject<SoundEvent> RESUSCITATION_2 = registerMedicalAction("resuscitation_2");
     public static final RegistryObject<SoundEvent> CPR = registerMedicalAction("cpr");
+    public static final RegistryObject<SoundEvent> HEARTBEAT = registerVariableRange("heartbeat");
+    public static final RegistryObject<SoundEvent> HEAVY_BREATHING = registerVariableRange("heavy_breathing");
+    public static final RegistryObject<SoundEvent> QTE_PERFECT = registerVariableRange("qte_perfect");
+    public static final RegistryObject<SoundEvent> QTE_SUCCESS = registerVariableRange("qte_success");
+    public static final RegistryObject<SoundEvent> QTE_FAILED = registerVariableRange("qte_failed");
 
     private ModSounds() {
     }
@@ -63,5 +68,10 @@ public final class ModSounds {
                 name,
                 () -> SoundEvent.createFixedRangeEvent(location, MEDICAL_ACTION_SOUND_RANGE)
         );
+    }
+
+    private static RegistryObject<SoundEvent> registerVariableRange(String name) {
+        ResourceLocation location = ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, name);
+        return SOUND_EVENTS.register(name, () -> SoundEvent.createVariableRangeEvent(location));
     }
 }

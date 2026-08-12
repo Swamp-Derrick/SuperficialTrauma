@@ -3,6 +3,8 @@ package com.swampd.superficialtrauma;
 import com.mojang.logging.LogUtils;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.config.CorpseServerConfig;
+import com.swampd.superficialtrauma.common.init.ModBlocks;
+import com.swampd.superficialtrauma.common.init.ModBlockEntities;
 import com.swampd.superficialtrauma.common.init.ModCreativeTabs;
 import com.swampd.superficialtrauma.common.init.ModEntities;
 import com.swampd.superficialtrauma.common.init.ModMenus;
@@ -25,6 +27,8 @@ public final class SuperficialTrauma {
     public SuperficialTrauma(FMLJavaModLoadingContext loadingContext) {
         IEventBus modEventBus = loadingContext.getModEventBus();
         loadingContext.registerConfig(ModConfig.Type.SERVER, CorpseServerConfig.SPEC);
+        ModBlocks.register(modEventBus);
+        ModBlockEntities.register(modEventBus);
         ModEntities.register(modEventBus);
         ModItems.register(modEventBus);
         ModSounds.register(modEventBus);

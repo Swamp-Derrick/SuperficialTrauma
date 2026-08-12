@@ -31,6 +31,7 @@ public final class ClientForgeEvents {
     public static void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase == TickEvent.Phase.START) {
             ClientGiveUpInput.tick();
+            ClientBodyDragInput.tick();
             ClientDownedInput.suppressKeyActions();
             return;
         }
@@ -39,6 +40,7 @@ public final class ClientForgeEvents {
         }
 
         Minecraft minecraft = Minecraft.getInstance();
+        ClientHeartRateSounds.tick();
         ClientBloodLossOverlay.tick();
         ClientAwakeningRecovery.tick();
         ClientDownedInput.enforceMovementLock();
@@ -124,7 +126,10 @@ public final class ClientForgeEvents {
         ClientTreatmentState.clear();
         ClientMedicationState.clear();
         ClientGiveUpInput.clear();
+        ClientBodyDragInput.clear(false);
+        ClientBodyDragState.clear();
         ClientDownedPoses.clear();
         ClientBloodLossOverlay.clear();
+        ClientHeartRateSounds.clear();
     }
 }

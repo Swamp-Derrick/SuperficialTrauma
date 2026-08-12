@@ -27,6 +27,12 @@ public final class ClientModEvents {
             GLFW.GLFW_KEY_H,
             "key.categories.superficialtrauma"
     );
+    public static final KeyMapping DRAG_BODY = new KeyMapping(
+            "key.superficialtrauma.drag_body",
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_J,
+            "key.categories.superficialtrauma"
+    );
 
     private ClientModEvents() {
     }
@@ -35,6 +41,8 @@ public final class ClientModEvents {
     public static void onClientSetup(FMLClientSetupEvent event) {
         event.enqueueWork(() -> {
             MenuScreens.register(ModMenus.LOOT_TARGET.get(), LootTargetScreen::new);
+            MenuScreens.register(ModMenus.DEFIBRILLATOR_STATION.get(), DefibrillatorStationScreen::new);
+            MenuScreens.register(ModMenus.MEDICAL_WORKBENCH.get(), MedicalWorkbenchScreen::new);
             EntityRenderers.register(ModEntities.CORPSE.get(), CorpseRenderer::new);
         });
     }
@@ -42,6 +50,7 @@ public final class ClientModEvents {
     @SubscribeEvent
     public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
         event.register(OPEN_HEALTH_HUD);
+        event.register(DRAG_BODY);
     }
 
     @SubscribeEvent

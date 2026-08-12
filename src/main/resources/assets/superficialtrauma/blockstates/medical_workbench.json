@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "superficialtrauma:block/medical_workbench", "y": 180 },
+    "facing=east": { "model": "superficialtrauma:block/medical_workbench", "y": 270 },
+    "facing=south": { "model": "superficialtrauma:block/medical_workbench" },
+    "facing=west": { "model": "superficialtrauma:block/medical_workbench", "y": 90 }
+  }
+}

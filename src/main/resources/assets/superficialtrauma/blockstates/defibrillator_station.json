@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "superficialtrauma:block/defibrillator_station", "y": 90 },
+    "facing=east": { "model": "superficialtrauma:block/defibrillator_station", "y": 180 },
+    "facing=south": { "model": "superficialtrauma:block/defibrillator_station", "y": 270 },
+    "facing=west": { "model": "superficialtrauma:block/defibrillator_station" }
+  }
+}

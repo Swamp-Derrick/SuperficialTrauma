@@ -4,5 +4,6 @@ public enum MedicationFamily {
     NON_OPIOID,
     OPIOID,
     BETA_BLOCKER,
-    OPIOID_ANTAGONIST
+    OPIOID_ANTAGONIST,
+    ADRENERGIC
 }
