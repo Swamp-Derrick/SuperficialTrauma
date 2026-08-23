@@ -34,9 +34,7 @@ public final class ForensicSkillBookItem extends Item {
             return InteractionResultHolder.fail(stack);
         }
 
-        if (!serverPlayer.getAbilities().instabuild) {
-            stack.shrink(1);
-        }
+        stack.shrink(1);
         serverPlayer.displayClientMessage(
                 Component.translatable("message.superficialtrauma.forensic_skill.learned"),
                 true

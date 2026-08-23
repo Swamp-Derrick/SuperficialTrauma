@@ -14,6 +14,7 @@ public enum MedicalActionSound {
     ICE_BAG(20),
     TABLETS(8),
     VIAL(20),
+    AMPOULE(20),
     SYRINGE_START(20),
     RESUSCITATION_1(20),
     RESUSCITATION_2(20),

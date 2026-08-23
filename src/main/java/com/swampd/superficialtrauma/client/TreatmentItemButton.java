@@ -13,6 +13,10 @@ final class TreatmentItemButton extends AbstractButton {
     private final boolean removal;
     private final boolean missingRequiredItem;
     private final Runnable onPress;
+    private final int clipLeft;
+    private final int clipTop;
+    private final int clipRight;
+    private final int clipBottom;
 
     TreatmentItemButton(
             int x,
@@ -21,13 +25,21 @@ final class TreatmentItemButton extends AbstractButton {
             boolean removal,
             Component message,
             boolean missingRequiredItem,
-            Runnable onPress
+            Runnable onPress,
+            int clipLeft,
+            int clipTop,
+            int clipRight,
+            int clipBottom
     ) {
         super(x, y, 22, 22, message);
         this.treatmentType = treatmentType;
         this.removal = removal;
         this.missingRequiredItem = missingRequiredItem;
         this.onPress = onPress;
+        this.clipLeft = clipLeft;
+        this.clipTop = clipTop;
+        this.clipRight = clipRight;
+        this.clipBottom = clipBottom;
     }
 
     @Override
@@ -39,6 +51,13 @@ final class TreatmentItemButton extends AbstractButton {
 
     @Override
     protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        if (getX() >= clipRight
+                || getX() + width <= clipLeft
+                || getY() >= clipBottom
+                || getY() + height <= clipTop) {
+            return;
+        }
+        graphics.enableScissor(clipLeft, clipTop, clipRight, clipBottom);
         int x = getX();
         int y = getY();
         int border = !active
@@ -64,6 +83,16 @@ final class TreatmentItemButton extends AbstractButton {
         if (!active) {
             graphics.fill(x + 2, y + 2, x + 20, y + 20, 0x66000000);
         }
+        graphics.disableScissor();
+    }
+
+    @Override
+    public boolean isMouseOver(double mouseX, double mouseY) {
+        return mouseX >= clipLeft
+                && mouseX < clipRight
+                && mouseY >= clipTop
+                && mouseY < clipBottom
+                && super.isMouseOver(mouseX, mouseY);
     }
 
     @Override
@@ -72,10 +101,6 @@ final class TreatmentItemButton extends AbstractButton {
     }
 
     Component tooltip() {
-        return active
-                ? treatmentType.requiredItem().getDescription()
-                : missingRequiredItem
-                        ? Component.translatable("screen.superficialtrauma.health.item_not_held")
-                        : Component.empty();
+        return treatmentType.requiredItem().getDescription();
     }
 }

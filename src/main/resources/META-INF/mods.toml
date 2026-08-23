@@ -10,6 +10,9 @@ logoFile = "superficialtrauma_logo.png"
 authors = "${mod_authors}"
 description = '''${mod_description}'''
 
+[[mixins]]
+config = "superficialtrauma.mixins.json"
+
 [[dependencies."${mod_id}"]]
 modId = "forge"
 mandatory = true

@@ -28,6 +28,7 @@ import com.swampd.superficialtrauma.network.packet.RequestLootTargetC2SPacket;
 import com.swampd.superficialtrauma.network.packet.CloseInspectionC2SPacket;
 import com.swampd.superficialtrauma.network.packet.CloseInspectionS2CPacket;
 import com.swampd.superficialtrauma.network.packet.InspectionSnapshotS2CPacket;
+import com.swampd.superficialtrauma.network.packet.MedicalInspectionNoticeS2CPacket;
 import com.swampd.superficialtrauma.network.packet.RequestInspectionC2SPacket;
 import com.swampd.superficialtrauma.network.packet.StartTreatmentC2SPacket;
 import com.swampd.superficialtrauma.network.packet.TreatmentSessionS2CPacket;
@@ -67,7 +68,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "27";
+    private static final String PROTOCOL_VERSION = "28";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -152,6 +153,14 @@ public final class ModNetworking {
                 CloseInspectionS2CPacket::encode,
                 CloseInspectionS2CPacket::decode,
                 CloseInspectionS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
+        );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                MedicalInspectionNoticeS2CPacket.class,
+                MedicalInspectionNoticeS2CPacket::encode,
+                MedicalInspectionNoticeS2CPacket::decode,
+                MedicalInspectionNoticeS2CPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT)
         );
         CHANNEL.registerMessage(
@@ -524,6 +533,20 @@ public final class ModNetworking {
         CHANNEL.send(
                 PacketDistributor.PLAYER.with(() -> inspector),
                 new CloseInspectionS2CPacket(patientEntityId)
+        );
+    }
+
+    public static void sendMedicalInspectionNotice(
+            ServerPlayer patient,
+            ServerPlayer inspector,
+            net.minecraft.network.chat.Component actionItemName
+    ) {
+        CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> patient),
+                new MedicalInspectionNoticeS2CPacket(
+                        inspector.getGameProfile().getName(),
+                        actionItemName
+                )
         );
     }
 

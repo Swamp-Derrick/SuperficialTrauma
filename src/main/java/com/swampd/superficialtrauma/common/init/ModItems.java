@@ -2,6 +2,7 @@ package com.swampd.superficialtrauma.common.init;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.item.DefibrillatorItem;
+import com.swampd.superficialtrauma.common.item.DdvpInsecticideItem;
 import com.swampd.superficialtrauma.common.item.FirstAidSkillBookItem;
 import com.swampd.superficialtrauma.common.item.ForensicSkillBookItem;
 import com.swampd.superficialtrauma.common.item.SurgerySkillBookItem;
@@ -72,6 +73,18 @@ public final class ModItems {
     );
     public static final RegistryObject<Item> METOPROLOL = ITEMS.register(
             "metoprolol",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
+    public static final RegistryObject<Item> DDVP_INSECTICIDE = ITEMS.register(
+            "ddvp_insecticide",
+            () -> new DdvpInsecticideItem(new Item.Properties().stacksTo(16))
+    );
+    public static final RegistryObject<Item> ATROPINE_SULFATE_INJECTION = ITEMS.register(
+            "atropine_sulfate_injection",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
+    public static final RegistryObject<Item> PRALIDOXIME_CHLORIDE_INJECTION = ITEMS.register(
+            "pralidoxime_chloride_injection",
             () -> new Item(new Item.Properties().stacksTo(16))
     );
     public static final RegistryObject<Item> STETHOSCOPE = ITEMS.register(

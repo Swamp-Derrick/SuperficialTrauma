@@ -103,6 +103,7 @@ public final class TreatmentService {
         SESSION_BY_ACTOR.put(actor.getUUID(), session);
         ACTOR_BY_PATIENT.put(patient.getUUID(), actor.getUUID());
         ModNetworking.sendTreatmentStarted(actor, patient.getId(), session);
+        sendPatientActionNotice(actor, patient, procedure);
         MedicalActionSound sound = medicalSoundFor(procedure);
         if (sound != null) {
             MedicalActionSoundService.start(
@@ -161,6 +162,9 @@ public final class TreatmentService {
         if (session.action().consumesItem() && !hasRequiredItems(actor, session.procedure())) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.ITEM_MISSING);
             return;
+        }
+        if (actor.serverLevel().getGameTime() % 10L == 0L) {
+            sendPatientActionNotice(actor, patient, session.procedure());
         }
         if (actor.serverLevel().getGameTime() >= session.endsGameTime()) {
             complete(actor, patient, session);
@@ -301,6 +305,21 @@ public final class TreatmentService {
             return MedicalActionSound.ICE_BAG;
         }
         return procedure.covering() == null ? null : MedicalActionSound.CLOTH_WRAPPING;
+    }
+
+    private static void sendPatientActionNotice(
+            ServerPlayer actor,
+            ServerPlayer patient,
+            TreatmentProcedure procedure
+    ) {
+        if (actor == patient || procedure == null) {
+            return;
+        }
+        ModNetworking.sendMedicalInspectionNotice(
+                patient,
+                actor,
+                procedure.removalAnchor().requiredItem().getDescription()
+        );
     }
 
     private static boolean isEligibleActor(ServerPlayer actor) {

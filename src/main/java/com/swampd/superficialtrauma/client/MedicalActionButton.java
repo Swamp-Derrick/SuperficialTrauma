@@ -5,11 +5,13 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
 final class MedicalActionButton extends AbstractButton {
     private final Item item;
+    private final ResourceLocation iconTexture;
     private final boolean missingRequiredItem;
     private final Runnable onPress;
 
@@ -23,6 +25,22 @@ final class MedicalActionButton extends AbstractButton {
     ) {
         super(x, y, 22, 22, message);
         this.item = item;
+        this.iconTexture = null;
+        this.missingRequiredItem = missingRequiredItem;
+        this.onPress = onPress;
+    }
+
+    MedicalActionButton(
+            int x,
+            int y,
+            ResourceLocation iconTexture,
+            Component message,
+            boolean missingRequiredItem,
+            Runnable onPress
+    ) {
+        super(x, y, 22, 22, message);
+        this.item = null;
+        this.iconTexture = iconTexture;
         this.missingRequiredItem = missingRequiredItem;
         this.onPress = onPress;
     }
@@ -51,7 +69,11 @@ final class MedicalActionButton extends AbstractButton {
         if (!active) {
             RenderSystem.setShaderColor(0.45F, 0.45F, 0.45F, 1.0F);
         }
-        graphics.renderItem(new ItemStack(item), x + 3, y + 3);
+        if (iconTexture != null) {
+            graphics.blit(iconTexture, x + 3, y + 3, 0, 0, 16, 16, 16, 16);
+        } else {
+            graphics.renderItem(new ItemStack(item), x + 3, y + 3);
+        }
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         if (!active) {
             graphics.fill(x + 2, y + 2, x + 20, y + 20, 0x66000000);
@@ -64,10 +86,6 @@ final class MedicalActionButton extends AbstractButton {
     }
 
     Component tooltip() {
-        return active
-                ? getMessage()
-                : missingRequiredItem
-                        ? Component.translatable("screen.superficialtrauma.health.item_not_held")
-                        : Component.empty();
+        return getMessage();
     }
 }

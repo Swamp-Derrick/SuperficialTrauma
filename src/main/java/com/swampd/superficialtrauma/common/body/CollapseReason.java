@@ -8,7 +8,9 @@ public enum CollapseReason {
     HEMORRHAGIC_SHOCK,
     TRAUMATIC_SHOCK,
     SEPSIS,
-    OVERDOSE;
+    OVERDOSE,
+    HYPOXIA,
+    ORGANOPHOSPHATE_POISONING;
 
     public String serializedName() {
         return name().toLowerCase(Locale.ROOT);

@@ -18,6 +18,7 @@ public final class DefibrillatorStationScreen extends AbstractContainerScreen<De
     private static final int BAR_BACKGROUND = 0xFF182126;
     private static final int BAR_CHARGE = 0xFF54D97B;
     private static final int BAR_WIDTH = 50;
+    private static final float ENERGY_TEXT_SCALE = 0.75F;
 
     public DefibrillatorStationScreen(
             DefibrillatorStationMenu menu,
@@ -82,10 +83,24 @@ public final class DefibrillatorStationScreen extends AbstractContainerScreen<De
                             "screen.superficialtrauma.defibrillator_station.energy",
                             DefibrillatorItem.getEnergy(stack),
                             DefibrillatorItem.MAX_ENERGY
-                    );
+            );
             int centerX = slotIndex == 0 ? 61 : 115;
-            graphics.drawCenteredString(font, energyText, centerX, 20, 0xC8D0DA);
+            drawScaledCenteredString(graphics, energyText, centerX, 20, 0xC8D0DA);
         }
+    }
+
+    private void drawScaledCenteredString(
+            GuiGraphics graphics,
+            Component text,
+            int centerX,
+            int y,
+            int color
+    ) {
+        graphics.pose().pushPose();
+        graphics.pose().translate(centerX, y, 0.0F);
+        graphics.pose().scale(ENERGY_TEXT_SCALE, ENERGY_TEXT_SCALE, 1.0F);
+        graphics.drawString(font, text, -font.width(text) / 2, 0, color, false);
+        graphics.pose().popPose();
     }
 
     private static void drawBorder(

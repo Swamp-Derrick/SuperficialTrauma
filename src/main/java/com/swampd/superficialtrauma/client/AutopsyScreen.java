@@ -284,7 +284,26 @@ public final class AutopsyScreen extends Screen {
 
         y += 5;
         if (report.detailedAutopsyRevealed()) {
-            y = renderDowningEvidence(graphics, x, y, textWidth, report.downingHit());
+            y = renderDowningEvidence(
+                    graphics,
+                    x,
+                    y,
+                    textWidth,
+                    report.downingHit(),
+                    report.administrativeDeath(),
+                    report.organophosphatePoisoningDeath()
+            );
+            if (report.drowningDeath()) {
+                y += 9;
+                y = drawWrapped(
+                        graphics,
+                        Component.translatable("screen.superficialtrauma.autopsy.drowning_cause_of_death"),
+                        x,
+                        y,
+                        textWidth,
+                        ACCENT_COLOR
+                );
+            }
             if (report.suspectedMyocardialInfarction()) {
                 y += 9;
                 drawWrapped(
@@ -315,10 +334,34 @@ public final class AutopsyScreen extends Screen {
             int x,
             int y,
             int textWidth,
-            DowningHitRecord hit
+            DowningHitRecord hit,
+            boolean administrativeDeath,
+            boolean organophosphatePoisoningDeath
     ) {
         graphics.drawString(font, Component.translatable("screen.superficialtrauma.autopsy.downing_evidence"), x, y, TEXT_COLOR, false);
         y += 15;
+        if (administrativeDeath) {
+            return drawWrapped(
+                    graphics,
+                    Component.translatable("screen.superficialtrauma.autopsy.no_explanatory_fatal_trauma"),
+                    x,
+                    y,
+                    textWidth,
+                    ACCENT_COLOR
+            );
+        }
+        if (organophosphatePoisoningDeath) {
+            return drawWrapped(
+                    graphics,
+                    Component.translatable(
+                            "screen.superficialtrauma.autopsy.organophosphate_downing_cause"
+                    ),
+                    x,
+                    y,
+                    textWidth,
+                    ACCENT_COLOR
+            );
+        }
         if (hit == null) {
             return drawWrapped(
                     graphics,

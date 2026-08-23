@@ -25,9 +25,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 24;
+    public static final int CURRENT_DATA_VERSION = 28;
     public static final int MAX_WOUNDS = 8;
     public static final int MAX_WOUND_HISTORY = 6;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
@@ -62,9 +63,25 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     public static final int MAX_HEART_RATE_LEVEL = 3;
     public static final long HEART_RATE_RECOVERY_DELAY_TICKS = 30L * 20L;
     public static final long HEART_RATE_RECOVERY_INTERVAL_TICKS = 30L * 20L;
-    public static final int EPINEPHRINE_COUNTDOWN_SLOWDOWN_DENOMINATOR = 3;
-    public static final int MAX_EFFECTIVE_EPINEPHRINE_COUNTDOWN_LAYERS = 3;
+    public static final int EPINEPHRINE_COUNTDOWN_SLOWDOWN_DENOMINATOR = 6;
+    public static final int MAX_EFFECTIVE_EPINEPHRINE_COUNTDOWN_LAYERS = 2;
     public static final double EPINEPHRINE_DEFIBRILLATION_BONUS_PER_LAYER = 0.10D;
+    public static final float MIN_RESPIRATORY_DISTRESS = -10.0F;
+    public static final float MAX_RESPIRATORY_DISTRESS = 20.0F;
+    public static final float RESPIRATORY_DISTRESS_DISPLAY_THRESHOLD = 5.0F;
+    public static final float RESPIRATORY_DISTRESS_BRADYCARDIA_THRESHOLD = 10.0F;
+    public static final float RESPIRATORY_DISTRESS_COLLAPSE_THRESHOLD = 20.0F;
+    public static final float RESPIRATORY_DISTRESS_AWAKENING_THRESHOLD = 3.0F;
+    public static final float RESPIRATORY_DISTRESS_NATURAL_RECOVERY_PER_SECOND = 0.1F;
+    public static final float RESPIRATORY_DISTRESS_EPINEPHRINE_RECOVERY_PER_LAYER_PER_SECOND = 0.4F;
+    public static final float RESPIRATORY_DISTRESS_ASSISTED_RECOVERY_PER_SECOND = 1.0F;
+    public static final int MAX_ORGANOPHOSPHATE_POISONING_STAGE = 3;
+    public static final long ORGANOPHOSPHATE_STAGE_ONE_MIN_TICKS = 30L * 20L;
+    public static final long ORGANOPHOSPHATE_STAGE_ONE_MAX_TICKS = 60L * 20L;
+    public static final long ORGANOPHOSPHATE_STAGE_TWO_MIN_TICKS = 60L * 20L;
+    public static final long ORGANOPHOSPHATE_STAGE_TWO_MAX_TICKS = 120L * 20L;
+    public static final long ORGANOPHOSPHATE_REPEAT_EXPOSURE_MIN_REDUCTION_TICKS = 20L * 20L;
+    public static final long ORGANOPHOSPHATE_REPEAT_EXPOSURE_MAX_REDUCTION_TICKS = 30L * 20L;
 
     private static final String TAG_DATA_VERSION = "DataVersion";
     private static final String TAG_REVISION = "Revision";
@@ -83,6 +100,14 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_NEXT_HEART_RATE_RECOVERY_GAME_TIME = "NextHeartRateRecoveryGameTime";
     private static final String TAG_HEART_RATE_RECOVERY_PAUSED_AT_GAME_TIME =
             "HeartRateRecoveryPausedAtGameTime";
+    private static final String TAG_BASE_RESPIRATORY_DISTRESS = "BaseRespiratoryDistress";
+    private static final String TAG_LAST_RESPIRATORY_DISTRESS_PROGRESSION_GAME_TIME =
+            "LastRespiratoryDistressProgressionGameTime";
+    private static final String TAG_ORGANOPHOSPHATE_POISONING_STAGE = "OrganophosphatePoisoningStage";
+    private static final String TAG_ORGANOPHOSPHATE_NEXT_PROGRESSION_GAME_TIME =
+            "OrganophosphateNextProgressionGameTime";
+    private static final String TAG_ORGANOPHOSPHATE_PENDING_REDUCTION_TICKS =
+            "OrganophosphatePendingReductionTicks";
     private static final String TAG_ADRENALINE_LEVEL = "AdrenalineLevel";
     private static final String TAG_BLOOD_OXYGEN = "BloodOxygen";
     private static final String TAG_BLOOD_OXYGEN_DEADLINE = "BloodOxygenDeadlineGameTime";
@@ -109,6 +134,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private static final String TAG_WOUND_HISTORY = "WoundHistory";
     private static final String TAG_DOWNING_HIT = "DowningHit";
     private static final String TAG_VOLUNTARY_DEATH = "VoluntaryDeath";
+    private static final String TAG_ADMINISTRATIVE_DEATH = "AdministrativeDeath";
     private static final String TAG_DAMAGE_WINDOWS = "DamageWindows";
     private static final String TAG_LAST_WOUND_PROGRESSION_GAME_TIME = "LastWoundProgressionGameTime";
     private static final String TAG_STRESS_END_GAME_TIME = "StressEndGameTime";
@@ -141,6 +167,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private int heartRateLevel;
     private long nextHeartRateRecoveryGameTime;
     private long heartRateRecoveryPausedAtGameTime;
+    private float baseRespiratoryDistress;
+    private long lastRespiratoryDistressProgressionGameTime;
+    private int organophosphatePoisoningStage;
+    private long organophosphateNextProgressionGameTime;
+    private long organophosphatePendingReductionTicks;
     private int adrenalineLevel;
     private float bloodOxygen;
     private long bloodOxygenDeadlineGameTime;
@@ -166,6 +197,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private final List<WoundHistoryEntry> woundHistory = new ArrayList<>();
     private DowningHitRecord downingHitRecord;
     private boolean voluntaryDeath;
+    private boolean administrativeDeath;
     private final EnumMap<WoundType, DamageWindow> damageWindows = new EnumMap<>(WoundType.class);
     private long lastWoundProgressionGameTime;
     private long stressEndGameTime;
@@ -212,6 +244,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return voluntaryDeath;
     }
 
+    public boolean administrativeDeath() {
+        return administrativeDeath;
+    }
+
     public boolean giveUp() {
         if (lifeState == BodyLifeState.ACTIVE
                 || lifeState == BodyLifeState.AWAKENING
@@ -219,6 +255,20 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             return false;
         }
         voluntaryDeath = true;
+        administrativeDeath = false;
+        enterBrainDeath();
+        markChanged();
+        return true;
+    }
+
+    /** Applies the unconditional death semantics used by vanilla's /kill command. */
+    public boolean forceAdministrativeBrainDeath() {
+        if (lifeState == BodyLifeState.BRAIN_DEAD) {
+            return false;
+        }
+        voluntaryDeath = false;
+        administrativeDeath = true;
+        downingHitRecord = null;
         enterBrainDeath();
         markChanged();
         return true;
@@ -408,6 +458,14 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return activeDoseCount(MedicationType.EPINEPHRINE);
     }
 
+    public int activeAtropineDoseCount() {
+        return activeDoseCount(MedicationType.ATROPINE_SULFATE);
+    }
+
+    public int activePralidoximeDoseCount() {
+        return activeDoseCount(MedicationType.PRALIDOXIME_CHLORIDE);
+    }
+
     public int activeEpinephrineSpeedDoseCount() {
         int count = 0;
         for (DrugDose dose : activeDrugDoses) {
@@ -416,6 +474,99 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             }
         }
         return count;
+    }
+
+    public int activeOpioidDoseCount() {
+        int count = 0;
+        for (DrugDose dose : activeDrugDoses) {
+            if (dose.type().isOpioid()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Returns the whole-body respiratory-distress value. Opioid layers are dynamic so that dose expiry and
+     * naloxone remove their contribution without leaving a second persistent counter behind.
+     */
+    public float respiratoryDistress() {
+        return clamp(
+                baseRespiratoryDistress + dynamicRespiratoryDistressContribution(),
+                MIN_RESPIRATORY_DISTRESS,
+                MAX_RESPIRATORY_DISTRESS
+        );
+    }
+
+    public float baseRespiratoryDistress() {
+        return baseRespiratoryDistress;
+    }
+
+    public float opioidRespiratoryDistressContribution() {
+        int opioidLayers = activeOpioidDoseCount();
+        float contribution = 0.0F;
+        float nextLayerContribution = 2.0F;
+        for (int layer = 0; layer < opioidLayers && contribution < 30.0F; layer++) {
+            contribution = Math.min(30.0F, contribution + nextLayerContribution);
+            nextLayerContribution = Math.min(30.0F, nextLayerContribution * 2.0F);
+        }
+        return contribution;
+    }
+
+    public float toxicologyRespiratoryDistressContribution() {
+        float organophosphate = organophosphatePoisoningStage >= 3 && activeAtropineDoseCount() == 0
+                ? 1.0F
+                : 0.0F;
+        float atropine = -Math.max(0, activeAtropineDoseCount() - 1);
+        float pralidoxime = Math.max(0, activePralidoximeDoseCount() - 2);
+        return organophosphate + atropine + pralidoxime;
+    }
+
+    private float dynamicRespiratoryDistressContribution() {
+        return opioidRespiratoryDistressContribution() + toxicologyRespiratoryDistressContribution();
+    }
+
+    public int respiratoryHeartRateShift() {
+        return respiratoryDistress() >= RESPIRATORY_DISTRESS_BRADYCARDIA_THRESHOLD ? -1 : 0;
+    }
+
+    public boolean hasVisibleRespiratoryDistress() {
+        return respiratoryDistress() > RESPIRATORY_DISTRESS_DISPLAY_THRESHOLD;
+    }
+
+    public boolean addRespiratoryDistress(float amount) {
+        if (!Float.isFinite(amount) || amount <= 0.0F || lifeState == BodyLifeState.BRAIN_DEAD) {
+            return false;
+        }
+        float previous = baseRespiratoryDistress;
+        baseRespiratoryDistress = clamp(
+                baseRespiratoryDistress + amount,
+                MIN_RESPIRATORY_DISTRESS,
+                MAX_RESPIRATORY_DISTRESS
+        );
+        if (Float.compare(previous, baseRespiratoryDistress) == 0) {
+            return false;
+        }
+        markChanged();
+        return true;
+    }
+
+    public float setRespiratoryDistressForDebug(float value, long gameTime) {
+        float requested = Float.isFinite(value)
+                ? clamp(value, MIN_RESPIRATORY_DISTRESS, MAX_RESPIRATORY_DISTRESS)
+                : 0.0F;
+        baseRespiratoryDistress = clamp(
+                requested - dynamicRespiratoryDistressContribution(),
+                MIN_RESPIRATORY_DISTRESS,
+                MAX_RESPIRATORY_DISTRESS
+        );
+        lastRespiratoryDistressProgressionGameTime = Math.max(0L, gameTime);
+        if (lifeState == BodyLifeState.ACTIVE
+                && respiratoryDistress() >= RESPIRATORY_DISTRESS_COLLAPSE_THRESHOLD) {
+            enterIncapacitated(CollapseReason.HYPOXIA, gameTime);
+        }
+        markChanged();
+        return respiratoryDistress();
     }
 
     public float medicationPainReduction() {
@@ -435,11 +586,16 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         for (DrugDose dose : activeDrugDoses) {
             shift += dose.type().heartRateShift();
         }
+        shift += Math.max(0, activePralidoximeDoseCount() - 2);
         return shift;
     }
 
     public int effectiveHeartRateLevel() {
-        return clamp(heartRateLevel + medicationHeartRateShift(), MIN_HEART_RATE_LEVEL, MAX_HEART_RATE_LEVEL);
+        return clamp(
+                heartRateLevel + medicationHeartRateShift() + respiratoryHeartRateShift(),
+                MIN_HEART_RATE_LEVEL,
+                MAX_HEART_RATE_LEVEL
+        );
     }
 
     public long heartRateRecoveryRemainingTicks(long gameTime) {
@@ -464,6 +620,59 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public boolean hasActiveOpioidDose() {
         return activeDrugDoses.stream().anyMatch(dose -> dose.type().isOpioid());
+    }
+
+    public int organophosphatePoisoningStage() {
+        return organophosphatePoisoningStage;
+    }
+
+    public long organophosphateNextProgressionGameTime() {
+        return organophosphateNextProgressionGameTime;
+    }
+
+    public boolean hasOrganophosphatePoisoning() {
+        return organophosphatePoisoningStage > 0;
+    }
+
+    public boolean hasActiveOrganophosphateSymptoms() {
+        return organophosphatePoisoningStage >= 2 && activeAtropineDoseCount() == 0;
+    }
+
+    public boolean exposeToOrganophosphate(long gameTime) {
+        if (gameTime < 0L || lifeState == BodyLifeState.BRAIN_DEAD) {
+            return false;
+        }
+        if (organophosphatePoisoningStage == 1 || organophosphatePoisoningStage == 2) {
+            long reductionTicks = ThreadLocalRandom.current().nextLong(
+                    ORGANOPHOSPHATE_REPEAT_EXPOSURE_MIN_REDUCTION_TICKS,
+                    ORGANOPHOSPHATE_REPEAT_EXPOSURE_MAX_REDUCTION_TICKS + 1L
+            );
+            if (organophosphateNextProgressionGameTime >= 0L) {
+                organophosphateNextProgressionGameTime = Math.max(
+                        gameTime,
+                        organophosphateNextProgressionGameTime - reductionTicks
+                );
+            } else {
+                organophosphatePendingReductionTicks = saturatingAdd(
+                        organophosphatePendingReductionTicks,
+                        reductionTicks
+                );
+            }
+            markChanged();
+            return true;
+        }
+        if (organophosphatePoisoningStage > 0) {
+            return false;
+        }
+        organophosphatePoisoningStage = 1;
+        organophosphateNextProgressionGameTime = randomDeadline(
+                gameTime,
+                ORGANOPHOSPHATE_STAGE_ONE_MIN_TICKS,
+                ORGANOPHOSPHATE_STAGE_ONE_MAX_TICKS
+        );
+        resolveOrganophosphateAntidotes();
+        markChanged();
+        return true;
     }
 
     public boolean hasDrugNausea() {
@@ -493,8 +702,16 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         if (type == MedicationType.EPINEPHRINE && !canAct()) {
             lastEpinephrineCountdownGameTime = gameTime;
         }
+        if (type == MedicationType.ATROPINE_SULFATE && organophosphatePoisoningStage > 0) {
+            organophosphatePoisoningStage = 1;
+            organophosphateNextProgressionGameTime = -1L;
+        }
+        resolveOrganophosphateAntidotes();
         recalculateBloodDrugConcentration();
-        if (bloodDrugConcentration >= OVERDOSE_THRESHOLD && lifeState == BodyLifeState.ACTIVE) {
+        if (respiratoryDistress() >= RESPIRATORY_DISTRESS_COLLAPSE_THRESHOLD
+                && lifeState == BodyLifeState.ACTIVE) {
+            enterIncapacitated(CollapseReason.HYPOXIA, gameTime);
+        } else if (bloodDrugConcentration >= OVERDOSE_THRESHOLD && lifeState == BodyLifeState.ACTIVE) {
             enterIncapacitated(CollapseReason.OVERDOSE, gameTime);
         }
         markChanged();
@@ -590,6 +807,15 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return infusionType != InfusionType.NONE;
     }
 
+    public boolean cancelInfusion() {
+        if (!hasActiveInfusion()) {
+            return false;
+        }
+        clearInfusion();
+        markChanged();
+        return true;
+    }
+
     public long downedDangerRemainingTicks(long gameTime) {
         long deadline = switch (lifeState) {
             case INCAPACITATED, AWAKENING -> bloodOxygenDeadlineGameTime;
@@ -675,7 +901,19 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             return false;
         }
 
+        if (elapsedTicks > 0L) {
+            baseRespiratoryDistress = clamp(
+                    baseRespiratoryDistress
+                            - elapsedTicks / 20.0F * RESPIRATORY_DISTRESS_ASSISTED_RECOVERY_PER_SECOND,
+                    MIN_RESPIRATORY_DISTRESS,
+                    MAX_RESPIRATORY_DISTRESS
+            );
+        }
+
         if (circulationStopped) {
+            if (publish) {
+                markChanged();
+            }
             return true;
         }
 
@@ -1448,6 +1686,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             movementBleedingEndGameTime = shiftDeadline(movementBleedingEndGameTime, pausedTicks);
             shockWarningEndGameTime = shiftDeadline(shockWarningEndGameTime, pausedTicks);
             nextInfectionSettlementGameTime = shiftDeadline(nextInfectionSettlementGameTime, pausedTicks);
+            organophosphateNextProgressionGameTime = shiftDeadline(
+                    organophosphateNextProgressionGameTime,
+                    pausedTicks
+            );
             activeDrugDoses.replaceAll(dose -> dose.shifted(pausedTicks));
             for (WoundInstance wound : wounds) {
                 wound.shiftProgressionDeadlines(pausedTicks);
@@ -1455,6 +1697,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         }
         progressionPausedAtGameTime = -1L;
         lastWoundProgressionGameTime = Math.max(0L, gameTime);
+        lastRespiratoryDistressProgressionGameTime = Math.max(0L, gameTime);
         lastEpinephrineCountdownGameTime = Math.max(0L, gameTime);
         epinephrineCountdownRemainder = 0;
     }
@@ -1462,6 +1705,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     public void pauseBodyProgression(long gameTime) {
         progressionPausedAtGameTime = Math.max(0L, gameTime);
         lastWoundProgressionGameTime = -1L;
+        lastRespiratoryDistressProgressionGameTime = -1L;
     }
 
     public BodyProgressionResult advanceBodyProgression(long gameTime) {
@@ -1496,7 +1740,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
         boolean movementBleedingStateChanged = updateMovementBleedingState(gameTime, traumaticMovement);
         boolean drugStateChanged = expireDrugDoses(gameTime);
+        OrganophosphateProgression organophosphateProgression = advanceOrganophosphatePoisoning(gameTime);
+        drugStateChanged |= organophosphateProgression.changed();
         drugStateChanged |= advanceEpinephrineCountdownSlowdown(gameTime);
+        boolean respiratoryDistressChanged = advanceRespiratoryDistress(gameTime);
         boolean heartRateStateChanged = advanceHeartRateRecovery(gameTime);
 
         int expiredTransientWoundTags = 0;
@@ -1553,6 +1800,13 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         infectionChange += advanceSystemicInfection(gameTime, foodLevel);
         boolean infectionTimerChanged = previousInfectionSettlement != nextInfectionSettlementGameTime;
 
+        boolean becameHypoxic = false;
+        if (respiratoryDistress() >= RESPIRATORY_DISTRESS_COLLAPSE_THRESHOLD
+                && lifeState == BodyLifeState.ACTIVE) {
+            enterIncapacitated(CollapseReason.HYPOXIA, gameTime);
+            becameHypoxic = true;
+        }
+
         boolean becameSeptic = false;
         if (infection >= 20.0F && lifeState == BodyLifeState.ACTIVE) {
             enterIncapacitated(CollapseReason.SEPSIS, gameTime);
@@ -1581,8 +1835,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 becameSeptic,
                 infectionTimerChanged,
                 drugStateChanged,
+                respiratoryDistressChanged,
                 heartRateStateChanged,
-                becameOverdosed,
+                becameOverdosed || becameHypoxic || organophosphateProgression.becameIncapacitated(),
                 bleedingTimerChanged,
                 movementBleedingStateChanged,
                 tourniquetStateChanged,
@@ -1602,6 +1857,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             boolean becameSeptic,
             boolean infectionTimerChanged,
             boolean drugStateChanged,
+            boolean respiratoryDistressChanged,
             boolean heartRateStateChanged,
             boolean becameOverdosed,
             boolean bleedingTimerChanged,
@@ -1620,6 +1876,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 && !becameSeptic
                 && !infectionTimerChanged
                 && !drugStateChanged
+                && !respiratoryDistressChanged
                 && !heartRateStateChanged
                 && !becameOverdosed
                 && !bleedingTimerChanged
@@ -1707,6 +1964,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         resuscitationContributors.clear();
         downingHitRecord = null;
         voluntaryDeath = false;
+        administrativeDeath = false;
         lifeState = BodyLifeState.INCAPACITATED;
         collapseReason = reason == null || reason == CollapseReason.NONE
                 ? CollapseReason.LETHAL_DAMAGE
@@ -1728,13 +1986,20 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     private boolean meetsAwakeningRequirements(float vanillaHealth) {
-        if (!Float.isFinite(vanillaHealth) || infection >= 20.0F) {
+        if (!Float.isFinite(vanillaHealth)
+                || infection >= 20.0F
+                || organophosphatePoisoningStage > 0
+                || bloodDrugConcentration >= OVERDOSE_THRESHOLD
+                || respiratoryDistress() >= RESPIRATORY_DISTRESS_COLLAPSE_THRESHOLD) {
             return false;
         }
         return switch (collapseReason) {
             case TRAUMATIC_SHOCK -> pain() < TRAUMATIC_SHOCK_PAIN_THRESHOLD && vanillaHealth > 5.0F;
             case HEMORRHAGIC_SHOCK -> vanillaHealth > 10.0F && allBleedingWoundsControlled();
             case OVERDOSE -> bloodDrugConcentration <= OVERDOSE_AWAKENING_THRESHOLD;
+            case HYPOXIA -> respiratoryDistress() <= RESPIRATORY_DISTRESS_AWAKENING_THRESHOLD
+                    && vanillaHealth > 10.0F;
+            case ORGANOPHOSPHATE_POISONING -> vanillaHealth > 5.0F;
             default -> false;
         };
     }
@@ -1879,6 +2144,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 || basePain > 0.0F
                 || !activeDrugDoses.isEmpty()
                 || bloodDrugConcentration > 0.0F
+                || Float.compare(baseRespiratoryDistress, 0.0F) != 0
+                || organophosphatePoisoningStage > 0
+                || organophosphateNextProgressionGameTime >= 0L
                 || stressEndGameTime >= 0L
                 || nextPainRecoveryGameTime >= 0L
                 || bloodOxygen < MAX_BLOOD_OXYGEN
@@ -1895,7 +2163,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 || infusionType != InfusionType.NONE
                 || downedGameTime >= 0L
                 || downingHitRecord != null
-                || voluntaryDeath;
+                || voluntaryDeath
+                || administrativeDeath;
         if (!changed) {
             return false;
         }
@@ -1909,6 +2178,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         heartRateLevel = 0;
         nextHeartRateRecoveryGameTime = -1L;
         heartRateRecoveryPausedAtGameTime = -1L;
+        baseRespiratoryDistress = 0.0F;
+        lastRespiratoryDistressProgressionGameTime = -1L;
+        organophosphatePoisoningStage = 0;
+        organophosphateNextProgressionGameTime = -1L;
         lastEpinephrineCountdownGameTime = -1L;
         epinephrineCountdownRemainder = 0;
         bloodOxygen = MAX_BLOOD_OXYGEN;
@@ -1926,6 +2199,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         clearDownedPoseSnapshot();
         downingHitRecord = null;
         voluntaryDeath = false;
+        administrativeDeath = false;
         stressEndGameTime = -1L;
         nextPainRecoveryGameTime = -1L;
         markChanged();
@@ -1941,6 +2215,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         resuscitationContributors.clear();
         downingHitRecord = null;
         voluntaryDeath = false;
+        administrativeDeath = false;
         lifeState = rhythm;
         collapseReason = CollapseReason.HEMORRHAGIC_SHOCK;
         bloodOxygen = 0.0F;
@@ -2147,6 +2422,143 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return true;
     }
 
+    private OrganophosphateProgression advanceOrganophosphatePoisoning(long gameTime) {
+        if (organophosphatePoisoningStage <= 0) {
+            boolean changed = organophosphateNextProgressionGameTime >= 0L
+                    || organophosphatePendingReductionTicks > 0L;
+            organophosphateNextProgressionGameTime = -1L;
+            organophosphatePendingReductionTicks = 0L;
+            return new OrganophosphateProgression(changed, false);
+        }
+        if (activeAtropineDoseCount() > 0) {
+            boolean changed = organophosphatePoisoningStage != 1
+                    || organophosphateNextProgressionGameTime >= 0L;
+            organophosphatePoisoningStage = 1;
+            organophosphateNextProgressionGameTime = -1L;
+            if (resolveOrganophosphateAntidotes()) {
+                changed = true;
+            }
+            return new OrganophosphateProgression(changed, false);
+        }
+        if (organophosphatePoisoningStage >= MAX_ORGANOPHOSPHATE_POISONING_STAGE) {
+            organophosphateNextProgressionGameTime = -1L;
+            organophosphatePendingReductionTicks = 0L;
+            return OrganophosphateProgression.unchanged();
+        }
+        if (organophosphateNextProgressionGameTime < 0L) {
+            organophosphateNextProgressionGameTime = reducedOrganophosphateDeadline(gameTime);
+            return new OrganophosphateProgression(true, false);
+        }
+        if (gameTime < organophosphateNextProgressionGameTime) {
+            return OrganophosphateProgression.unchanged();
+        }
+
+        organophosphatePoisoningStage++;
+        organophosphatePendingReductionTicks = 0L;
+        organophosphateNextProgressionGameTime = nextOrganophosphateDeadline(gameTime);
+        boolean becameIncapacitated = false;
+        if (organophosphatePoisoningStage >= MAX_ORGANOPHOSPHATE_POISONING_STAGE
+                && lifeState == BodyLifeState.ACTIVE) {
+            enterIncapacitated(CollapseReason.ORGANOPHOSPHATE_POISONING, gameTime);
+            becameIncapacitated = true;
+        }
+        return new OrganophosphateProgression(true, becameIncapacitated);
+    }
+
+    private long nextOrganophosphateDeadline(long gameTime) {
+        return switch (organophosphatePoisoningStage) {
+            case 1 -> randomDeadline(
+                    gameTime,
+                    ORGANOPHOSPHATE_STAGE_ONE_MIN_TICKS,
+                    ORGANOPHOSPHATE_STAGE_ONE_MAX_TICKS
+            );
+            case 2 -> randomDeadline(
+                    gameTime,
+                    ORGANOPHOSPHATE_STAGE_TWO_MIN_TICKS,
+                    ORGANOPHOSPHATE_STAGE_TWO_MAX_TICKS
+            );
+            default -> -1L;
+        };
+    }
+
+    private long reducedOrganophosphateDeadline(long gameTime) {
+        long deadline = nextOrganophosphateDeadline(gameTime);
+        if (deadline < 0L || organophosphatePendingReductionTicks <= 0L) {
+            organophosphatePendingReductionTicks = 0L;
+            return deadline;
+        }
+        long reducedDeadline = Math.max(gameTime, deadline - organophosphatePendingReductionTicks);
+        organophosphatePendingReductionTicks = 0L;
+        return reducedDeadline;
+    }
+
+    private boolean resolveOrganophosphateAntidotes() {
+        if (organophosphatePoisoningStage == 1 && activePralidoximeDoseCount() > 0) {
+            organophosphatePoisoningStage = 0;
+            organophosphateNextProgressionGameTime = -1L;
+            organophosphatePendingReductionTicks = 0L;
+            return true;
+        }
+        return false;
+    }
+
+    private static long randomDeadline(long gameTime, long minimumTicks, long maximumTicks) {
+        long delay = ThreadLocalRandom.current().nextLong(minimumTicks, maximumTicks + 1L);
+        return saturatingAdd(gameTime, delay);
+    }
+
+    private boolean advanceRespiratoryDistress(long gameTime) {
+        if (lifeState == BodyLifeState.BRAIN_DEAD) {
+            lastRespiratoryDistressProgressionGameTime = gameTime;
+            return false;
+        }
+        if (lastRespiratoryDistressProgressionGameTime < 0L
+                || gameTime < lastRespiratoryDistressProgressionGameTime) {
+            lastRespiratoryDistressProgressionGameTime = gameTime;
+            return false;
+        }
+
+        long elapsedTicks = gameTime - lastRespiratoryDistressProgressionGameTime;
+        long elapsedWholeSeconds = elapsedTicks / WOUND_PROGRESSION_INTERVAL_TICKS;
+        if (elapsedWholeSeconds <= 0L) {
+            return false;
+        }
+        lastRespiratoryDistressProgressionGameTime +=
+                elapsedWholeSeconds * WOUND_PROGRESSION_INTERVAL_TICKS;
+
+        float previous = baseRespiratoryDistress;
+        int epinephrineLayers = activeEpinephrineDoseCount();
+        if (epinephrineLayers > 0) {
+            float recovery = elapsedWholeSeconds * (
+                    RESPIRATORY_DISTRESS_NATURAL_RECOVERY_PER_SECOND
+                            + epinephrineLayers
+                            * RESPIRATORY_DISTRESS_EPINEPHRINE_RECOVERY_PER_LAYER_PER_SECOND
+            );
+            baseRespiratoryDistress = Math.max(
+                    MIN_RESPIRATORY_DISTRESS,
+                    baseRespiratoryDistress - recovery
+            );
+        } else {
+            float targetBase = clamp(
+                    -dynamicRespiratoryDistressContribution(),
+                    MIN_RESPIRATORY_DISTRESS,
+                    MAX_RESPIRATORY_DISTRESS
+            );
+            float recovery = elapsedWholeSeconds * RESPIRATORY_DISTRESS_NATURAL_RECOVERY_PER_SECOND;
+            if (baseRespiratoryDistress > targetBase) {
+                baseRespiratoryDistress = Math.max(targetBase, baseRespiratoryDistress - recovery);
+            } else if (baseRespiratoryDistress < targetBase) {
+                baseRespiratoryDistress = Math.min(targetBase, baseRespiratoryDistress + recovery);
+            }
+        }
+        baseRespiratoryDistress = clamp(
+                baseRespiratoryDistress,
+                MIN_RESPIRATORY_DISTRESS,
+                MAX_RESPIRATORY_DISTRESS
+        );
+        return Float.compare(previous, baseRespiratoryDistress) != 0;
+    }
+
     private boolean advanceEpinephrineCountdownSlowdown(long gameTime) {
         int effectiveLayers = Math.min(
                 MAX_EFFECTIVE_EPINEPHRINE_COUNTDOWN_LAYERS,
@@ -2168,7 +2580,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         if (elapsedTicks <= 0L) {
             return false;
         }
-        long slowedNumerator = elapsedTicks * effectiveLayers + epinephrineCountdownRemainder;
+        int slowdownWeight = effectiveLayers == 1 ? 2 : 3;
+        long slowedNumerator = elapsedTicks * slowdownWeight + epinephrineCountdownRemainder;
         long extensionTicks = slowedNumerator / EPINEPHRINE_COUNTDOWN_SLOWDOWN_DENOMINATOR;
         epinephrineCountdownRemainder = (int) (
                 slowedNumerator % EPINEPHRINE_COUNTDOWN_SLOWDOWN_DENOMINATOR
@@ -2215,6 +2628,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         heartRateLevel = 0;
         nextHeartRateRecoveryGameTime = -1L;
         heartRateRecoveryPausedAtGameTime = -1L;
+        baseRespiratoryDistress = 0.0F;
+        lastRespiratoryDistressProgressionGameTime = -1L;
+        organophosphatePoisoningStage = 0;
+        organophosphateNextProgressionGameTime = -1L;
+        organophosphatePendingReductionTicks = 0L;
         adrenalineLevel = 0;
         bloodOxygen = MAX_BLOOD_OXYGEN;
         bloodOxygenDeadlineGameTime = -1L;
@@ -2235,6 +2653,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         woundHistory.clear();
         downingHitRecord = null;
         voluntaryDeath = false;
+        administrativeDeath = false;
         damageWindows.clear();
         lastWoundProgressionGameTime = -1L;
         stressEndGameTime = -1L;
@@ -2283,6 +2702,20 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         tag.putInt(TAG_HEART_RATE_LEVEL, heartRateLevel);
         tag.putLong(TAG_NEXT_HEART_RATE_RECOVERY_GAME_TIME, nextHeartRateRecoveryGameTime);
         tag.putLong(TAG_HEART_RATE_RECOVERY_PAUSED_AT_GAME_TIME, heartRateRecoveryPausedAtGameTime);
+        tag.putFloat(TAG_BASE_RESPIRATORY_DISTRESS, baseRespiratoryDistress);
+        tag.putLong(
+                TAG_LAST_RESPIRATORY_DISTRESS_PROGRESSION_GAME_TIME,
+                lastRespiratoryDistressProgressionGameTime
+        );
+        tag.putInt(TAG_ORGANOPHOSPHATE_POISONING_STAGE, organophosphatePoisoningStage);
+        tag.putLong(
+                TAG_ORGANOPHOSPHATE_NEXT_PROGRESSION_GAME_TIME,
+                organophosphateNextProgressionGameTime
+        );
+        tag.putLong(
+                TAG_ORGANOPHOSPHATE_PENDING_REDUCTION_TICKS,
+                organophosphatePendingReductionTicks
+        );
         tag.putInt(TAG_ADRENALINE_LEVEL, adrenalineLevel);
         tag.putFloat(TAG_BLOOD_OXYGEN, bloodOxygen);
         tag.putLong(TAG_BLOOD_OXYGEN_DEADLINE, bloodOxygenDeadlineGameTime);
@@ -2329,6 +2762,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             tag.put(TAG_DOWNING_HIT, downingHitRecord.serializeNBT());
         }
         tag.putBoolean(TAG_VOLUNTARY_DEATH, voluntaryDeath);
+        tag.putBoolean(TAG_ADMINISTRATIVE_DEATH, administrativeDeath);
 
         ListTag damageWindowList = new ListTag();
         for (DamageWindow damageWindow : damageWindows.values()) {
@@ -2405,6 +2839,39 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                     TAG_HEART_RATE_RECOVERY_PAUSED_AT_GAME_TIME,
                     Tag.TAG_ANY_NUMERIC
             ) ? tag.getLong(TAG_HEART_RATE_RECOVERY_PAUSED_AT_GAME_TIME) : -1L;
+        }
+        if (storedVersion >= 26) {
+            baseRespiratoryDistress = tag.contains(TAG_BASE_RESPIRATORY_DISTRESS, Tag.TAG_ANY_NUMERIC)
+                    ? clamp(
+                            tag.getFloat(TAG_BASE_RESPIRATORY_DISTRESS),
+                            MIN_RESPIRATORY_DISTRESS,
+                            MAX_RESPIRATORY_DISTRESS
+                    )
+                    : 0.0F;
+            lastRespiratoryDistressProgressionGameTime = tag.contains(
+                    TAG_LAST_RESPIRATORY_DISTRESS_PROGRESSION_GAME_TIME,
+                    Tag.TAG_ANY_NUMERIC
+            ) ? tag.getLong(TAG_LAST_RESPIRATORY_DISTRESS_PROGRESSION_GAME_TIME) : -1L;
+        }
+        if (storedVersion >= 27) {
+            organophosphatePoisoningStage = clamp(
+                    tag.getInt(TAG_ORGANOPHOSPHATE_POISONING_STAGE),
+                    0,
+                    MAX_ORGANOPHOSPHATE_POISONING_STAGE
+            );
+            organophosphateNextProgressionGameTime = tag.contains(
+                    TAG_ORGANOPHOSPHATE_NEXT_PROGRESSION_GAME_TIME,
+                    Tag.TAG_ANY_NUMERIC
+            ) ? tag.getLong(TAG_ORGANOPHOSPHATE_NEXT_PROGRESSION_GAME_TIME) : -1L;
+            organophosphatePendingReductionTicks = tag.contains(
+                    TAG_ORGANOPHOSPHATE_PENDING_REDUCTION_TICKS,
+                    Tag.TAG_ANY_NUMERIC
+            ) ? Math.max(0L, tag.getLong(TAG_ORGANOPHOSPHATE_PENDING_REDUCTION_TICKS)) : 0L;
+            if (organophosphatePoisoningStage <= 0
+                    || organophosphatePoisoningStage >= MAX_ORGANOPHOSPHATE_POISONING_STAGE) {
+                organophosphateNextProgressionGameTime = -1L;
+                organophosphatePendingReductionTicks = 0L;
+            }
         }
         adrenalineLevel = Math.max(0, tag.getInt(TAG_ADRENALINE_LEVEL));
         bloodOxygen = tag.contains(TAG_BLOOD_OXYGEN, Tag.TAG_ANY_NUMERIC)
@@ -2538,6 +3005,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             downingHitRecord = DowningHitRecord.deserializeNBT(tag.getCompound(TAG_DOWNING_HIT));
         }
         voluntaryDeath = tag.getBoolean(TAG_VOLUNTARY_DEATH);
+        administrativeDeath = tag.getBoolean(TAG_ADMINISTRATIVE_DEATH);
+        if (administrativeDeath) {
+            voluntaryDeath = false;
+            downingHitRecord = null;
+        }
 
         ListTag damageWindowList = tag.getList(TAG_DAMAGE_WINDOWS, Tag.TAG_COMPOUND);
         for (int i = 0; i < damageWindowList.size(); i++) {
@@ -2627,6 +3099,15 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
         private boolean changed() {
             return warningStarted || warningCancelled || becameIncapacitated;
+        }
+    }
+
+    private record OrganophosphateProgression(boolean changed, boolean becameIncapacitated) {
+        private static final OrganophosphateProgression UNCHANGED =
+                new OrganophosphateProgression(false, false);
+
+        private static OrganophosphateProgression unchanged() {
+            return UNCHANGED;
         }
     }
 

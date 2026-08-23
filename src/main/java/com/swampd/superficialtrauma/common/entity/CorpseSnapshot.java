@@ -4,6 +4,7 @@ import com.swampd.superficialtrauma.common.body.DownedFallDirection;
 import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
 import com.swampd.superficialtrauma.common.body.DownedPosture;
 import com.swampd.superficialtrauma.common.body.DowningHitRecord;
+import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.WoundHistoryEntry;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -25,9 +26,11 @@ public record CorpseSnapshot(
         DownedPoseSnapshot downedPose,
         List<WoundHistoryEntry> woundHistory,
         DowningHitRecord downingHitRecord,
-        boolean voluntaryDeath
+        CollapseReason collapseReason,
+        boolean voluntaryDeath,
+        boolean administrativeDeath
 ) {
-    public static final int CURRENT_DATA_VERSION = 5;
+    public static final int CURRENT_DATA_VERSION = 7;
     private static final String TAG_DATA_VERSION = "DataVersion";
     private static final String TAG_OWNER_ID = "OwnerId";
     private static final String TAG_OWNER_NAME = "OwnerName";
@@ -40,7 +43,9 @@ public record CorpseSnapshot(
     private static final String TAG_FALL_DIRECTION = "FallDirection";
     private static final String TAG_WOUND_HISTORY = "WoundHistory";
     private static final String TAG_DOWNING_HIT = "DowningHit";
+    private static final String TAG_COLLAPSE_REASON = "CollapseReason";
     private static final String TAG_VOLUNTARY_DEATH = "VoluntaryDeath";
+    private static final String TAG_ADMINISTRATIVE_DEATH = "AdministrativeDeath";
 
     public CorpseSnapshot {
         ownerId = ownerId == null ? new UUID(0L, 0L) : ownerId;
@@ -56,6 +61,12 @@ public record CorpseSnapshot(
                 : woundHistory.stream().filter(entry -> entry != null).toList();
         int firstRetained = Math.max(0, normalizedHistory.size() - 6);
         woundHistory = List.copyOf(normalizedHistory.subList(firstRetained, normalizedHistory.size()));
+        collapseReason = collapseReason == null ? CollapseReason.NONE : collapseReason;
+        if (administrativeDeath) {
+            voluntaryDeath = false;
+            downingHitRecord = null;
+            collapseReason = CollapseReason.NONE;
+        }
     }
 
     public CompoundTag save() {
@@ -78,7 +89,9 @@ public record CorpseSnapshot(
         if (downingHitRecord != null) {
             tag.put(TAG_DOWNING_HIT, downingHitRecord.serializeNBT());
         }
+        tag.putString(TAG_COLLAPSE_REASON, collapseReason.serializedName());
         tag.putBoolean(TAG_VOLUNTARY_DEATH, voluntaryDeath);
+        tag.putBoolean(TAG_ADMINISTRATIVE_DEATH, administrativeDeath);
         return tag;
     }
 
@@ -115,7 +128,9 @@ public record CorpseSnapshot(
                 pose,
                 history,
                 downingHit,
-                tag.getBoolean(TAG_VOLUNTARY_DEATH)
+                CollapseReason.fromSerializedName(tag.getString(TAG_COLLAPSE_REASON)),
+                tag.getBoolean(TAG_VOLUNTARY_DEATH),
+                tag.getBoolean(TAG_ADMINISTRATIVE_DEATH)
         );
     }
 }

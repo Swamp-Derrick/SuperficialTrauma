@@ -65,15 +65,7 @@ public final class ShotgunVolleyAggregator {
             return false;
         }
 
-        if (!bodyState.canAct()) {
-            SuperficialTrauma.LOGGER.info(
-                    "Discarded {} pending shotgun volley/volleys because victim {} is already downed",
-                    completed.size(),
-                    victim.getGameProfile().getName()
-            );
-            return false;
-        }
-
+        boolean resolvedAfterDowning = !bodyState.canAct();
         boolean changed = false;
         for (ShotgunVolleyAccumulator.CompletedVolley volley : completed) {
             boolean needsDebridement = volley.totalFinalDamage() >= 4.0F
@@ -88,7 +80,7 @@ public final class ShotgunVolleyAggregator {
             );
             changed = true;
             SuperficialTrauma.LOGGER.info(
-                    "Resolved shotgun volley pellets={} Dtotal={} result={} A={} L={} spawnTick={} hitTicks={}..{}",
+                    "Resolved shotgun volley pellets={} Dtotal={} result={} A={} L={} spawnTick={} hitTicks={}..{} afterDowning={}",
                     volley.pelletHits(),
                     volley.totalFinalDamage(),
                     result.status(),
@@ -96,7 +88,8 @@ public final class ShotgunVolleyAggregator {
                     volley.minimumAttackerDistance(),
                     volley.key().projectileSpawnGameTime(),
                     volley.firstHitGameTime(),
-                    volley.lastHitGameTime()
+                    volley.lastHitGameTime(),
+                    resolvedAfterDowning
             );
         }
         return changed;

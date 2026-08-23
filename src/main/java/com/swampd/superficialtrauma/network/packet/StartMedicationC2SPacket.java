@@ -17,14 +17,14 @@ public record StartMedicationC2SPacket(int patientEntityId, MedicationType type)
     public static StartMedicationC2SPacket decode(FriendlyByteBuf buffer) {
         return new StartMedicationC2SPacket(
                 buffer.readVarInt(),
-                MedicationType.fromSerializedName(buffer.readUtf(32))
+                MedicationType.fromNetworkName(buffer.readUtf(32)).orElse(null)
         );
     }
 
     public static void handle(StartMedicationC2SPacket packet, Supplier<NetworkEvent.Context> contextSupplier) {
         NetworkEvent.Context context = contextSupplier.get();
         ServerPlayer sender = context.getSender();
-        if (sender != null) {
+        if (sender != null && packet.type != null) {
             context.enqueueWork(() -> MedicationService.start(sender, packet.patientEntityId, packet.type));
         }
         context.setPacketHandled(true);

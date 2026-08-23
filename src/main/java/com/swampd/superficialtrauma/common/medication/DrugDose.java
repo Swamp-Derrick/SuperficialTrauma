@@ -40,7 +40,7 @@ public record DrugDose(MedicationType type, long expiresGameTime, boolean grants
     }
 
     public static DrugDose load(CompoundTag tag) {
-        MedicationType type = MedicationType.fromSerializedName(tag.getString(TAG_TYPE));
+        MedicationType type = MedicationType.fromStoredName(tag.getString(TAG_TYPE));
         long expiresGameTime = tag.contains(TAG_EXPIRES_GAME_TIME, Tag.TAG_ANY_NUMERIC)
                 ? tag.getLong(TAG_EXPIRES_GAME_TIME)
                 : 0L;

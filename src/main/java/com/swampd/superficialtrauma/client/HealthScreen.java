@@ -1,5 +1,6 @@
 package com.swampd.superficialtrauma.client;
 
+import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyLifeState;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
@@ -25,7 +26,9 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -48,9 +51,20 @@ public final class HealthScreen extends Screen {
     private static final int WARN_COLOR = 0xFFE3B866;
     private static final int DANGER_COLOR = 0xFFE06C75;
     private static final int MINIMUM_WOUND_ROW_HEIGHT = 43;
+    private static final int RESPIRATORY_DISTRESS_ROW_HEIGHT = 43;
+    private static final int ORGANOPHOSPHATE_POISONING_ROW_HEIGHT = 43;
     private static final int TREATMENT_BUTTON_SIZE = 22;
     private static final int TREATMENT_BUTTON_STEP = 25;
     private static final int TREATMENT_BUTTON_TOP = 9;
+    private static final int WOUND_SCROLLBAR_RESERVED_WIDTH = 7;
+    private static final int WOUND_SCROLLBAR_TRACK_WIDTH = 3;
+    private static final int WOUND_SCROLLBAR_HIT_WIDTH = 9;
+    private static final int WOUND_SCROLL_WHEEL_STEP = 24;
+    private static final int MINIMUM_WOUND_SCROLLBAR_THUMB_HEIGHT = 18;
+    private static final ResourceLocation CPR_ICON = ResourceLocation.fromNamespaceAndPath(
+            SuperficialTrauma.MOD_ID,
+            "textures/gui/cpr.png"
+    );
 
     private final boolean inspectingOtherPlayer;
     private final int inspectedEntityId;
@@ -72,6 +86,9 @@ public final class HealthScreen extends Screen {
     private DefibrillationEnergySlider defibrillationEnergySlider;
     private DefibrillationChargeButton defibrillationChargeButton;
     private boolean adminDebugView;
+    private int woundScrollOffset;
+    private boolean draggingWoundScrollbar;
+    private int woundScrollbarGrabOffset;
 
     public HealthScreen() {
         super(Component.translatable("screen.superficialtrauma.health.title"));
@@ -181,6 +198,7 @@ public final class HealthScreen extends Screen {
                     TEXT_COLOR
             );
             super.render(graphics, mouseX, mouseY, partialTick);
+            ClientMedicalInspectionNotice.render(graphics, width, height);
             return;
         }
 
@@ -243,6 +261,7 @@ public final class HealthScreen extends Screen {
                 graphics.renderTooltip(font, tooltip, mouseX, mouseY);
             }
         }
+        ClientMedicalInspectionNotice.render(graphics, width, height);
     }
 
     private void drawWholeBodyColumn(
@@ -520,6 +539,17 @@ public final class HealthScreen extends Screen {
                 x,
                 lineY,
                 availableWidth,
+                "screen.superficialtrauma.health.respiratory_distress_debug",
+                oneDecimal(state.respiratoryDistress()),
+                state.respiratoryDistress() >= BodyState.RESPIRATORY_DISTRESS_COLLAPSE_THRESHOLD
+                        ? DANGER_COLOR
+                        : state.hasVisibleRespiratoryDistress() ? WARN_COLOR : TEXT_COLOR
+        );
+        lineY = drawValue(
+                graphics,
+                x,
+                lineY,
+                availableWidth,
                 "screen.superficialtrauma.health.heart_rate_debug",
                 heartRateDebugValue(state),
                 heartRateDisplayColor(state)
@@ -780,6 +810,7 @@ public final class HealthScreen extends Screen {
     private static String heartRateDebugValue(BodyState state) {
         String internalValues = state.heartRateLevel()
                 + " / " + signedInteger(state.medicationHeartRateShift())
+                + " / " + signedInteger(state.respiratoryHeartRateShift())
                 + " / " + state.effectiveHeartRateLevel();
         return switch (state.lifeState()) {
             case CARDIAC_ARREST, VENTRICULAR_FIBRILLATION, BRAIN_DEAD ->
@@ -819,15 +850,22 @@ public final class HealthScreen extends Screen {
                 TITLE_COLOR,
                 false
         );
-        List<WoundInstance> sortedWounds = sortedWounds(state);
-        List<WoundRow> visibleRows = visibleWoundRows(
+        WoundListLayout woundLayout = woundListLayout(
                 state,
                 availableHeight,
                 availableWidth,
                 treatmentAvailableWidth
         );
-        int cardY = y + 16;
-        if (sortedWounds.isEmpty()) {
+        clampWoundScroll(woundLayout);
+        int viewportTop = y + 16;
+        int viewportBottom = viewportTop + woundLayout.viewportHeight();
+        int contentWidth = woundLayout.contentWidth();
+        int cardY = viewportTop - woundScrollOffset;
+
+        graphics.enableScissor(x, viewportTop, x + contentWidth, viewportBottom);
+        if (woundLayout.rows().isEmpty()
+                && !showsOrganophosphatePoisoning(state)
+                && !state.hasVisibleRespiratoryDistress()) {
             graphics.drawString(
                     font,
                     Component.translatable("screen.superficialtrauma.health.no_wounds"),
@@ -839,89 +877,127 @@ public final class HealthScreen extends Screen {
             cardY += 18;
         }
 
-        for (WoundRow row : visibleRows) {
-            WoundInstance wound = row.wound();
-            int cardHeight = row.height() - 3;
-            int cardColor = wound.severity() >= 3
-                    ? 0xAA4C2529
-                    : wound.severity() == 2 ? 0xAA4A3C24 : 0xAA263D31;
-            graphics.fill(x, cardY, x + availableWidth, cardY + cardHeight, cardColor);
-            drawBorder(
-                    graphics,
-                    x,
-                    cardY,
-                    availableWidth,
-                    cardHeight,
-                    wound.severity() >= 3 ? DANGER_COLOR : BORDER_COLOR
-            );
-            Component woundName = Component.translatable(wound.displayTranslationKey());
-            Component triage = Component.translatable(wound.triageTranslationKey());
-            int triageWidth = font.width(triage);
-            int woundNameWidth = Math.max(20, availableWidth - triageWidth - 16);
-            graphics.drawString(
-                    font,
-                    font.plainSubstrByWidth(woundName.getString(), woundNameWidth),
-                    x + 4,
-                    cardY + 4,
-                    TITLE_COLOR,
-                    false
-            );
-            graphics.drawString(
-                    font,
-                    triage,
-                    x + availableWidth - 4 - triageWidth,
-                    cardY + 4,
-                    wound.severity() >= 3 ? DANGER_COLOR : wound.severity() == 2 ? WARN_COLOR : GOOD_COLOR,
-                    false
-            );
-            Component woundValues = Component.translatable(
-                    "screen.superficialtrauma.health.wound_values",
-                    wound.severity(),
-                    oneDecimal(wound.accumulatedDamage()),
-                    oneDecimal(wound.healingProgress())
-            );
-            graphics.drawString(
-                    font,
-                    font.plainSubstrByWidth(woundValues.getString(), Math.max(20, availableWidth - 8)),
-                    x + 4,
-                    cardY + 17,
-                    TEXT_COLOR,
-                    false
-            );
-            String tagSummary = woundTagSummary(wound, state);
-            if (!tagSummary.isEmpty()) {
-                int tagY = cardY + 28;
-                for (FormattedCharSequence line : woundTagLines(tagSummary, availableWidth)) {
-                    graphics.drawString(font, line, x + 4, tagY, MUTED_COLOR, false);
-                    tagY += 11;
+        for (WoundRow row : woundLayout.rows()) {
+            if (cardY < viewportBottom && cardY + row.height() > viewportTop) {
+                WoundInstance wound = row.wound();
+                int cardHeight = row.height() - 3;
+                int cardColor = wound.severity() >= 3
+                        ? 0xAA4C2529
+                        : wound.severity() == 2 ? 0xAA4A3C24 : 0xAA263D31;
+                graphics.fill(x, cardY, x + contentWidth, cardY + cardHeight, cardColor);
+                drawBorder(
+                        graphics,
+                        x,
+                        cardY,
+                        contentWidth,
+                        cardHeight,
+                        wound.severity() >= 3 ? DANGER_COLOR : BORDER_COLOR
+                );
+                Component woundName = Component.translatable(wound.displayTranslationKey());
+                Component triage = Component.translatable(wound.triageTranslationKey());
+                int triageWidth = font.width(triage);
+                int woundNameWidth = Math.max(20, contentWidth - triageWidth - 16);
+                graphics.drawString(
+                        font,
+                        font.plainSubstrByWidth(woundName.getString(), woundNameWidth),
+                        x + 4,
+                        cardY + 4,
+                        TITLE_COLOR,
+                        false
+                );
+                graphics.drawString(
+                        font,
+                        triage,
+                        x + contentWidth - 4 - triageWidth,
+                        cardY + 4,
+                        wound.severity() >= 3 ? DANGER_COLOR : wound.severity() == 2 ? WARN_COLOR : GOOD_COLOR,
+                        false
+                );
+                Component woundValues = Component.translatable(
+                        "screen.superficialtrauma.health.wound_values",
+                        wound.severity(),
+                        oneDecimal(wound.accumulatedDamage()),
+                        oneDecimal(wound.healingProgress())
+                );
+                graphics.drawString(
+                        font,
+                        font.plainSubstrByWidth(woundValues.getString(), Math.max(20, contentWidth - 8)),
+                        x + 4,
+                        cardY + 17,
+                        TEXT_COLOR,
+                        false
+                );
+                String tagSummary = woundTagSummary(wound, state);
+                if (!tagSummary.isEmpty()) {
+                    int tagY = cardY + 28;
+                    for (FormattedCharSequence line : woundTagLines(tagSummary, contentWidth)) {
+                        graphics.drawString(font, line, x + 4, tagY, MUTED_COLOR, false);
+                        tagY += 11;
+                    }
                 }
             }
             cardY += row.height();
         }
 
-        int columnBottom = y + availableHeight;
-        if (sortedWounds.size() > visibleRows.size() && cardY + font.lineHeight <= columnBottom) {
-            Component moreWounds = Component.translatable(
-                    "screen.superficialtrauma.health.more_wounds",
-                    sortedWounds.size() - visibleRows.size()
-            );
-            graphics.drawString(
-                    font,
-                    font.plainSubstrByWidth(moreWounds.getString(), availableWidth),
-                    x,
-                    cardY,
-                    MUTED_COLOR,
-                    false
-            );
-            cardY += 13;
+        if (showsOrganophosphatePoisoning(state)) {
+            if (cardY < viewportBottom && cardY + ORGANOPHOSPHATE_POISONING_ROW_HEIGHT > viewportTop) {
+                int cardHeight = ORGANOPHOSPHATE_POISONING_ROW_HEIGHT - 3;
+                graphics.fill(x, cardY, x + contentWidth, cardY + cardHeight, 0xAA5A1E24);
+                drawBorder(graphics, x, cardY, contentWidth, cardHeight, DANGER_COLOR);
+                graphics.drawString(
+                        font,
+                        Component.translatable("screen.superficialtrauma.health.organophosphate_poisoning"),
+                        x + 4,
+                        cardY + 4,
+                        DANGER_COLOR,
+                        false
+                );
+                graphics.drawString(
+                        font,
+                        Component.translatable(
+                                "screen.superficialtrauma.health.organophosphate_poisoning_stage",
+                                state.organophosphatePoisoningStage()
+                        ),
+                        x + 4,
+                        cardY + 17,
+                        TEXT_COLOR,
+                        false
+                );
+            }
+            cardY += ORGANOPHOSPHATE_POISONING_ROW_HEIGHT;
+        }
+
+        if (state.hasVisibleRespiratoryDistress()) {
+            if (cardY < viewportBottom && cardY + RESPIRATORY_DISTRESS_ROW_HEIGHT > viewportTop) {
+                int cardHeight = RESPIRATORY_DISTRESS_ROW_HEIGHT - 3;
+                graphics.fill(x, cardY, x + contentWidth, cardY + cardHeight, 0xAA5A491E);
+                drawBorder(graphics, x, cardY, contentWidth, cardHeight, WARN_COLOR);
+                graphics.drawString(
+                        font,
+                        Component.translatable("screen.superficialtrauma.health.respiratory_distress"),
+                        x + 4,
+                        cardY + 4,
+                        WARN_COLOR,
+                        false
+                );
+            }
+            cardY += RESPIRATORY_DISTRESS_ROW_HEIGHT;
         }
 
         int pendingY = cardY + 2;
         List<DamageWindow> pendingWindows = new ArrayList<>(state.damageWindows().values());
         pendingWindows.sort(Comparator.comparingLong(DamageWindow::startedGameTime));
         for (DamageWindow window : pendingWindows) {
-            pendingY = drawPendingWindow(graphics, window, x, pendingY, availableWidth, columnBottom);
+            pendingY = drawPendingWindow(graphics, window, x, pendingY, contentWidth);
         }
+        graphics.disableScissor();
+
+        drawWoundScrollbar(
+                graphics,
+                x + availableWidth - WOUND_SCROLLBAR_TRACK_WIDTH,
+                viewportTop,
+                woundLayout
+        );
     }
 
     private int drawPendingWindow(
@@ -929,12 +1005,8 @@ public final class HealthScreen extends Screen {
             DamageWindow window,
             int x,
             int y,
-            int availableWidth,
-            int columnBottom
+            int availableWidth
     ) {
-        if (y + font.lineHeight > columnBottom) {
-            return y;
-        }
         Component pending = Component.translatable(
                 "screen.superficialtrauma.health.pending_wound",
                 Component.translatable(window.type().translationKey()),
@@ -949,6 +1021,56 @@ public final class HealthScreen extends Screen {
                 false
         );
         return y + 13;
+    }
+
+    private void drawWoundScrollbar(
+            GuiGraphics graphics,
+            int trackX,
+            int trackY,
+            WoundListLayout woundLayout
+    ) {
+        if (!woundLayout.scrollable() || woundLayout.viewportHeight() <= 0) {
+            return;
+        }
+        int trackHeight = woundLayout.viewportHeight();
+        int thumbHeight = woundScrollbarThumbHeight(woundLayout);
+        int thumbY = trackY + woundScrollbarThumbOffset(woundLayout, thumbHeight);
+        graphics.fill(
+                trackX,
+                trackY,
+                trackX + WOUND_SCROLLBAR_TRACK_WIDTH,
+                trackY + trackHeight,
+                0xFF161C22
+        );
+        graphics.fill(
+                trackX,
+                thumbY,
+                trackX + WOUND_SCROLLBAR_TRACK_WIDTH,
+                thumbY + thumbHeight,
+                draggingWoundScrollbar ? TITLE_COLOR : BORDER_COLOR
+        );
+    }
+
+    private static int woundScrollbarThumbHeight(WoundListLayout woundLayout) {
+        if (!woundLayout.scrollable() || woundLayout.viewportHeight() <= 0) {
+            return 0;
+        }
+        int proportionalHeight = Math.round(
+                woundLayout.viewportHeight()
+                        * (woundLayout.viewportHeight() / (float) woundLayout.totalContentHeight())
+        );
+        return Math.min(
+                woundLayout.viewportHeight(),
+                Math.max(MINIMUM_WOUND_SCROLLBAR_THUMB_HEIGHT, proportionalHeight)
+        );
+    }
+
+    private int woundScrollbarThumbOffset(WoundListLayout woundLayout, int thumbHeight) {
+        if (!woundLayout.scrollable()) {
+            return 0;
+        }
+        int availableTravel = Math.max(0, woundLayout.viewportHeight() - thumbHeight);
+        return Math.round(availableTravel * (woundScrollOffset / (float) woundLayout.maximumScroll()));
     }
 
     private String woundTagSummary(WoundInstance wound, BodyState state) {
@@ -1124,31 +1246,45 @@ public final class HealthScreen extends Screen {
         if (panelMode == PanelMode.TREATMENT) {
             int availableHeight = layout.innerHeight - 12;
             int treatmentAvailableWidth = layout.rightWidth - 12;
-            List<WoundRow> visibleRows = visibleWoundRows(
+            WoundListLayout woundLayout = woundListLayout(
                     state,
                     availableHeight,
                     layout.middleWidth - 12,
                     treatmentAvailableWidth
             );
+            clampWoundScroll(woundLayout);
             int patientEntityId = displayedEntityId();
-            int rowY = layout.innerY + 6 + 16;
+            int viewportTop = layout.innerY + 6 + 16;
+            int viewportBottom = viewportTop + woundLayout.viewportHeight();
+            int clipLeft = layout.rightX + 6;
+            int clipRight = layout.rightX + layout.rightWidth - 6;
+            int rowY = viewportTop - woundScrollOffset;
             int buttonsPerRow = treatmentButtonsPerRow(treatmentAvailableWidth);
 
-            for (WoundRow row : visibleRows) {
+            for (WoundRow row : woundLayout.rows()) {
                 WoundInstance wound = row.wound();
                 List<TreatmentType> visibleTypes = visibleTreatmentTypes(wound);
                 if (!visibleTypes.isEmpty()) {
                     int treatmentIndex = 0;
                     for (TreatmentType type : visibleTypes) {
-                        addTreatmentButton(
-                                layout.rightX + 10 + treatmentIndex % buttonsPerRow * TREATMENT_BUTTON_STEP,
-                                rowY + TREATMENT_BUTTON_TOP
-                                        + treatmentIndex / buttonsPerRow * TREATMENT_BUTTON_STEP,
-                                patientEntityId,
-                                wound,
-                                type,
-                                anyTreatmentActive
-                        );
+                        int buttonX = layout.rightX + 10
+                                + treatmentIndex % buttonsPerRow * TREATMENT_BUTTON_STEP;
+                        int buttonY = rowY + TREATMENT_BUTTON_TOP
+                                + treatmentIndex / buttonsPerRow * TREATMENT_BUTTON_STEP;
+                        if (buttonY < viewportBottom && buttonY + TREATMENT_BUTTON_SIZE > viewportTop) {
+                            addTreatmentButton(
+                                    buttonX,
+                                    buttonY,
+                                    patientEntityId,
+                                    wound,
+                                    type,
+                                    anyTreatmentActive,
+                                    clipLeft,
+                                    viewportTop,
+                                    clipRight,
+                                    viewportBottom
+                            );
+                        }
                         treatmentIndex++;
                     }
                 }
@@ -1289,6 +1425,22 @@ public final class HealthScreen extends Screen {
                 MedicationButtonType.METOPROLOL,
                 anyMedicalActionActive
         );
+        addMedicationItemButton(
+                startX + (6 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                drugY + (6 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                state,
+                ModItems.ATROPINE_SULFATE_INJECTION.get(),
+                MedicationButtonType.ATROPINE_SULFATE,
+                anyMedicalActionActive
+        );
+        addMedicationItemButton(
+                startX + (7 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                drugY + (7 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                state,
+                ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get(),
+                MedicationButtonType.PRALIDOXIME_CHLORIDE,
+                anyMedicalActionActive
+        );
     }
 
     private void addMedicationItemButton(
@@ -1326,6 +1478,18 @@ public final class HealthScreen extends Screen {
                         && countItem(ModItems.EPINEPHRINE_INJECTION.get()) > 0;
                 missingRequiredItem = countItem(item) <= 0;
                 onPress = () -> submitPreparedMedication(MedicationType.EPINEPHRINE);
+            } else if (buttonType == MedicationButtonType.ATROPINE_SULFATE
+                    && medicationPreparation.patientEntityId() == displayedEntityId()) {
+                active = medicationPreparationStillValid(state)
+                        && countItem(ModItems.ATROPINE_SULFATE_INJECTION.get()) > 0;
+                missingRequiredItem = countItem(item) <= 0;
+                onPress = () -> submitPreparedMedication(MedicationType.ATROPINE_SULFATE);
+            } else if (buttonType == MedicationButtonType.PRALIDOXIME_CHLORIDE
+                    && medicationPreparation.patientEntityId() == displayedEntityId()) {
+                active = medicationPreparationStillValid(state)
+                        && countItem(ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get()) > 0;
+                missingRequiredItem = countItem(item) <= 0;
+                onPress = () -> submitPreparedMedication(MedicationType.PRALIDOXIME_CHLORIDE);
             }
         } else {
             switch (buttonType) {
@@ -1336,7 +1500,9 @@ public final class HealthScreen extends Screen {
                             && countItem(item) <= 0
                             && (countItem(ModItems.MORPHINE_VIAL.get()) > 0
                             || (state.hasActiveOpioidDose() && countItem(ModItems.NALOXONE.get()) > 0)
-                            || countItem(ModItems.EPINEPHRINE_INJECTION.get()) > 0);
+                            || countItem(ModItems.EPINEPHRINE_INJECTION.get()) > 0
+                            || countItem(ModItems.ATROPINE_SULFATE_INJECTION.get()) > 0
+                            || countItem(ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get()) > 0);
                     onPress = this::beginMedicationPreparation;
                 }
                 case PARACETAMOL -> {
@@ -1349,7 +1515,7 @@ public final class HealthScreen extends Screen {
                             MedicationType.PARACETAMOL
                     );
                 }
-                case MORPHINE, NALOXONE, EPINEPHRINE -> {
+                case MORPHINE, NALOXONE, EPINEPHRINE, ATROPINE_SULFATE, PRALIDOXIME_CHLORIDE -> {
                 }
                 case METOPROLOL -> {
                     active = actorCanAct()
@@ -1451,7 +1617,7 @@ public final class HealthScreen extends Screen {
         MedicalActionButton button = new MedicalActionButton(
                 x,
                 y,
-                net.minecraft.world.item.Items.RED_DYE,
+                CPR_ICON,
                 Component.translatable("screen.superficialtrauma.health.cpr"),
                 false,
                 this::beginCpr
@@ -1483,7 +1649,9 @@ public final class HealthScreen extends Screen {
     }
 
     private boolean canDefibrillate(BodyState state, DefibrillationEnergy energy) {
-        return !defibrillationHeld && canContinueDefibrillation(state, energy);
+        return !defibrillationHeld
+                && hasRequiredDefibrillatorCount()
+                && canContinueDefibrillation(state, energy);
     }
 
     private boolean canContinueDefibrillation(BodyState state) {
@@ -1521,6 +1689,10 @@ public final class HealthScreen extends Screen {
 
     private boolean hasStethoscope() {
         return countItem(ModItems.STETHOSCOPE.get()) > 0;
+    }
+
+    private boolean showsOrganophosphatePoisoning(BodyState state) {
+        return hasStethoscope() && state.hasOrganophosphatePoisoning();
     }
 
     private void beginAssistedBreathing() {
@@ -1651,12 +1823,21 @@ public final class HealthScreen extends Screen {
                     "screen.superficialtrauma.health.defibrillation_requires_vf"
             );
         }
+        if (!hasRequiredDefibrillatorCount()) {
+            return Component.translatable(
+                    "screen.superficialtrauma.health.defibrillation_requires_two"
+            );
+        }
         if (defibrillatorEnergy() < selectedDefibrillationEnergy.joules()) {
             return Component.translatable(
                     "screen.superficialtrauma.health.defibrillation_requires_energy"
             );
         }
         return Component.empty();
+    }
+
+    private boolean hasRequiredDefibrillatorCount() {
+        return countItem(ModItems.DEFIBRILLATOR.get()) >= 2;
     }
 
     private int defibrillatorEnergy() {
@@ -1679,7 +1860,11 @@ public final class HealthScreen extends Screen {
             int patientEntityId,
             WoundInstance wound,
             TreatmentType type,
-            boolean anyTreatmentActive
+            boolean anyTreatmentActive,
+            int clipLeft,
+            int clipTop,
+            int clipRight,
+            int clipBottom
     ) {
         boolean active = false;
         boolean removal = false;
@@ -1858,7 +2043,11 @@ public final class HealthScreen extends Screen {
                 removal,
                 message,
                 missingRequiredItem,
-                onPress
+                onPress,
+                clipLeft,
+                clipTop,
+                clipRight,
+                clipBottom
         );
         button.active = active;
         treatmentButtons.add(addRenderableWidget(button));
@@ -1956,7 +2145,9 @@ public final class HealthScreen extends Screen {
                 && countItem(ModItems.SYRINGE.get()) > 0
                 && (countItem(ModItems.MORPHINE_VIAL.get()) > 0
                 || (state.hasActiveOpioidDose() && countItem(ModItems.NALOXONE.get()) > 0)
-                || countItem(ModItems.EPINEPHRINE_INJECTION.get()) > 0);
+                || countItem(ModItems.EPINEPHRINE_INJECTION.get()) > 0
+                || countItem(ModItems.ATROPINE_SULFATE_INJECTION.get()) > 0
+                || countItem(ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get()) > 0);
     }
 
     private boolean medicationPreparationStillValid(BodyState state) {
@@ -2050,28 +2241,68 @@ public final class HealthScreen extends Screen {
         return sorted;
     }
 
-    private List<WoundRow> visibleWoundRows(
+    private WoundListLayout woundListLayout(
             BodyState state,
             int availableHeight,
             int woundAvailableWidth,
             int treatmentAvailableWidth
     ) {
-        List<WoundInstance> sorted = sortedWounds(state);
-        List<WoundRow> visible = new ArrayList<>();
-        int maximumRowsHeight = Math.max(0, availableHeight - 18);
-        int usedHeight = 0;
-        for (WoundInstance wound : sorted) {
-            if (visible.size() >= 5) {
-                break;
-            }
-            int rowHeight = woundRowHeight(wound, woundAvailableWidth, treatmentAvailableWidth);
-            if (!visible.isEmpty() && usedHeight + rowHeight > maximumRowsHeight) {
-                break;
-            }
-            visible.add(new WoundRow(wound, rowHeight));
-            usedHeight += rowHeight;
+        int viewportHeight = Math.max(0, availableHeight - 16);
+        int contentWidth = Math.max(20, woundAvailableWidth);
+        List<WoundRow> rows = woundRows(state, contentWidth, treatmentAvailableWidth);
+        int totalContentHeight = woundListContentHeight(state, rows);
+        if (totalContentHeight > viewportHeight) {
+            contentWidth = Math.max(20, woundAvailableWidth - WOUND_SCROLLBAR_RESERVED_WIDTH);
+            rows = woundRows(state, contentWidth, treatmentAvailableWidth);
+            totalContentHeight = woundListContentHeight(state, rows);
         }
-        return visible;
+        return new WoundListLayout(
+                List.copyOf(rows),
+                contentWidth,
+                viewportHeight,
+                totalContentHeight,
+                Math.max(0, totalContentHeight - viewportHeight)
+        );
+    }
+
+    private List<WoundRow> woundRows(
+            BodyState state,
+            int woundAvailableWidth,
+            int treatmentAvailableWidth
+    ) {
+        List<WoundInstance> sorted = sortedWounds(state);
+        List<WoundRow> rows = new ArrayList<>();
+        for (WoundInstance wound : sorted) {
+            int rowHeight = woundRowHeight(wound, woundAvailableWidth, treatmentAvailableWidth);
+            rows.add(new WoundRow(wound, rowHeight));
+        }
+        return rows;
+    }
+
+    private int woundListContentHeight(BodyState state, List<WoundRow> rows) {
+        int contentHeight = rows.isEmpty()
+                && !showsOrganophosphatePoisoning(state)
+                && !state.hasVisibleRespiratoryDistress()
+                ? 18
+                : rows.stream().mapToInt(WoundRow::height).sum();
+        if (showsOrganophosphatePoisoning(state)) {
+            contentHeight += ORGANOPHOSPHATE_POISONING_ROW_HEIGHT;
+        }
+        if (state.hasVisibleRespiratoryDistress()) {
+            contentHeight += RESPIRATORY_DISTRESS_ROW_HEIGHT;
+        }
+        if (!state.damageWindows().isEmpty()) {
+            contentHeight += 2 + state.damageWindows().size() * 13;
+        }
+        return contentHeight;
+    }
+
+    private void clampWoundScroll(WoundListLayout woundLayout) {
+        woundScrollOffset = Mth.clamp(woundScrollOffset, 0, woundLayout.maximumScroll());
+        if (!woundLayout.scrollable()) {
+            draggingWoundScrollbar = false;
+            woundScrollbarGrabOffset = 0;
+        }
     }
 
     private int woundRowHeight(
@@ -2263,12 +2494,85 @@ public final class HealthScreen extends Screen {
         );
     }
 
+    private WoundScrollInteraction woundScrollInteraction() {
+        if (!hasSnapshot()) {
+            return null;
+        }
+        Layout layout = layout();
+        WoundListLayout woundLayout = woundListLayout(
+                displayedState(),
+                layout.innerHeight - 12,
+                layout.middleWidth - 12,
+                layout.rightWidth - 12
+        );
+        clampWoundScroll(woundLayout);
+        if (!woundLayout.scrollable()) {
+            return null;
+        }
+        int viewportTop = layout.innerY + 6 + 16;
+        int trackX = layout.middleX + layout.middleWidth - 9;
+        int thumbHeight = woundScrollbarThumbHeight(woundLayout);
+        int thumbY = viewportTop + woundScrollbarThumbOffset(woundLayout, thumbHeight);
+        return new WoundScrollInteraction(
+                layout,
+                woundLayout,
+                viewportTop,
+                trackX,
+                thumbY,
+                thumbHeight
+        );
+    }
+
+    private boolean setWoundScrollOffset(int requestedOffset, WoundListLayout woundLayout) {
+        int clampedOffset = Mth.clamp(requestedOffset, 0, woundLayout.maximumScroll());
+        if (clampedOffset == woundScrollOffset) {
+            return false;
+        }
+        woundScrollOffset = clampedOffset;
+        if (panelMode == PanelMode.TREATMENT) {
+            rebuildTreatmentButtons();
+        }
+        return true;
+    }
+
+    private void updateWoundScrollbarDrag(double mouseY, WoundScrollInteraction interaction) {
+        int availableTravel = interaction.woundLayout().viewportHeight() - interaction.thumbHeight();
+        if (availableTravel <= 0) {
+            return;
+        }
+        int requestedThumbY = Mth.clamp(
+                (int) Math.round(mouseY) - woundScrollbarGrabOffset,
+                interaction.viewportTop(),
+                interaction.viewportTop() + availableTravel
+        );
+        int requestedOffset = Math.round(
+                (requestedThumbY - interaction.viewportTop())
+                        * (interaction.woundLayout().maximumScroll() / (float) availableTravel)
+        );
+        setWoundScrollOffset(requestedOffset, interaction.woundLayout());
+    }
+
+    private static boolean inside(
+            double mouseX,
+            double mouseY,
+            int x,
+            int y,
+            int width,
+            int height
+    ) {
+        return mouseX >= x
+                && mouseX < x + width
+                && mouseY >= y
+                && mouseY < y + height;
+    }
+
     public boolean isInspecting(int entityId) {
         return inspectingOtherPlayer && inspectedEntityId == entityId;
     }
 
     @Override
     public void removed() {
+        draggingWoundScrollbar = false;
         stopAssistedBreathing();
         stopCpr();
         cancelDefibrillation();
@@ -2284,13 +2588,102 @@ public final class HealthScreen extends Screen {
     }
 
     @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0) {
+            WoundScrollInteraction interaction = woundScrollInteraction();
+            if (interaction != null) {
+                int hitX = interaction.trackX()
+                        - (WOUND_SCROLLBAR_HIT_WIDTH - WOUND_SCROLLBAR_TRACK_WIDTH) / 2;
+                if (inside(
+                        mouseX,
+                        mouseY,
+                        hitX,
+                        interaction.viewportTop(),
+                        WOUND_SCROLLBAR_HIT_WIDTH,
+                        interaction.woundLayout().viewportHeight()
+                )) {
+                    draggingWoundScrollbar = true;
+                    if (mouseY >= interaction.thumbY()
+                            && mouseY < interaction.thumbY() + interaction.thumbHeight()) {
+                        woundScrollbarGrabOffset = (int) Math.round(mouseY) - interaction.thumbY();
+                    } else {
+                        woundScrollbarGrabOffset = interaction.thumbHeight() / 2;
+                        updateWoundScrollbarDrag(mouseY, interaction);
+                    }
+                    return true;
+                }
+            }
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(
+            double mouseX,
+            double mouseY,
+            int button,
+            double dragX,
+            double dragY
+    ) {
+        if (button == 0 && draggingWoundScrollbar) {
+            WoundScrollInteraction interaction = woundScrollInteraction();
+            if (interaction != null) {
+                updateWoundScrollbarDrag(mouseY, interaction);
+                return true;
+            }
+            draggingWoundScrollbar = false;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+        WoundScrollInteraction interaction = woundScrollInteraction();
+        if (interaction != null && delta != 0.0D) {
+            Layout layout = interaction.layout();
+            int viewportTop = interaction.viewportTop();
+            int viewportHeight = interaction.woundLayout().viewportHeight();
+            boolean overWounds = inside(
+                    mouseX,
+                    mouseY,
+                    layout.middleX + 6,
+                    viewportTop,
+                    layout.middleWidth - 12,
+                    viewportHeight
+            );
+            boolean overTreatmentButtons = panelMode == PanelMode.TREATMENT && inside(
+                    mouseX,
+                    mouseY,
+                    layout.rightX + 6,
+                    viewportTop,
+                    layout.rightWidth - 12,
+                    viewportHeight
+            );
+            if (overWounds || overTreatmentButtons) {
+                int direction = (int) Math.signum(delta);
+                setWoundScrollOffset(
+                        woundScrollOffset - direction * WOUND_SCROLL_WHEEL_STEP,
+                        interaction.woundLayout()
+                );
+                return true;
+            }
+        }
+        return super.mouseScrolled(mouseX, mouseY, delta);
+    }
+
+    @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        boolean releasedWoundScrollbar = button == 0 && draggingWoundScrollbar;
+        if (button == 0) {
+            draggingWoundScrollbar = false;
+            woundScrollbarGrabOffset = 0;
+        }
         if (button == 0) {
             releaseDefibrillation();
             stopAssistedBreathing();
             stopCpr();
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return releasedWoundScrollbar || super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
@@ -2355,6 +2748,28 @@ public final class HealthScreen extends Screen {
     private record WoundRow(WoundInstance wound, int height) {
     }
 
+    private record WoundListLayout(
+            List<WoundRow> rows,
+            int contentWidth,
+            int viewportHeight,
+            int totalContentHeight,
+            int maximumScroll
+    ) {
+        private boolean scrollable() {
+            return maximumScroll > 0;
+        }
+    }
+
+    private record WoundScrollInteraction(
+            Layout layout,
+            WoundListLayout woundLayout,
+            int viewportTop,
+            int trackX,
+            int thumbY,
+            int thumbHeight
+    ) {
+    }
+
     private record MedicationPreparation(int patientEntityId, Vec3 patientStartPosition) {
     }
 
@@ -2369,7 +2784,9 @@ public final class HealthScreen extends Screen {
         MORPHINE,
         NALOXONE,
         EPINEPHRINE,
-        METOPROLOL
+        METOPROLOL,
+        ATROPINE_SULFATE,
+        PRALIDOXIME_CHLORIDE
     }
 
     private enum ElectrocardiogramRhythm {

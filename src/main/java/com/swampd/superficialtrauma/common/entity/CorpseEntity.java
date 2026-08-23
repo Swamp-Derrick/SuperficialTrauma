@@ -3,6 +3,7 @@ package com.swampd.superficialtrauma.common.entity;
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 import com.swampd.superficialtrauma.common.body.DownedGeometry;
+import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
 import com.swampd.superficialtrauma.common.body.DownedPosture;
 import com.swampd.superficialtrauma.common.body.DownedFallDirection;
@@ -21,6 +22,7 @@ import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.Container;
 import net.minecraft.world.ContainerHelper;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.HumanoidArm;
@@ -84,7 +86,9 @@ public final class CorpseEntity extends LivingEntity implements Container {
     private long emptySinceGameTime = EmptyCorpseLifecycle.NOT_EMPTY;
     private List<WoundHistoryEntry> forensicWoundHistory = List.of();
     private DowningHitRecord forensicDowningHit;
+    private CollapseReason forensicCollapseReason = CollapseReason.NONE;
     private boolean voluntaryDeath;
+    private boolean administrativeDeath;
     private boolean deathTimeRevealed;
     private long deathTimeInspectionGameTime = -1L;
     private long penlightCooldownEndGameTime = -1L;
@@ -123,7 +127,9 @@ public final class CorpseEntity extends LivingEntity implements Container {
         entityData.set(FALL_DIRECTION, snapshot.downedPose().fallDirection().serializedName());
         forensicWoundHistory = snapshot.woundHistory();
         forensicDowningHit = snapshot.downingHitRecord();
+        forensicCollapseReason = snapshot.collapseReason();
         voluntaryDeath = snapshot.voluntaryDeath();
+        administrativeDeath = snapshot.administrativeDeath();
         moveTo(x, y, z, snapshot.downedPose().bodyYaw(), 0.0F);
         setYBodyRot(snapshot.downedPose().bodyYaw());
         setYHeadRot(snapshot.downedPose().bodyYaw());
@@ -140,7 +146,9 @@ public final class CorpseEntity extends LivingEntity implements Container {
                 downedPose(),
                 forensicWoundHistory,
                 forensicDowningHit,
-                voluntaryDeath
+                forensicCollapseReason,
+                voluntaryDeath,
+                administrativeDeath
         );
     }
 
@@ -152,8 +160,16 @@ public final class CorpseEntity extends LivingEntity implements Container {
         return Optional.ofNullable(forensicDowningHit);
     }
 
+    public CollapseReason forensicCollapseReason() {
+        return forensicCollapseReason;
+    }
+
     public boolean voluntaryDeath() {
         return voluntaryDeath;
+    }
+
+    public boolean administrativeDeath() {
+        return administrativeDeath;
     }
 
     public boolean deathTimeRevealed() {
@@ -260,7 +276,7 @@ public final class CorpseEntity extends LivingEntity implements Container {
 
     @Override
     public boolean isPushable() {
-        return CorpseServerConfig.collisionEnabled();
+        return CorpseServerConfig.corpseEntityPushingEnabled();
     }
 
     @Override
@@ -269,8 +285,24 @@ public final class CorpseEntity extends LivingEntity implements Container {
     }
 
     @Override
+    protected void pushEntities() {
+        if (CorpseServerConfig.corpseEntityPushingEnabled()) {
+            super.pushEntities();
+        }
+    }
+
+    @Override
+    public void push(Entity entity) {
+        if (CorpseServerConfig.corpseEntityPushingEnabled()) {
+            super.push(entity);
+        }
+    }
+
+    @Override
     public void push(double x, double y, double z) {
-        // Ignore entity pushes while still allowing gravity and block collision to move the corpse vertically.
+        if (CorpseServerConfig.corpseEntityPushingEnabled()) {
+            super.push(x, y, z);
+        }
     }
 
     @Override

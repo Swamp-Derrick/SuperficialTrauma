@@ -104,6 +104,7 @@ public final class ClientForgeEvents {
             );
             ClientTreatmentOverlay.render(event.getGuiGraphics(), width, height);
         }
+        ClientMedicalInspectionNotice.render(event.getGuiGraphics(), width, height);
     }
 
     @SubscribeEvent
@@ -131,5 +132,6 @@ public final class ClientForgeEvents {
         ClientDownedPoses.clear();
         ClientBloodLossOverlay.clear();
         ClientHeartRateSounds.clear();
+        ClientMedicalInspectionNotice.clear();
     }
 }

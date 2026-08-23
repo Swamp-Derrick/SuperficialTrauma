@@ -3,6 +3,7 @@ package com.swampd.superficialtrauma.common.treatment;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.HashMap;
 import java.util.Iterator;
@@ -28,9 +29,10 @@ public final class InspectionService {
             return false;
         }
 
-        InspectionSession session = new InspectionSession(patient.getUUID());
+        InspectionSession session = new InspectionSession(patient.getUUID(), patient.position());
         SESSIONS_BY_INSPECTOR.put(inspector.getUUID(), session);
         sendSnapshot(inspector, patient, session, true);
+        ModNetworking.sendMedicalInspectionNotice(patient, inspector, null);
         return true;
     }
 
@@ -59,7 +61,10 @@ public final class InspectionService {
         }
 
         ServerPlayer patient = playerById(inspector, session.patientId);
-        if (patient == null || !canInspect(inspector, patient, MAX_CONTINUE_DISTANCE_SQUARED, false)) {
+        if (patient == null
+                || patient.position().distanceToSqr(session.patientStartPosition)
+                > TreatmentMovementRules.MOVEMENT_TOLERANCE_SQUARED
+                || !canInspect(inspector, patient, MAX_CONTINUE_DISTANCE_SQUARED, false)) {
             SESSIONS_BY_INSPECTOR.remove(inspector.getUUID());
             ModNetworking.closeInspection(inspector, session.patientEntityId);
             return;
@@ -69,6 +74,9 @@ public final class InspectionService {
         long revision = BodyStateCapability.get(patient).map(bodyState -> bodyState.revision()).orElse(-1L);
         if (revision != session.lastRevision || gameTime - session.lastSyncGameTime >= PERIODIC_SYNC_TICKS) {
             sendSnapshot(inspector, patient, session, false);
+        }
+        if (gameTime % PERIODIC_SYNC_TICKS == 0L) {
+            ModNetworking.sendMedicalInspectionNotice(patient, inspector, null);
         }
     }
 
@@ -92,11 +100,17 @@ public final class InspectionService {
         if (session == null) {
             return false;
         }
-        if (session.patientEntityId == patientEntityId) {
-            return true;
-        }
         ServerPlayer patient = playerById(inspector, session.patientId);
-        return patient != null && patient.getId() == patientEntityId;
+        if (patient == null
+                || patient.getId() != patientEntityId
+                || patient.position().distanceToSqr(session.patientStartPosition)
+                > TreatmentMovementRules.MOVEMENT_TOLERANCE_SQUARED
+                || !canInspect(inspector, patient, MAX_CONTINUE_DISTANCE_SQUARED, false)) {
+            SESSIONS_BY_INSPECTOR.remove(inspector.getUUID());
+            ModNetworking.closeInspection(inspector, session.patientEntityId);
+            return false;
+        }
+        return true;
     }
 
     public static void forgetPlayer(ServerPlayer player) {
@@ -163,12 +177,14 @@ public final class InspectionService {
 
     private static final class InspectionSession {
         private final UUID patientId;
+        private final Vec3 patientStartPosition;
         private int patientEntityId = -1;
         private long lastRevision = -1L;
         private long lastSyncGameTime = Long.MIN_VALUE;
 
-        private InspectionSession(UUID patientId) {
+        private InspectionSession(UUID patientId, Vec3 patientStartPosition) {
             this.patientId = patientId;
+            this.patientStartPosition = patientStartPosition;
         }
     }
 }

@@ -5,5 +5,7 @@ public enum MedicationFamily {
     OPIOID,
     BETA_BLOCKER,
     OPIOID_ANTAGONIST,
-    ADRENERGIC
+    ADRENERGIC,
+    ANTICHOLINERGIC,
+    OXIME
 }

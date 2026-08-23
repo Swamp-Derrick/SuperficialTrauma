@@ -14,6 +14,7 @@ import com.swampd.superficialtrauma.common.body.BodyLifeState;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.DownedFallDirection;
 import com.swampd.superficialtrauma.common.body.DownedHitbox;
+import com.swampd.superficialtrauma.common.body.DownedPoseCapture;
 import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
 import com.swampd.superficialtrauma.common.body.DownedPosture;
 import com.swampd.superficialtrauma.common.body.WoundUpdateResult;
@@ -85,6 +86,29 @@ public final class DebugCommands {
                         .then(Commands.argument("player", EntityArgument.player())
                                 .then(Commands.argument("value", FloatArgumentType.floatArg(0.0F, 20.0F))
                                         .executes(context -> setInfection(
+                                                context,
+                                                EntityArgument.getPlayer(context, "player")
+                                        ))))
+                )
+                .then(Commands.literal("setrespiratorydistress")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument(
+                                        "value",
+                                        FloatArgumentType.floatArg(
+                                                BodyState.MIN_RESPIRATORY_DISTRESS,
+                                                BodyState.MAX_RESPIRATORY_DISTRESS
+                                        )
+                                )
+                                .executes(DebugCommands::setOwnRespiratoryDistress))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .then(Commands.argument(
+                                                "value",
+                                                FloatArgumentType.floatArg(
+                                                        BodyState.MIN_RESPIRATORY_DISTRESS,
+                                                        BodyState.MAX_RESPIRATORY_DISTRESS
+                                                )
+                                        )
+                                        .executes(context -> setRespiratoryDistress(
                                                 context,
                                                 EntityArgument.getPlayer(context, "player")
                                         ))))
@@ -381,6 +405,44 @@ public final class DebugCommands {
         return result.get();
     }
 
+    private static int setOwnRespiratoryDistress(
+            CommandContext<CommandSourceStack> context
+    ) throws CommandSyntaxException {
+        return setRespiratoryDistress(context, context.getSource().getPlayerOrException());
+    }
+
+    private static int setRespiratoryDistress(
+            CommandContext<CommandSourceStack> context,
+            ServerPlayer player
+    ) {
+        float requestedValue = FloatArgumentType.getFloat(context, "value");
+        AtomicInteger result = new AtomicInteger(0);
+        BodyStateCapability.get(player).ifPresent(bodyState -> {
+            long gameTime = player.serverLevel().getGameTime();
+            boolean wasActive = bodyState.canAct();
+            float appliedValue = bodyState.setRespiratoryDistressForDebug(requestedValue, gameTime);
+            boolean becameDowned = wasActive && !bodyState.canAct();
+            if (becameDowned) {
+                bodyState.captureDownedPose(DownedPoseCapture.capture(player, null, gameTime));
+                DownedHitbox.update(player, bodyState);
+            }
+            ModNetworking.syncBodyState(player);
+            InspectionService.syncPatient(player);
+            if (becameDowned) {
+                ModNetworking.syncDownedPose(player);
+            }
+            context.getSource().sendSuccess(
+                    () -> Component.literal(
+                            player.getGameProfile().getName()
+                                    + " respiratory-distress=" + appliedValue
+                    ),
+                    true
+            );
+            result.set(1);
+        });
+        return result.get();
+    }
+
     private static int setOwnHeartRate(
             CommandContext<CommandSourceStack> context
     ) throws CommandSyntaxException {
@@ -435,6 +497,7 @@ public final class DebugCommands {
                         player.getGameProfile().getName()
                                 + " heart-rate base=" + appliedValue
                                 + " medication=" + bodyState.medicationHeartRateShift()
+                                + " respiratory=" + bodyState.respiratoryHeartRateShift()
                                 + " effective=" + bodyState.effectiveHeartRateLevel()
                                 + " (" + operation + ")"
                 ),

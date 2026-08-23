@@ -51,6 +51,9 @@ public final class DefibrillationService {
             return false;
         }
 
+        if (!hasRequiredDefibrillatorCount(actor)) {
+            return false;
+        }
         int defibrillatorSlot = findChargedDefibrillator(actor, energy.joules());
         if (defibrillatorSlot < 0) {
             return false;
@@ -307,6 +310,10 @@ public final class DefibrillationService {
             }
         }
         return -1;
+    }
+
+    private static boolean hasRequiredDefibrillatorCount(ServerPlayer actor) {
+        return actor.getInventory().countItem(ModItems.DEFIBRILLATOR.get()) >= 2;
     }
 
     private static void cancelActor(UUID actorId) {

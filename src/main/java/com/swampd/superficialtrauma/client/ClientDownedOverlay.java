@@ -54,10 +54,7 @@ public final class ClientDownedOverlay {
         );
         graphics.drawCenteredString(
                 minecraft.font,
-                Component.translatable(
-                        "life_state.superficialtrauma."
-                                + state.lifeState().serializedName()
-                ),
+                secondaryStatus(state),
                 width / 2,
                 centerY - 12,
                 secondaryColor
@@ -110,6 +107,18 @@ public final class ClientDownedOverlay {
     private static float smoothStep(float value) {
         float clamped = Mth.clamp(value, 0.0F, 1.0F);
         return clamped * clamped * (3.0F - 2.0F * clamped);
+    }
+
+    private static Component secondaryStatus(
+            com.swampd.superficialtrauma.common.body.BodyState state
+    ) {
+        if (state.lifeState()
+                == com.swampd.superficialtrauma.common.body.BodyLifeState.INCAPACITATED) {
+            return Component.translatable(state.collapseReason().translationKey());
+        }
+        return Component.translatable(
+                "life_state.superficialtrauma." + state.lifeState().serializedName()
+        );
     }
 
     private static boolean giveUpEligible(

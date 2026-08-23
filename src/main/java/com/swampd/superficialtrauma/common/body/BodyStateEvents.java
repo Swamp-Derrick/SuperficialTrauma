@@ -34,6 +34,7 @@ import java.util.UUID;
 public final class BodyStateEvents {
     private static final int INFECTION_NAUSEA_REFRESH_DURATION_TICKS = 5 * 20;
     private static final int EPINEPHRINE_EFFECT_REFRESH_DURATION_TICKS = 15;
+    private static final int ORGANOPHOSPHATE_EFFECT_REFRESH_DURATION_TICKS = 5 * 20;
     private static final UUID NECROSIS_MAX_HEALTH_MODIFIER_ID = UUID.fromString(
             "fbd950e2-518e-4a48-a23e-ef19b1973d6c"
     );
@@ -89,9 +90,10 @@ public final class BodyStateEvents {
         GiveUpService.forgetPlayer(event.getEntity().getUUID());
         BodyDragService.forgetPlayer(event.getEntity().getUUID());
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
-            BodyStateCapability.get(serverPlayer).ifPresent(bodyState ->
-                    bodyState.pauseBodyProgression(serverPlayer.serverLevel().getGameTime())
-            );
+            BodyStateCapability.get(serverPlayer).ifPresent(bodyState -> {
+                bodyState.cancelInfusion();
+                bodyState.pauseBodyProgression(serverPlayer.serverLevel().getGameTime());
+            });
         }
         ModNetworking.forgetPlayer(event.getEntity().getUUID());
     }
@@ -174,6 +176,7 @@ public final class BodyStateEvents {
             AwakeningProgression awakening = bodyState.advanceAwakening(serverPlayer.getHealth(), gameTime);
             updateAwakeningRecoverySpeed(serverPlayer, bodyState, gameTime);
             updateEpinephrineEffects(serverPlayer, bodyState, gameTime);
+            updateOrganophosphateEffects(serverPlayer, bodyState, gameTime);
             updateInfectionEffects(serverPlayer, bodyState, gameTime);
             updateNecrosisEffects(serverPlayer, bodyState, gameTime);
             boolean poseCaptured = !bodyState.canAct()
@@ -239,12 +242,17 @@ public final class BodyStateEvents {
             ServerPlayer player,
             BodyState bodyState,
             BodyProgressionResult result,
-            long gameTime
+        long gameTime
     ) {
         if (result.becameIncapacitated()) {
-            String messageKey = bodyState.collapseReason() == CollapseReason.SEPSIS
-                    ? "message.superficialtrauma.sepsis_incapacitated"
-                    : "message.superficialtrauma.traumatic_shock_incapacitated";
+            String messageKey = switch (bodyState.collapseReason()) {
+                case SEPSIS -> "message.superficialtrauma.sepsis_incapacitated";
+                case TRAUMATIC_SHOCK -> "message.superficialtrauma.traumatic_shock_incapacitated";
+                default -> null;
+            };
+            if (messageKey == null) {
+                return;
+            }
             player.displayClientMessage(
                     Component.translatable(messageKey),
                     true
@@ -301,6 +309,32 @@ public final class BodyStateEvents {
                     true
             ));
         }
+    }
+
+    private static void updateOrganophosphateEffects(
+            ServerPlayer player,
+            BodyState bodyState,
+            long gameTime
+    ) {
+        if (!bodyState.hasActiveOrganophosphateSymptoms() || gameTime % 10L != 0L) {
+            return;
+        }
+        player.addEffect(new MobEffectInstance(
+                MobEffects.CONFUSION,
+                ORGANOPHOSPHATE_EFFECT_REFRESH_DURATION_TICKS,
+                0,
+                false,
+                false,
+                true
+        ));
+        player.addEffect(new MobEffectInstance(
+                MobEffects.MOVEMENT_SLOWDOWN,
+                ORGANOPHOSPHATE_EFFECT_REFRESH_DURATION_TICKS,
+                1,
+                false,
+                false,
+                true
+        ));
     }
 
     private static void updateNecrosisEffects(ServerPlayer player, BodyState bodyState, long gameTime) {

@@ -34,9 +34,7 @@ public final class SurgerySkillBookItem extends Item {
             return InteractionResultHolder.fail(stack);
         }
 
-        if (!serverPlayer.getAbilities().instabuild) {
-            stack.shrink(1);
-        }
+        stack.shrink(1);
         serverPlayer.displayClientMessage(
                 Component.translatable("message.superficialtrauma.surgery_skill.learned"),
                 true

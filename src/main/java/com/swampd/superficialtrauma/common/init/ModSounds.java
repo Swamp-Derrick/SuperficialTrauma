@@ -37,6 +37,7 @@ public final class ModSounds {
     public static final RegistryObject<SoundEvent> ICE_BAG = registerMedicalAction("ice_bag");
     public static final RegistryObject<SoundEvent> TABLETS = registerMedicalAction("tablets");
     public static final RegistryObject<SoundEvent> VIAL = registerMedicalAction("vial");
+    public static final RegistryObject<SoundEvent> AMPOULE = registerMedicalAction("ampoule");
     public static final RegistryObject<SoundEvent> SYRINGE_START = registerMedicalAction("syringe_start");
     public static final RegistryObject<SoundEvent> RESUSCITATION_1 = registerMedicalAction("resuscitation_1");
     public static final RegistryObject<SoundEvent> RESUSCITATION_2 = registerMedicalAction("resuscitation_2");

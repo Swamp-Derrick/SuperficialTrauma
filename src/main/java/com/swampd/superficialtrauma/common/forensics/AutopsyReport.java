@@ -1,5 +1,6 @@
 package com.swampd.superficialtrauma.common.forensics;
 
+import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.DowningHitRecord;
 import com.swampd.superficialtrauma.common.body.WoundHistoryEntry;
 import com.swampd.superficialtrauma.common.entity.CorpseEntity;
@@ -19,7 +20,10 @@ public record AutopsyReport(
         List<WoundHistoryEntry> visibleWounds,
         boolean detailedAutopsyRevealed,
         DowningHitRecord downingHit,
+        boolean drowningDeath,
+        boolean organophosphatePoisoningDeath,
         boolean suspectedMyocardialInfarction,
+        boolean administrativeDeath,
         boolean examinerKnowsForensics,
         boolean examinerHasPenlight,
         boolean examinerHasChecklist,
@@ -33,7 +37,10 @@ public record AutopsyReport(
     private static final String TAG_VISIBLE_WOUNDS = "VisibleWounds";
     private static final String TAG_DETAILED = "DetailedAutopsyRevealed";
     private static final String TAG_DOWNING_HIT = "DowningHit";
+    private static final String TAG_DROWNING_DEATH = "DrowningDeath";
+    private static final String TAG_ORGANOPHOSPHATE_POISONING_DEATH = "OrganophosphatePoisoningDeath";
     private static final String TAG_SUSPECTED_MYOCARDIAL_INFARCTION = "SuspectedMyocardialInfarction";
+    private static final String TAG_ADMINISTRATIVE_DEATH = "AdministrativeDeath";
     private static final String TAG_KNOWS_FORENSICS = "ExaminerKnowsForensics";
     private static final String TAG_HAS_PENLIGHT = "ExaminerHasPenlight";
     private static final String TAG_HAS_CHECKLIST = "ExaminerHasChecklist";
@@ -50,6 +57,14 @@ public record AutopsyReport(
         actionEndGameTime = activeAction == AutopsyAction.NONE ? -1L : Math.max(0L, actionEndGameTime);
         if (!detailedAutopsyRevealed) {
             downingHit = null;
+            drowningDeath = false;
+            organophosphatePoisoningDeath = false;
+            suspectedMyocardialInfarction = false;
+            administrativeDeath = false;
+        } else if (administrativeDeath) {
+            downingHit = null;
+            drowningDeath = false;
+            organophosphatePoisoningDeath = false;
             suspectedMyocardialInfarction = false;
         }
     }
@@ -76,7 +91,13 @@ public record AutopsyReport(
                 newestFirst,
                 detailed,
                 detailed ? corpse.forensicDowningHit().orElse(null) : null,
+                detailed && indicatesDrowningDeath(
+                        corpse.forensicCollapseReason(),
+                        corpse.forensicDowningHit().orElse(null)
+                ),
+                detailed && indicatesOrganophosphatePoisoningDeath(corpse.forensicCollapseReason()),
                 detailed && corpse.voluntaryDeath(),
+                detailed && corpse.administrativeDeath(),
                 examinerKnowsForensics,
                 examinerHasPenlight,
                 examinerHasChecklist,
@@ -100,7 +121,10 @@ public record AutopsyReport(
         if (downingHit != null) {
             tag.put(TAG_DOWNING_HIT, downingHit.serializeNBT());
         }
+        tag.putBoolean(TAG_DROWNING_DEATH, drowningDeath);
+        tag.putBoolean(TAG_ORGANOPHOSPHATE_POISONING_DEATH, organophosphatePoisoningDeath);
         tag.putBoolean(TAG_SUSPECTED_MYOCARDIAL_INFARCTION, suspectedMyocardialInfarction);
+        tag.putBoolean(TAG_ADMINISTRATIVE_DEATH, administrativeDeath);
         tag.putBoolean(TAG_KNOWS_FORENSICS, examinerKnowsForensics);
         tag.putBoolean(TAG_HAS_PENLIGHT, examinerHasPenlight);
         tag.putBoolean(TAG_HAS_CHECKLIST, examinerHasChecklist);
@@ -131,7 +155,10 @@ public record AutopsyReport(
                 wounds,
                 detailed,
                 hit,
+                detailed && tag.getBoolean(TAG_DROWNING_DEATH),
+                detailed && tag.getBoolean(TAG_ORGANOPHOSPHATE_POISONING_DEATH),
                 detailed && tag.getBoolean(TAG_SUSPECTED_MYOCARDIAL_INFARCTION),
+                detailed && tag.getBoolean(TAG_ADMINISTRATIVE_DEATH),
                 tag.getBoolean(TAG_KNOWS_FORENSICS),
                 tag.getBoolean(TAG_HAS_PENLIGHT),
                 tag.getBoolean(TAG_HAS_CHECKLIST),
@@ -141,5 +168,20 @@ public record AutopsyReport(
                 AutopsyAction.fromSerializedName(tag.getString(TAG_ACTIVE_ACTION)),
                 tag.contains(TAG_ACTION_END, Tag.TAG_ANY_NUMERIC) ? tag.getLong(TAG_ACTION_END) : -1L
         );
+    }
+
+    public static boolean indicatesDrowningDeath(CollapseReason collapseReason, DowningHitRecord downingHit) {
+        if (collapseReason != CollapseReason.HYPOXIA || downingHit == null) {
+            return false;
+        }
+        String damageType = downingHit.damageType();
+        return "drown".equals(damageType)
+                || "drowning".equals(damageType)
+                || damageType.endsWith(":drown")
+                || damageType.endsWith(":drowning");
+    }
+
+    public static boolean indicatesOrganophosphatePoisoningDeath(CollapseReason collapseReason) {
+        return collapseReason == CollapseReason.ORGANOPHOSPHATE_POISONING;
     }
 }

@@ -83,6 +83,15 @@ public final class MedicalWorkbenchRecipes {
         add(recipes, "defibrillator", ModItems.DEFIBRILLATOR, 1, 180,
                 ingredient(Items.IRON_INGOT, 4), ingredient(Items.COPPER_INGOT, 2),
                 ingredient(Items.REDSTONE, 3), ingredient(Items.LEATHER, 1));
+        add(recipes, "ddvp_insecticide", ModItems.DDVP_INSECTICIDE, 1, 75,
+                ingredient(Items.GLASS_BOTTLE, 1), ingredient(Items.FERMENTED_SPIDER_EYE, 1),
+                ingredient(Items.GUNPOWDER, 1), ingredient(Items.POISONOUS_POTATO, 1));
+        add(recipes, "atropine_sulfate_injection", ModItems.ATROPINE_SULFATE_INJECTION, 1, 90,
+                ingredient(Items.GLASS_BOTTLE, 1), ingredient(Items.SPIDER_EYE, 1),
+                ingredient(Items.SUGAR, 2), ingredient(Items.REDSTONE, 1));
+        add(recipes, "pralidoxime_chloride_injection", ModItems.PRALIDOXIME_CHLORIDE_INJECTION, 1, 120,
+                ingredient(Items.GLASS_BOTTLE, 1), ingredient(Items.QUARTZ, 1),
+                ingredient(Items.BLAZE_POWDER, 1), ingredient(Items.SUGAR, 1));
         return Collections.unmodifiableList(recipes);
     }
 

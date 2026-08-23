@@ -64,6 +64,11 @@
       "superficialtrauma:vial"
     ]
   },
+  "ampoule": {
+    "sounds": [
+      "superficialtrauma:ampoule"
+    ]
+  },
   "syringe_start": {
     "sounds": [
       "superficialtrauma:syringe_start"

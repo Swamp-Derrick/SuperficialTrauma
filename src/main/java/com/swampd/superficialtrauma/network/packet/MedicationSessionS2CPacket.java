@@ -50,7 +50,7 @@ public record MedicationSessionS2CPacket(
     public static MedicationSessionS2CPacket decode(FriendlyByteBuf buffer) {
         Status status = buffer.readEnum(Status.class);
         int patientEntityId = buffer.readVarInt();
-        MedicationType type = MedicationType.fromSerializedName(buffer.readUtf(32));
+        MedicationType type = MedicationType.fromNetworkName(buffer.readUtf(32)).orElse(null);
         long endsGameTime = buffer.readLong();
         MedicationCancelReason reason = buffer.readBoolean()
                 ? buffer.readEnum(MedicationCancelReason.class)
@@ -63,6 +63,10 @@ public record MedicationSessionS2CPacket(
             Supplier<NetworkEvent.Context> contextSupplier
     ) {
         NetworkEvent.Context context = contextSupplier.get();
+        if (packet.type == null) {
+            context.setPacketHandled(true);
+            return;
+        }
         context.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> {
             switch (packet.status) {
                 case STARTED -> ClientMedicationState.started(

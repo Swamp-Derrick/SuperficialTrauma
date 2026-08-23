@@ -3,6 +3,7 @@ package com.swampd.superficialtrauma.common.entity;
 import com.mojang.authlib.properties.Property;
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyState;
+import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.DownedFallDirection;
 import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
 import com.swampd.superficialtrauma.common.body.DownedPosture;
@@ -61,7 +62,9 @@ public final class CorpseService {
                 pose,
                 bodyState == null ? java.util.List.of() : bodyState.woundHistory(),
                 bodyState == null ? null : bodyState.downingHitRecord().orElse(null),
-                bodyState != null && bodyState.voluntaryDeath()
+                bodyState == null ? CollapseReason.NONE : bodyState.collapseReason(),
+                bodyState != null && bodyState.voluntaryDeath(),
+                bodyState != null && bodyState.administrativeDeath()
         );
         corpse.initialize(snapshot, player.getX(), player.getY(), player.getZ());
         if (captureInventory) {

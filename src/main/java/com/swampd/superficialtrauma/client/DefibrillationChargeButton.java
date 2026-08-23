@@ -100,9 +100,7 @@ final class DefibrillationChargeButton extends AbstractButton {
     }
 
     Component tooltip() {
-        return active || visualState.get() != VisualState.IDLE
-                ? ModItems.DEFIBRILLATOR.get().getDescription()
-                : disabledTooltip.get();
+        return ModItems.DEFIBRILLATOR.get().getDescription();
     }
 
     @Override

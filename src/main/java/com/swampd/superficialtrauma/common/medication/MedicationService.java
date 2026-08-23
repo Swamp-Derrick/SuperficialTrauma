@@ -38,7 +38,8 @@ public final class MedicationService {
         if (!(entity instanceof ServerPlayer patient)
                 || type == null
                 || !isEligibleActor(actor)
-                || !isEligiblePatient(actor, patient, type)) {
+                || !isEligiblePatient(actor, patient, type)
+                || !hasRequiredInspection(actor, patient)) {
             actor.displayClientMessage(
                     Component.translatable("message.superficialtrauma.medication.invalid_target"),
                     true
@@ -91,6 +92,7 @@ public final class MedicationService {
         SESSION_BY_ACTOR.put(actor.getUUID(), session);
         ACTOR_BY_PATIENT.put(patient.getUUID(), actor.getUUID());
         ModNetworking.sendMedicationStarted(actor, patient.getId(), session);
+        sendPatientMedicationNotice(actor, patient, type);
         MedicalActionSoundService.start(
                 actor,
                 patient,
@@ -135,7 +137,10 @@ public final class MedicationService {
             return;
         }
         ServerPlayer patient = player(actor, session.patientId());
-        if (patient == null || !isEligibleActor(actor) || !isEligiblePatient(actor, patient, session.type())) {
+        if (patient == null
+                || !isEligibleActor(actor)
+                || !isEligiblePatient(actor, patient, session.type())
+                || !hasRequiredInspection(actor, patient)) {
             cancelActor(actor.getUUID(), MedicationCancelReason.INVALID_TARGET);
             return;
         }
@@ -162,6 +167,10 @@ public final class MedicationService {
         if (!hasRequiredItems(actor, session.type())) {
             cancelActor(actor.getUUID(), MedicationCancelReason.ITEM_MISSING);
             return;
+        }
+        if (!session.isSelfMedication()
+                && actor.serverLevel().getGameTime() % 10L == 0L) {
+            sendPatientMedicationNotice(actor, patient, session.type());
         }
         if (actor.serverLevel().getGameTime() >= session.endsGameTime()) {
             complete(actor, patient, session);
@@ -227,6 +236,7 @@ public final class MedicationService {
         if (state == null
                 || !isEligibleActor(actor)
                 || !isEligiblePatient(actor, patient, session.type())
+                || !hasRequiredInspection(actor, patient)
                 || !hasRequiredItems(actor, session.type())) {
             cancelActor(actor.getUUID(), MedicationCancelReason.INVALID_TARGET);
             return;
@@ -319,6 +329,10 @@ public final class MedicationService {
         return type.route() == MedicationRoute.INJECTION || state.canAct();
     }
 
+    private static boolean hasRequiredInspection(ServerPlayer actor, ServerPlayer patient) {
+        return actor == patient || InspectionService.isInspecting(actor, patient.getId());
+    }
+
     private static boolean hasRequiredItems(ServerPlayer actor, MedicationType type) {
         return switch (type) {
             case PARACETAMOL -> hasItem(actor, ModItems.PARACETAMOL.get());
@@ -329,6 +343,10 @@ public final class MedicationService {
             case EPINEPHRINE -> hasItem(actor, ModItems.SYRINGE.get())
                     && hasItem(actor, ModItems.EPINEPHRINE_INJECTION.get());
             case METOPROLOL -> hasItem(actor, ModItems.METOPROLOL.get());
+            case ATROPINE_SULFATE -> hasItem(actor, ModItems.SYRINGE.get())
+                    && hasItem(actor, ModItems.ATROPINE_SULFATE_INJECTION.get());
+            case PRALIDOXIME_CHLORIDE -> hasItem(actor, ModItems.SYRINGE.get())
+                    && hasItem(actor, ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get());
         };
     }
 
@@ -348,6 +366,14 @@ public final class MedicationService {
                 consumeOne(actor, ModItems.EPINEPHRINE_INJECTION.get());
             }
             case METOPROLOL -> consumeOne(actor, ModItems.METOPROLOL.get());
+            case ATROPINE_SULFATE -> {
+                consumeOne(actor, ModItems.SYRINGE.get());
+                consumeOne(actor, ModItems.ATROPINE_SULFATE_INJECTION.get());
+            }
+            case PRALIDOXIME_CHLORIDE -> {
+                consumeOne(actor, ModItems.SYRINGE.get());
+                consumeOne(actor, ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get());
+            }
         }
         actor.getInventory().setChanged();
         actor.inventoryMenu.broadcastChanges();
@@ -377,12 +403,13 @@ public final class MedicationService {
     private static MedicalActionSound soundFor(MedicationType type) {
         return switch (type) {
             case PARACETAMOL, METOPROLOL -> MedicalActionSound.TABLETS;
-            case MORPHINE, NALOXONE, EPINEPHRINE -> MedicalActionSound.VIAL;
+            case MORPHINE, NALOXONE, EPINEPHRINE, ATROPINE_SULFATE -> MedicalActionSound.VIAL;
+            case PRALIDOXIME_CHLORIDE -> MedicalActionSound.AMPOULE;
         };
     }
 
     private static boolean canPrepareInjection(ServerPlayer actor, ServerPlayer patient) {
-        if (!isEligibleActor(actor)) {
+        if (!isEligibleActor(actor) || !hasRequiredInspection(actor, patient)) {
             return false;
         }
         BodyState state = BodyStateCapability.get(patient).orElse(null);
@@ -395,7 +422,30 @@ public final class MedicationService {
                 && hasRequiredItems(actor, MedicationType.NALOXONE);
         boolean epinephrineAvailable = isEligiblePatient(actor, patient, MedicationType.EPINEPHRINE)
                 && hasRequiredItems(actor, MedicationType.EPINEPHRINE);
-        return morphineAvailable || naloxoneAvailable || epinephrineAvailable;
+        boolean atropineAvailable = isEligiblePatient(actor, patient, MedicationType.ATROPINE_SULFATE)
+                && hasRequiredItems(actor, MedicationType.ATROPINE_SULFATE);
+        boolean pralidoximeAvailable = isEligiblePatient(actor, patient, MedicationType.PRALIDOXIME_CHLORIDE)
+                && hasRequiredItems(actor, MedicationType.PRALIDOXIME_CHLORIDE);
+        return morphineAvailable
+                || naloxoneAvailable
+                || epinephrineAvailable
+                || atropineAvailable
+                || pralidoximeAvailable;
+    }
+
+    private static void sendPatientMedicationNotice(
+            ServerPlayer actor,
+            ServerPlayer patient,
+            MedicationType type
+    ) {
+        if (actor == patient) {
+            return;
+        }
+        ModNetworking.sendMedicalInspectionNotice(
+                patient,
+                actor,
+                Component.translatable(type.translationKey())
+        );
     }
 
     private static ServerPlayer player(ServerPlayer reference, UUID playerId) {

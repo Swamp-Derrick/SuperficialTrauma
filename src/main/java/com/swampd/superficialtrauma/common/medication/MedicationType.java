@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.common.medication;
 
 import java.util.Locale;
+import java.util.Optional;
 
 public enum MedicationType {
     PARACETAMOL(
@@ -47,6 +48,24 @@ public enum MedicationType {
             4.0F,
             0.0F,
             -2
+    ),
+    ATROPINE_SULFATE(
+            MedicationRoute.INJECTION,
+            MedicationFamily.ANTICHOLINERGIC,
+            5L * 20L,
+            3L * 60L * 20L,
+            3.0F,
+            0.0F,
+            1
+    ),
+    PRALIDOXIME_CHLORIDE(
+            MedicationRoute.INJECTION,
+            MedicationFamily.OXIME,
+            5L * 20L,
+            60L * 20L,
+            2.0F,
+            0.0F,
+            0
     );
 
     private final MedicationRoute route;
@@ -119,12 +138,19 @@ public enum MedicationType {
         return "medication.superficialtrauma." + serializedName();
     }
 
-    public static MedicationType fromSerializedName(String name) {
+    public static MedicationType fromStoredName(String name) {
+        return fromNetworkName(name).orElse(PARACETAMOL);
+    }
+
+    public static Optional<MedicationType> fromNetworkName(String name) {
+        if (name == null) {
+            return Optional.empty();
+        }
         for (MedicationType type : values()) {
             if (type.serializedName().equals(name)) {
-                return type;
+                return Optional.of(type);
             }
         }
-        return PARACETAMOL;
+        return Optional.empty();
     }
 }

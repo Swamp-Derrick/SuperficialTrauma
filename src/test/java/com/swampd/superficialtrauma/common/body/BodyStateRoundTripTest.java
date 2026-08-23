@@ -68,7 +68,11 @@ public final class BodyStateRoundTripTest {
         verifyMedicationLayersAndOverdose();
         verifyNaloxoneAndMetoprolol();
         verifyEpinephrineEffects();
+        verifyRespiratoryDistressAndHypoxia();
+        verifyOrganophosphateToxicologyAndAntidotes();
+        verifyCommonAwakeningGate();
         verifyGiveUpAndTotalCountdown();
+        verifyAdministrativeKillBrainDeath();
         verifyStandardVitalSignRanges();
         verifyTraumaticShockAwakeningAndRetryCooldown();
         verifyHemorrhagicShockAwakeningRequirements();
@@ -272,6 +276,31 @@ public final class BodyStateRoundTripTest {
         assertEquals(1, mixedState.wounds().size(), "a mixed volley must not also create a blunt wound");
         assertEquals(2, mixedState.wounds().get(0).severity(), "D total 8.1 beyond three blocks must create severity two");
 
+        BodyState downedBeforeResolution = new BodyState();
+        assertEquals(
+                true,
+                downedBeforeResolution.incapacitate(CollapseReason.HEMORRHAGIC_SHOCK, 101L),
+                "the regression patient must enter the downed state before volley resolution"
+        );
+        WoundUpdateResult delayedDowningVolley = downedBeforeResolution.applyGunshotDamage(
+                WoundType.GUNSHOT_SHOTGUN,
+                mixedVolley.totalFinalDamage(),
+                mixedVolley.maximumArmorValue(),
+                mixedVolley.minimumAttackerDistance(),
+                false,
+                102L
+        );
+        assertEquals(
+                WoundType.GUNSHOT_SHOTGUN,
+                requireWound(delayedDowningVolley).type(),
+                "a volley queued while active must still create shotgun trauma after the lethal pellet downs the victim"
+        );
+        assertEquals(
+                BodyLifeState.INCAPACITATED,
+                downedBeforeResolution.lifeState(),
+                "resolving the causal volley must not advance the downed countdown"
+        );
+
         ShotgunVolleyAccumulator.VolleyKey bodyHitKey = new ShotgunVolleyAccumulator.VolleyKey(
                 victimId,
                 shooterId,
@@ -366,9 +395,11 @@ public final class BodyStateRoundTripTest {
         long initialDeadline = state.bloodOxygenDeadlineGameTime();
         assertEquals(true, state.advanceAssistedBreathing(20L, 0, 20L, true), "assisted breathing must apply while incapacitated");
         assertEquals(initialDeadline + 20L, state.bloodOxygenDeadlineGameTime(), "assisted breathing must pause natural oxygen loss");
+        assertFloatEquals(-1.0F, state.respiratoryDistress(), "one second of assisted breathing must reduce respiratory distress by one");
         assertEquals(true, state.advanceAssistedBreathing(40L, 1, 60L, true), "three held seconds must grant an oxygen pulse");
         assertEquals(initialDeadline + 240L, state.bloodOxygenDeadlineGameTime(), "one oxygen point must add nine seconds after pausing three seconds");
         assertFloatEquals(21.0F, state.bloodOxygen(), "one completed assisted-breathing pulse must restore one oxygen point");
+        assertFloatEquals(-3.0F, state.respiratoryDistress(), "three total seconds of assisted breathing must reduce distress by three");
     }
 
     private static void verifyInfusionProgression() {
@@ -390,9 +421,25 @@ public final class BodyStateRoundTripTest {
         saline.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 0L);
         saline.startInfusion(InfusionType.SALINE, 0L);
         assertFloatEquals(7.5F, saline.advanceInfusion(BodyState.INFUSION_DURATION_TICKS).healingAmount(), "thirty saline pulses must total 7.5 health");
+
+        BodyState disconnected = new BodyState();
+        disconnected.incapacitate(CollapseReason.HEMORRHAGIC_SHOCK, 0L);
+        disconnected.startInfusion(InfusionType.BLOOD_BAG, 0L);
+        assertEquals(true, disconnected.cancelInfusion(), "disconnect handling must be able to cancel an active infusion");
+        assertEquals(false, disconnected.hasActiveInfusion(), "a cancelled infusion must not survive logout");
     }
 
     private static void verifyMedicationLayersAndOverdose() {
+        assertEquals(
+                MedicationType.PARACETAMOL,
+                MedicationType.fromStoredName("removed_legacy_medicine"),
+                "stored medication ids must retain the tolerant legacy fallback"
+        );
+        assertEquals(
+                false,
+                MedicationType.fromNetworkName("removed_legacy_medicine").isPresent(),
+                "unknown network medication ids must be rejected instead of becoming paracetamol"
+        );
         BodyState state = new BodyState();
         state.applyDamage(WoundType.SHARP, 5.0F, 0L);
         float untreatedPain = state.pain();
@@ -562,16 +609,16 @@ public final class BodyStateRoundTripTest {
         BodyState twoLayerCountdown = epinephrineCountdownState(2);
         twoLayerCountdown.advanceBodyProgression(60L);
         assertEquals(
-                BodyState.CARDIAC_ARREST_DURATION_TICKS - 20L,
+                BodyState.CARDIAC_ARREST_DURATION_TICKS - 30L,
                 twoLayerCountdown.downedDangerRemainingTicks(60L),
-                "two layers must let only twenty countdown ticks pass during sixty real ticks"
+                "the second layer must add half the first layer's benefit"
         );
         BodyState threeLayerCountdown = epinephrineCountdownState(3);
         threeLayerCountdown.advanceBodyProgression(60L);
         assertEquals(
-                BodyState.CARDIAC_ARREST_DURATION_TICKS,
+                BodyState.CARDIAC_ARREST_DURATION_TICKS - 30L,
                 threeLayerCountdown.downedDangerRemainingTicks(60L),
-                "three layers must pause rather than reverse the countdown"
+                "the third layer must not add further countdown slowdown"
         );
 
         BodyState shock = new BodyState();
@@ -595,6 +642,179 @@ public final class BodyStateRoundTripTest {
                 403L + BodyState.SHOCK_WARNING_DURATION_TICKS,
                 afterExpiry.shockWarningEndGameTime(),
                 "the restarted warning must receive a fresh ten seconds"
+        );
+    }
+
+    private static void verifyRespiratoryDistressAndHypoxia() {
+        BodyState thresholds = new BodyState();
+        assertFloatEquals(0.0F, thresholds.respiratoryDistress(), "respiratory distress must begin at zero");
+        thresholds.setRespiratoryDistressForDebug(5.0F, 0L);
+        assertEquals(false, thresholds.hasVisibleRespiratoryDistress(), "distress equal to five must remain hidden");
+        thresholds.setRespiratoryDistressForDebug(10.0F, 0L);
+        assertEquals(true, thresholds.hasVisibleRespiratoryDistress(), "distress above five must appear in the wound column");
+        assertEquals(-1, thresholds.respiratoryHeartRateShift(), "distress equal to ten must add one bradycardia layer");
+        thresholds.setRespiratoryDistressForDebug(9.999F, 0L);
+        assertEquals(0, thresholds.respiratoryHeartRateShift(), "distress below ten must not affect heart rate");
+
+        BodyState naturalRecovery = new BodyState();
+        naturalRecovery.resumeBodyProgression(0L);
+        naturalRecovery.setRespiratoryDistressForDebug(10.0F, 0L);
+        naturalRecovery.advanceBodyProgression(20L);
+        assertFloatEquals(9.9F, naturalRecovery.respiratoryDistress(), "respiratory distress must naturally recover by 0.1 each second");
+
+        BodyState epinephrineRecovery = new BodyState();
+        epinephrineRecovery.resumeBodyProgression(0L);
+        epinephrineRecovery.setRespiratoryDistressForDebug(10.0F, 0L);
+        epinephrineRecovery.applyMedication(MedicationType.EPINEPHRINE, 0L, false);
+        epinephrineRecovery.advanceBodyProgression(20L);
+        assertFloatEquals(9.5F, epinephrineRecovery.respiratoryDistress(), "one epinephrine layer must increase recovery to 0.5 per second");
+        epinephrineRecovery.applyMedication(MedicationType.EPINEPHRINE, 20L, false);
+        epinephrineRecovery.advanceBodyProgression(40L);
+        assertFloatEquals(8.6F, epinephrineRecovery.respiratoryDistress(), "two epinephrine layers must recover 0.9 per second");
+
+        BodyState opioidLayers = new BodyState();
+        opioidLayers.applyMedication(MedicationType.MORPHINE, 0L);
+        assertFloatEquals(2.0F, opioidLayers.respiratoryDistress(), "the first opioid layer must add two respiratory distress");
+        opioidLayers.applyMedication(MedicationType.MORPHINE, 1L);
+        assertFloatEquals(6.0F, opioidLayers.respiratoryDistress(), "the second opioid layer must add another four");
+        opioidLayers.applyMedication(MedicationType.MORPHINE, 2L);
+        assertFloatEquals(14.0F, opioidLayers.respiratoryDistress(), "the third opioid layer must add another eight");
+        BodyState restoredOpioids = new BodyState();
+        restoredOpioids.deserializeNBT(opioidLayers.serializeNBT());
+        assertFloatEquals(14.0F, restoredOpioids.respiratoryDistress(), "opioid respiratory contribution must survive NBT through active doses");
+        restoredOpioids.applyMedication(MedicationType.NALOXONE, 3L);
+        assertFloatEquals(0.0F, restoredOpioids.respiratoryDistress(), "naloxone must remove every dynamic opioid respiratory contribution");
+
+        BodyState opioidHypoxia = new BodyState();
+        for (int layer = 0; layer < 4; layer++) {
+            opioidHypoxia.applyMedication(MedicationType.MORPHINE, layer);
+        }
+        assertEquals(CollapseReason.HYPOXIA, opioidHypoxia.collapseReason(), "four opioid layers must reach hypoxic collapse before generic overdose handling");
+
+        BodyState hypoxia = new BodyState();
+        hypoxia.setRespiratoryDistressForDebug(20.0F, 0L);
+        assertEquals(BodyLifeState.INCAPACITATED, hypoxia.lifeState(), "respiratory distress twenty must incapacitate an active patient");
+        assertEquals(CollapseReason.HYPOXIA, hypoxia.collapseReason(), "respiratory collapse must retain the hypoxia reason");
+        hypoxia.setRespiratoryDistressForDebug(3.0F, 1L);
+        assertEquals(false, hypoxia.advanceAwakening(10.0F, 1L).changed(), "hypoxia awakening must require health above ten");
+        assertEquals(true, hypoxia.advanceAwakening(10.1F, 2L).started(), "distress three and health above ten must begin hypoxia awakening");
+
+        BodyState clamped = new BodyState();
+        clamped.setRespiratoryDistressForDebug(-10.0F, 0L);
+        clamped.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 1L);
+        clamped.advanceAssistedBreathing(200L, 0, 10L, true);
+        assertFloatEquals(-10.0F, clamped.respiratoryDistress(), "assisted recovery must respect the negative ten lower bound");
+        clamped.addRespiratoryDistress(100.0F);
+        assertFloatEquals(20.0F, clamped.respiratoryDistress(), "respiratory distress must respect the upper bound of twenty");
+    }
+
+    private static void verifyOrganophosphateToxicologyAndAntidotes() {
+        BodyState poisoning = new BodyState();
+        assertEquals(true, poisoning.exposeToOrganophosphate(100L), "the first DDVP exposure must start stage one poisoning");
+        assertEquals(1, poisoning.organophosphatePoisoningStage(), "DDVP must begin at stage one");
+        long stageTwoDeadline = poisoning.organophosphateNextProgressionGameTime();
+        assertBetween(
+                100L + BodyState.ORGANOPHOSPHATE_STAGE_ONE_MIN_TICKS,
+                100L + BodyState.ORGANOPHOSPHATE_STAGE_ONE_MAX_TICKS,
+                stageTwoDeadline,
+                "stage one must choose a thirty-to-sixty-second deadline"
+        );
+        assertEquals(true, poisoning.exposeToOrganophosphate(100L), "repeat DDVP exposure must accelerate the current stage");
+        long acceleratedStageTwoDeadline = poisoning.organophosphateNextProgressionGameTime();
+        assertBetween(
+                stageTwoDeadline - BodyState.ORGANOPHOSPHATE_REPEAT_EXPOSURE_MAX_REDUCTION_TICKS,
+                stageTwoDeadline - BodyState.ORGANOPHOSPHATE_REPEAT_EXPOSURE_MIN_REDUCTION_TICKS,
+                acceleratedStageTwoDeadline,
+                "repeat exposure must remove twenty to thirty seconds from the deadline"
+        );
+        stageTwoDeadline = acceleratedStageTwoDeadline;
+
+        poisoning.advanceBodyProgression(stageTwoDeadline);
+        assertEquals(2, poisoning.organophosphatePoisoningStage(), "the first deadline must advance poisoning to stage two");
+        assertEquals(true, poisoning.hasActiveOrganophosphateSymptoms(), "stage two without atropine must expose symptoms");
+        long stageThreeDeadline = poisoning.organophosphateNextProgressionGameTime();
+        assertBetween(
+                stageTwoDeadline + BodyState.ORGANOPHOSPHATE_STAGE_TWO_MIN_TICKS,
+                stageTwoDeadline + BodyState.ORGANOPHOSPHATE_STAGE_TWO_MAX_TICKS,
+                stageThreeDeadline,
+                "stage two must choose a one-to-two-minute deadline"
+        );
+
+        BodyState persisted = new BodyState();
+        persisted.deserializeNBT(poisoning.serializeNBT());
+        assertEquals(2, persisted.organophosphatePoisoningStage(), "NBT must preserve the poisoning stage");
+        assertEquals(stageThreeDeadline, persisted.organophosphateNextProgressionGameTime(), "NBT must preserve the progression deadline");
+        persisted.advanceBodyProgression(stageThreeDeadline);
+        assertEquals(3, persisted.organophosphatePoisoningStage(), "the second deadline must advance poisoning to stage three");
+        assertFloatEquals(1.0F, persisted.toxicologyRespiratoryDistressContribution(), "stage three must add one respiratory-distress point");
+        assertEquals(BodyLifeState.INCAPACITATED, persisted.lifeState(), "stage three must incapacitate an active patient");
+        assertEquals(CollapseReason.ORGANOPHOSPHATE_POISONING, persisted.collapseReason(), "toxic collapse must retain its cause");
+
+        BodyState atropine = new BodyState();
+        atropine.exposeToOrganophosphate(0L);
+        atropine.advanceBodyProgression(atropine.organophosphateNextProgressionGameTime());
+        assertEquals(true, atropine.applyMedication(MedicationType.ATROPINE_SULFATE, 2_000L), "atropine must create an active layer");
+        assertEquals(1, atropine.organophosphatePoisoningStage(), "atropine must suppress established poisoning back to stage one");
+        assertEquals(-1L, atropine.organophosphateNextProgressionGameTime(), "active atropine must pause poisoning progression");
+        atropine.applyMedication(MedicationType.ATROPINE_SULFATE, 2_001L);
+        assertFloatEquals(6.0F, atropine.bloodDrugConcentration(), "two atropine layers must add six concentration");
+        assertEquals(2, atropine.effectiveHeartRateLevel(), "each atropine layer must add one tachycardia level");
+        assertFloatEquals(-1.0F, atropine.toxicologyRespiratoryDistressContribution(), "the second atropine layer must reduce respiratory distress by one");
+        assertEquals(true, atropine.applyMedication(MedicationType.PRALIDOXIME_CHLORIDE, 2_002L), "pralidoxime must create an active layer");
+        assertEquals(0, atropine.organophosphatePoisoningStage(), "pralidoxime must remove poisoning once atropine has reduced it to stage one");
+
+        BodyState pralidoximeLimit = new BodyState();
+        pralidoximeLimit.exposeToOrganophosphate(0L);
+        pralidoximeLimit.advanceBodyProgression(pralidoximeLimit.organophosphateNextProgressionGameTime());
+        pralidoximeLimit.applyMedication(MedicationType.PRALIDOXIME_CHLORIDE, 1L);
+        assertEquals(2, pralidoximeLimit.organophosphatePoisoningStage(), "pralidoxime must not remove stage two poisoning");
+
+        BodyState pralidoximeLayers = new BodyState();
+        pralidoximeLayers.applyMedication(MedicationType.PRALIDOXIME_CHLORIDE, 0L);
+        pralidoximeLayers.applyMedication(MedicationType.PRALIDOXIME_CHLORIDE, 1L);
+        pralidoximeLayers.applyMedication(MedicationType.PRALIDOXIME_CHLORIDE, 2L);
+        assertFloatEquals(6.0F, pralidoximeLayers.bloodDrugConcentration(), "three pralidoxime layers must add six concentration");
+        assertEquals(1, pralidoximeLayers.effectiveHeartRateLevel(), "the third pralidoxime layer must add one tachycardia level");
+        assertFloatEquals(1.0F, pralidoximeLayers.toxicologyRespiratoryDistressContribution(), "the third pralidoxime layer must add one respiratory-distress point");
+
+        BodyState awakeningBlock = new BodyState();
+        awakeningBlock.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 0L);
+        awakeningBlock.exposeToOrganophosphate(1L);
+        assertEquals(false, awakeningBlock.advanceAwakening(6.0F, 1L).changed(), "any active poisoning stage must block awakening");
+        awakeningBlock.applyMedication(MedicationType.PRALIDOXIME_CHLORIDE, 2L, true);
+        assertEquals(0, awakeningBlock.organophosphatePoisoningStage(), "pralidoxime must clear stage one poisoning in a downed patient");
+        assertEquals(true, awakeningBlock.advanceAwakening(6.0F, 2L).started(), "awakening may resume after poisoning is fully cleared");
+    }
+
+    private static void verifyCommonAwakeningGate() {
+        BodyState concentrationBlocked = new BodyState();
+        concentrationBlocked.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 0L);
+        for (int index = 0; index < 5; index++) {
+            concentrationBlocked.applyMedication(MedicationType.PARACETAMOL, index, true);
+        }
+        assertEquals(
+                false,
+                concentrationBlocked.advanceAwakening(6.0F, 5L).changed(),
+                "concentration twenty must block every collapse reason from awakening"
+        );
+        assertEquals(
+                CollapseReason.TRAUMATIC_SHOCK,
+                concentrationBlocked.collapseReason(),
+                "a later common-gate failure must not replace the original collapse reason"
+        );
+
+        BodyState respiratoryBlocked = new BodyState();
+        respiratoryBlocked.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 0L);
+        respiratoryBlocked.setRespiratoryDistressForDebug(20.0F, 1L);
+        assertEquals(
+                false,
+                respiratoryBlocked.advanceAwakening(6.0F, 1L).changed(),
+                "respiratory distress twenty must block every collapse reason from awakening"
+        );
+        assertEquals(
+                CollapseReason.TRAUMATIC_SHOCK,
+                respiratoryBlocked.collapseReason(),
+                "respiratory distress must not rewrite the original collapse reason while downed"
         );
     }
 
@@ -634,6 +854,31 @@ public final class BodyStateRoundTripTest {
         restored.deserializeNBT(downed.serializeNBT());
         assertEquals(true, restored.voluntaryDeath(), "voluntary-death evidence must survive player NBT round trip");
         assertEquals(BodyLifeState.BRAIN_DEAD, restored.lifeState(), "give-up brain death must survive player NBT round trip");
+    }
+
+    private static void verifyAdministrativeKillBrainDeath() {
+        BodyState state = new BodyState();
+        state.recordFinalDamage(12.0F, "minecraft:arrow", DamageClassification.blunt("test"), 10L);
+        assertEquals(
+                true,
+                state.incapacitateFromLastDamage(CollapseReason.HEMORRHAGIC_SHOCK, 10L),
+                "the fixture must begin with ordinary downing evidence"
+        );
+        assertEquals(false, state.downingHitRecord().isEmpty(), "the fixture must contain a downing hit before /kill");
+
+        assertEquals(true, state.forceAdministrativeBrainDeath(), "generic_kill must immediately enter brain death");
+        assertEquals(BodyLifeState.BRAIN_DEAD, state.lifeState(), "generic_kill must bypass all downed timers");
+        assertEquals(true, state.administrativeDeath(), "generic_kill must leave distinct forensic evidence");
+        assertEquals(false, state.voluntaryDeath(), "generic_kill must not look like the patient gave up");
+        assertEquals(true, state.downingHitRecord().isEmpty(), "generic_kill must not attribute an older hit as fatal");
+        assertEquals(false, state.forceAdministrativeBrainDeath(), "brain death must not be applied twice");
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(state.serializeNBT());
+        assertEquals(BodyLifeState.BRAIN_DEAD, restored.lifeState(), "administrative brain death must survive NBT");
+        assertEquals(true, restored.administrativeDeath(), "administrative forensic evidence must survive NBT");
+        assertEquals(false, restored.voluntaryDeath(), "restored administrative death must remain non-voluntary");
+        assertEquals(true, restored.downingHitRecord().isEmpty(), "restored administrative death must not expose an old downing hit");
     }
 
     private static void verifyStandardVitalSignRanges() {
@@ -1364,7 +1609,9 @@ public final class BodyStateRoundTripTest {
                 ),
                 List.of(forensicWound),
                 downingHit,
-                true
+                CollapseReason.HEMORRHAGIC_SHOCK,
+                true,
+                false
         );
         CompoundTag saved = original.save();
         assertEquals(
@@ -1390,12 +1637,41 @@ public final class BodyStateRoundTripTest {
         assertEquals(original.downedPose(), restored.downedPose(), "corpse NBT must preserve downed pose");
         assertEquals(List.of(forensicWound), restored.woundHistory(), "corpse NBT must freeze wound history");
         assertEquals(downingHit, restored.downingHitRecord(), "corpse NBT must freeze the incapacitating hit");
+        assertEquals(CollapseReason.HEMORRHAGIC_SHOCK, restored.collapseReason(), "corpse NBT must freeze the collapse reason");
         assertEquals(true, restored.voluntaryDeath(), "corpse NBT must preserve voluntary-death forensic evidence");
+        assertEquals(false, restored.administrativeDeath(), "ordinary corpse NBT must not invent administrative death");
         assertFloatEquals(
                 -52.5F,
                 DownedGeometry.groundYaw(restored.downedPose()),
                 "corpse direction must remain derived from the captured left-fall snapshot"
         );
+
+        CompoundTag legacySnapshot = saved.copy();
+        legacySnapshot.remove("CollapseReason");
+        assertEquals(
+                CollapseReason.NONE,
+                CorpseSnapshot.load(legacySnapshot).collapseReason(),
+                "legacy corpses without a collapse reason must remain readable without inventing evidence"
+        );
+
+        CorpseSnapshot administrative = new CorpseSnapshot(
+                ownerId,
+                "AdministrativeDeathPlayer",
+                "",
+                "",
+                700L,
+                original.downedPose(),
+                List.of(forensicWound),
+                downingHit,
+                CollapseReason.HEMORRHAGIC_SHOCK,
+                true,
+                true
+        );
+        CorpseSnapshot restoredAdministrative = CorpseSnapshot.load(administrative.save());
+        assertEquals(true, restoredAdministrative.administrativeDeath(), "corpse NBT must preserve administrative death");
+        assertEquals(false, restoredAdministrative.voluntaryDeath(), "administrative death must override voluntary evidence");
+        assertEquals(true, restoredAdministrative.downingHitRecord() == null, "administrative death must suppress an older incapacitating hit");
+        assertEquals(CollapseReason.NONE, restoredAdministrative.collapseReason(), "administrative death must suppress an older collapse reason");
     }
 
     private static void verifyCorpseArmorUpgradeRules() {
@@ -1458,6 +1734,9 @@ public final class BodyStateRoundTripTest {
                 true,
                 true,
                 true,
+                true,
+                true,
+                true,
                 -1L,
                 AutopsyAction.NONE,
                 -1L
@@ -1473,6 +1752,9 @@ public final class BodyStateRoundTripTest {
                 "unrevealed downing evidence must not be sent over the network"
         );
         assertEquals(false, basicReport.suspectedMyocardialInfarction(), "voluntary-death evidence must remain hidden before detailed autopsy");
+        assertEquals(false, basicReport.drowningDeath(), "drowning cause must remain hidden before detailed autopsy");
+        assertEquals(false, basicReport.organophosphatePoisoningDeath(), "organophosphate cause must remain hidden before detailed autopsy");
+        assertEquals(false, basicReport.administrativeDeath(), "administrative death must remain hidden before detailed autopsy");
 
         AutopsyReport detailedReport = new AutopsyReport(
                 17,
@@ -1484,6 +1766,9 @@ public final class BodyStateRoundTripTest {
                 true,
                 true,
                 true,
+                false,
+                true,
+                true,
                 true,
                 1_500L,
                 AutopsyAction.CHECKLIST,
@@ -1491,11 +1776,75 @@ public final class BodyStateRoundTripTest {
         );
         AutopsyReport restored = AutopsyReport.load(detailedReport.save());
         assertEquals(hiddenHit, restored.downingHit(), "completed detailed examination must preserve downing evidence");
+        assertEquals(true, restored.drowningDeath(), "completed detailed examination must preserve a drowning finding");
+        assertEquals(true, restored.organophosphatePoisoningDeath(), "completed detailed examination must preserve an organophosphate finding");
         assertEquals(true, restored.suspectedMyocardialInfarction(), "detailed autopsy must preserve the voluntary-death finding");
         assertEquals(1_200L, restored.deathAgeTicks(), "pupil examination timestamp must survive packet NBT");
         assertEquals(AutopsyAction.CHECKLIST, restored.activeAction(), "autopsy action state must survive packet NBT");
         assertEquals(900L, restored.actionEndGameTime(), "autopsy countdown deadline must survive packet NBT");
         assertEquals(1_500L, restored.penlightCooldownEndGameTime(), "penlight cooldown must survive packet NBT");
+
+        AutopsyReport administrativeReport = new AutopsyReport(
+                18,
+                "AdministrativeDeathPlayer",
+                600L,
+                List.of(),
+                true,
+                hiddenHit,
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                -1L,
+                AutopsyAction.NONE,
+                -1L
+        );
+        AutopsyReport restoredAdministrative = AutopsyReport.load(administrativeReport.save());
+        assertEquals(true, restoredAdministrative.administrativeDeath(), "detailed autopsy must preserve administrative-death evidence");
+        assertEquals(true, restoredAdministrative.downingHit() == null, "administrative death must suppress misleading old downing evidence");
+        assertEquals(false, restoredAdministrative.drowningDeath(), "administrative death must suppress a misleading drowning finding");
+        assertEquals(false, restoredAdministrative.organophosphatePoisoningDeath(), "administrative death must suppress a misleading organophosphate finding");
+        assertEquals(false, restoredAdministrative.suspectedMyocardialInfarction(), "administrative death must not look like voluntary death");
+
+        DowningHitRecord drowningHit = new DowningHitRecord(
+                1.0F,
+                "drown",
+                DamageKind.UNKNOWN,
+                "non_traumatic_damage",
+                "none",
+                "none",
+                "none",
+                DowningHitRecord.UNKNOWN_DISTANCE,
+                400L
+        );
+        assertEquals(
+                true,
+                AutopsyReport.indicatesDrowningDeath(CollapseReason.HYPOXIA, drowningHit),
+                "hypoxic collapse caused by drowning damage must produce the detailed drowning conclusion"
+        );
+        assertEquals(
+                false,
+                AutopsyReport.indicatesDrowningDeath(CollapseReason.HYPOXIA, hiddenHit),
+                "hypoxic collapse without drowning damage must not be mislabeled as drowning"
+        );
+        assertEquals(
+                false,
+                AutopsyReport.indicatesDrowningDeath(CollapseReason.OVERDOSE, drowningHit),
+                "a non-hypoxic collapse reason must not be mislabeled as drowning"
+        );
+        assertEquals(
+                true,
+                AutopsyReport.indicatesOrganophosphatePoisoningDeath(CollapseReason.ORGANOPHOSPHATE_POISONING),
+                "organophosphate collapse must produce the detailed poisoning conclusion"
+        );
+        assertEquals(
+                false,
+                AutopsyReport.indicatesOrganophosphatePoisoningDeath(CollapseReason.HYPOXIA),
+                "a non-organophosphate collapse reason must not be mislabeled as poisoning"
+        );
     }
 
     private static void verifyEmptyCorpseLifecycle() {
@@ -1503,6 +1852,21 @@ public final class BodyStateRoundTripTest {
                 false,
                 CorpseServerConfig.DEFAULT_COLLISION_ENABLED,
                 "corpse collision must default to disabled"
+        );
+        assertEquals(
+                false,
+                CorpseServerConfig.DEFAULT_CORPSE_ENTITY_PUSHING_ENABLED,
+                "corpse entity pushing must default to disabled"
+        );
+        assertEquals(
+                false,
+                CorpseServerConfig.DEFAULT_DOWNED_COLLISION_ENABLED,
+                "downed-player collision must default to disabled"
+        );
+        assertEquals(
+                false,
+                CorpseServerConfig.DEFAULT_DOWNED_ENTITY_PUSHING_ENABLED,
+                "downed-player entity pushing must default to disabled"
         );
         assertEquals(
                 true,
@@ -2477,6 +2841,14 @@ public final class BodyStateRoundTripTest {
     private static void assertDoubleEquals(double expected, double actual, String message) {
         if (Math.abs(expected - actual) > 0.0001D) {
             throw new AssertionError(message + ": expected=" + expected + ", actual=" + actual);
+        }
+    }
+
+    private static void assertBetween(long minimum, long maximum, long actual, String message) {
+        if (actual < minimum || actual > maximum) {
+            throw new AssertionError(
+                    message + ": expected between " + minimum + " and " + maximum + ", actual=" + actual
+            );
         }
     }
 

@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.common.damage;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
+import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.DownedDamageResult;
@@ -11,9 +12,11 @@ import com.swampd.superficialtrauma.common.wound.WoundType;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.event.entity.living.LivingDamageEvent;
@@ -30,6 +33,10 @@ public final class DamageEvents {
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onLivingDamage(LivingDamageEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player) || event.getAmount() <= 0.0F) {
+            return;
+        }
+        if (event.getSource().is(DamageTypes.GENERIC_KILL)) {
+            handleAdministrativeKill(player, event);
             return;
         }
         if (ModDamageTypes.isInternal(event.getSource())) {
@@ -53,6 +60,24 @@ public final class DamageEvents {
                     sourceDistance,
                     gameTime
             );
+
+            if (event.getSource().is(DamageTypeTags.IS_DROWNING)) {
+                bodyState.addRespiratoryDistress(finalDamage);
+                boolean becameHypoxic = bodyState.canAct()
+                        && bodyState.respiratoryDistress()
+                        >= BodyState.RESPIRATORY_DISTRESS_COLLAPSE_THRESHOLD
+                        && bodyState.incapacitateFromLastDamage(CollapseReason.HYPOXIA, gameTime);
+                if (becameHypoxic) {
+                    event.setAmount(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
+                    bodyState.captureDownedPose(
+                            DownedPoseCapture.capture(player, event.getSource(), gameTime)
+                    );
+                    DownedHitbox.update(player, bodyState);
+                    ModNetworking.syncBodyState(player);
+                    ModNetworking.syncDownedPose(player);
+                    return;
+                }
+            }
 
             if (!bodyState.canAct()) {
                 boolean poseCaptured = bodyState.captureDownedPose(
@@ -152,6 +177,34 @@ public final class DamageEvents {
                 ModNetworking.syncDownedPose(player);
             }
         });
+    }
+
+    private static void handleAdministrativeKill(ServerPlayer player, LivingDamageEvent event) {
+        BodyState bodyState = BodyStateCapability.get(player).orElse(null);
+        if (bodyState == null) {
+            // Preserve vanilla /kill semantics if a third party prevented capability attachment.
+            return;
+        }
+
+        ShotgunVolleyAggregator.clearPlayer(player.getUUID());
+        boolean stateChanged = bodyState.forceAdministrativeBrainDeath();
+        boolean poseCaptured = bodyState.captureDownedPose(
+                DownedPoseCapture.capture(player, event.getSource(), player.serverLevel().getGameTime())
+        );
+
+        // BodyStateEvents performs the existing corpse snapshot and true-death sequence next tick.
+        event.setAmount(0.0F);
+        DownedHitbox.update(player, bodyState);
+        ModNetworking.syncBodyState(player);
+        if (poseCaptured) {
+            ModNetworking.syncDownedPose(player);
+        }
+        SuperficialTrauma.LOGGER.info(
+                "Administrative generic_kill for player {}: brainDeathChanged={} poseCaptured={}",
+                player.getGameProfile().getName(),
+                stateChanged,
+                poseCaptured
+        );
     }
 
     private static WoundUpdateResult applyGunshotDamage(

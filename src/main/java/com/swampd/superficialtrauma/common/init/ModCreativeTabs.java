@@ -35,6 +35,9 @@ public final class ModCreativeTabs {
                         output.accept(ModItems.NALOXONE.get());
                         output.accept(ModItems.EPINEPHRINE_INJECTION.get());
                         output.accept(ModItems.METOPROLOL.get());
+                        output.accept(ModItems.DDVP_INSECTICIDE.get());
+                        output.accept(ModItems.ATROPINE_SULFATE_INJECTION.get());
+                        output.accept(ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get());
                         output.accept(ModItems.STETHOSCOPE.get());
                         output.accept(ModItems.MANUAL_RESUSCITATOR.get());
                         output.accept(ModItems.DEFIBRILLATOR.get());
