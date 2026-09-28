@@ -69,6 +69,11 @@
       "superficialtrauma:ampoule"
     ]
   },
+  "plastic_container": {
+    "sounds": [
+      "superficialtrauma:plastic_container"
+    ]
+  },
   "syringe_start": {
     "sounds": [
       "superficialtrauma:syringe_start"

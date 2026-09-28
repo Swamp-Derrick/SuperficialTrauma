@@ -5,6 +5,7 @@ import com.swampd.superficialtrauma.common.damage.BloodLossDamage;
 import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAggregator;
 import com.swampd.superficialtrauma.common.entity.CorpseService;
 import com.swampd.superficialtrauma.common.drag.BodyDragService;
+import com.swampd.superficialtrauma.common.drag.BodyRotationService;
 import com.swampd.superficialtrauma.common.forensics.AutopsyService;
 import com.swampd.superficialtrauma.common.loot.LootingService;
 import com.swampd.superficialtrauma.common.qte.TimingQteService;
@@ -28,10 +29,13 @@ import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @Mod.EventBusSubscriber(modid = SuperficialTrauma.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public final class BodyStateEvents {
+    private static final Map<UUID, Vec3> LAST_WOUND_POSITIONS = new HashMap<>();
     private static final int INFECTION_NAUSEA_REFRESH_DURATION_TICKS = 5 * 20;
     private static final int EPINEPHRINE_EFFECT_REFRESH_DURATION_TICKS = 15;
     private static final int ORGANOPHOSPHATE_EFFECT_REFRESH_DURATION_TICKS = 5 * 20;
@@ -60,9 +64,11 @@ public final class BodyStateEvents {
 
     @SubscribeEvent
     public static void onPlayerClone(PlayerEvent.Clone event) {
+        LAST_WOUND_POSITIONS.remove(event.getOriginal().getUUID());
         ShotgunVolleyAggregator.clearPlayer(event.getOriginal().getUUID());
         GiveUpService.forgetPlayer(event.getOriginal().getUUID());
         BodyDragService.forgetPlayer(event.getOriginal().getUUID());
+        BodyRotationService.forgetPlayer(event.getOriginal().getUUID());
         event.getOriginal().reviveCaps();
         BodyStateCapability.get(event.getOriginal()).ifPresent(oldState ->
                 BodyStateCapability.get(event.getEntity()).ifPresent(newState -> {
@@ -78,17 +84,20 @@ public final class BodyStateEvents {
 
     @SubscribeEvent
     public static void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        LAST_WOUND_POSITIONS.remove(event.getEntity().getUUID());
         resumeProgressionIfServerPlayer(event.getEntity());
         syncIfServerPlayer(event.getEntity());
     }
 
     @SubscribeEvent
     public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        LAST_WOUND_POSITIONS.remove(event.getEntity().getUUID());
         ShotgunVolleyAggregator.clearPlayer(event.getEntity().getUUID());
         LootingService.forgetPlayer(event.getEntity().getUUID());
         AutopsyService.forgetPlayer(event.getEntity().getUUID());
         GiveUpService.forgetPlayer(event.getEntity().getUUID());
         BodyDragService.forgetPlayer(event.getEntity().getUUID());
+        BodyRotationService.forgetPlayer(event.getEntity().getUUID());
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
             BodyStateCapability.get(serverPlayer).ifPresent(bodyState -> {
                 bodyState.cancelInfusion();
@@ -100,16 +109,20 @@ public final class BodyStateEvents {
 
     @SubscribeEvent
     public static void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
+        LAST_WOUND_POSITIONS.remove(event.getEntity().getUUID());
         ShotgunVolleyAggregator.clearPlayer(event.getEntity().getUUID());
         BodyDragService.forgetPlayer(event.getEntity().getUUID());
+        BodyRotationService.forgetPlayer(event.getEntity().getUUID());
         resumeProgressionIfServerPlayer(event.getEntity());
         syncIfServerPlayer(event.getEntity());
     }
 
     @SubscribeEvent
     public static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+        LAST_WOUND_POSITIONS.remove(event.getEntity().getUUID());
         ShotgunVolleyAggregator.clearPlayer(event.getEntity().getUUID());
         BodyDragService.forgetPlayer(event.getEntity().getUUID());
+        BodyRotationService.forgetPlayer(event.getEntity().getUUID());
         resumeProgressionIfServerPlayer(event.getEntity());
         syncIfServerPlayer(event.getEntity());
     }
@@ -146,18 +159,29 @@ public final class BodyStateEvents {
 
         long gameTime = serverPlayer.serverLevel().getGameTime();
         BodyDragService.tick(serverPlayer);
+        BodyRotationService.tick(serverPlayer);
         LootingService.closeIfInvalid(serverPlayer);
         TimingQteService.tick(serverPlayer);
         AutopsyService.tick(serverPlayer);
         GiveUpService.tick(serverPlayer);
+        // Network-driven player movement need not leave a horizontal deltaMovement;
+        // entity xo/yo/zo can also be reset before this END-phase event.
+        Vec3 previousPosition = LAST_WOUND_POSITIONS.put(serverPlayer.getUUID(), serverPlayer.position());
+        Vec3 woundDisplacement = previousPosition == null ? Vec3.ZERO : serverPlayer.position().subtract(previousPosition);
         BodyStateCapability.get(serverPlayer).ifPresent(bodyState -> {
             boolean shotgunVolleyResolved = ShotgunVolleyAggregator.resolveReady(
                     serverPlayer,
                     bodyState,
                     gameTime
             );
-            boolean traumaticMovement = serverPlayer.isSprinting()
-                    || serverPlayer.getDeltaMovement().y > 0.08D;
+            boolean traumaticMovement = WoundMovementRules.isMoving(
+                    woundDisplacement.x,
+                    woundDisplacement.y,
+                    woundDisplacement.z,
+                    serverPlayer.getDeltaMovement().horizontalDistanceSqr(),
+                    serverPlayer.getDeltaMovement().y,
+                    serverPlayer.isSprinting()
+            );
             BodyProgressionResult result = bodyState.advanceBodyProgression(
                     gameTime,
                     traumaticMovement,
@@ -179,6 +203,7 @@ public final class BodyStateEvents {
             updateOrganophosphateEffects(serverPlayer, bodyState, gameTime);
             updateInfectionEffects(serverPlayer, bodyState, gameTime);
             updateNecrosisEffects(serverPlayer, bodyState, gameTime);
+            updateFatigueEffect(serverPlayer, bodyState);
             boolean poseCaptured = !bodyState.canAct()
                     && bodyState.captureDownedPose(DownedPoseCapture.capture(serverPlayer, null, gameTime));
             if (awakening.completed()) {
@@ -222,11 +247,13 @@ public final class BodyStateEvents {
 
     @SubscribeEvent
     public static void onServerStopped(ServerStoppedEvent event) {
+        LAST_WOUND_POSITIONS.clear();
         ShotgunVolleyAggregator.clearAll();
         LootingService.clearAll();
         AutopsyService.clearAll();
         GiveUpService.clearAll();
         BodyDragService.clearAll();
+        BodyRotationService.clearAll();
     }
 
     private static void triggerTrueDeath(ServerPlayer player, BodyState bodyState) {
@@ -327,14 +354,6 @@ public final class BodyStateEvents {
                 false,
                 true
         ));
-        player.addEffect(new MobEffectInstance(
-                MobEffects.MOVEMENT_SLOWDOWN,
-                ORGANOPHOSPHATE_EFFECT_REFRESH_DURATION_TICKS,
-                1,
-                false,
-                false,
-                true
-        ));
     }
 
     private static void updateNecrosisEffects(ServerPlayer player, BodyState bodyState, long gameTime) {
@@ -364,15 +383,18 @@ public final class BodyStateEvents {
             }
         }
 
-        if (bodyState.hasNecrosisSlowness() && gameTime % 20L == 0L) {
-            player.addEffect(new MobEffectInstance(
-                    MobEffects.MOVEMENT_SLOWDOWN,
-                    3 * 20,
-                    0,
-                    false,
-                    false,
-                    true
-            ));
+    }
+
+    private static void updateFatigueEffect(ServerPlayer player, BodyState state) {
+        var effect = com.swampd.superficialtrauma.common.init.ModEffects.FATIGUE.get();
+        int level = state.lifeState() == BodyLifeState.BRAIN_DEAD ? 0 : state.fatigueLevel();
+        MobEffectInstance existing = player.getEffect(effect);
+        if (existing != null && (level == 0 || existing.getAmplifier() != level - 1)) {
+            player.removeEffect(effect);
+            existing = null;
+        }
+        if (level > 0 && (existing == null || existing.getDuration() <= 20)) {
+            player.addEffect(new MobEffectInstance(effect, 40, level - 1, false, false, false));
         }
     }
 
@@ -420,9 +442,10 @@ public final class BodyStateEvents {
             player.closeContainer();
         }
         Vec3 movement = player.getDeltaMovement();
-        Vec3 pull = BodyDragService.horizontalPull(player);
-        player.setDeltaMovement(pull.x, Math.min(0.0D, movement.y), pull.z);
-        if (BodyDragService.isBeingDragged(player)) {
+        Vec3 pull = BodyDragService.pullMovement(player);
+        double verticalMovement = BodyDragService.bodyVerticalMovement(player, movement.y, pull.y);
+        player.setDeltaMovement(pull.x, verticalMovement, pull.z);
+        if (BodyDragService.isBeingDragged(player) || player.isInWaterOrBubble()) {
             player.hurtMarked = true;
         }
     }

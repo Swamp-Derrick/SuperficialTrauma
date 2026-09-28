@@ -43,6 +43,14 @@ public final class ModItems {
             "tourniquet",
             () -> new Item(new Item.Properties())
     );
+    public static final RegistryObject<Item> POVIDONE_IODINE = ITEMS.register(
+            "povidone_iodine",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
+    public static final RegistryObject<Item> MEDICAL_ALCOHOL = ITEMS.register(
+            "medical_alcohol",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
     public static final RegistryObject<Item> SALINE_SOLUTION = ITEMS.register(
             "saline_solution",
             () -> new Item(new Item.Properties().stacksTo(16))
@@ -61,6 +69,10 @@ public final class ModItems {
     );
     public static final RegistryObject<Item> MORPHINE_VIAL = ITEMS.register(
             "morphine_vial",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
+    public static final RegistryObject<Item> REMIFENTANIL_INJECTION = ITEMS.register(
+            "remifentanil_injection",
             () -> new Item(new Item.Properties().stacksTo(16))
     );
     public static final RegistryObject<Item> NALOXONE = ITEMS.register(
@@ -87,6 +99,14 @@ public final class ModItems {
             "pralidoxime_chloride_injection",
             () -> new Item(new Item.Properties().stacksTo(16))
     );
+    public static final RegistryObject<Item> AMOXICILLIN = ITEMS.register(
+            "amoxicillin",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
+    public static final RegistryObject<Item> CEFTRIAXONE = ITEMS.register(
+            "ceftriaxone",
+            () -> new Item(new Item.Properties().stacksTo(16))
+    );
     public static final RegistryObject<Item> STETHOSCOPE = ITEMS.register(
             "stethoscope",
             () -> new Item(new Item.Properties().stacksTo(1))
@@ -102,6 +122,10 @@ public final class ModItems {
     public static final RegistryObject<Item> SURGICAL_KIT = ITEMS.register(
             "surgical_kit",
             () -> new Item(new Item.Properties().stacksTo(1))
+    );
+    public static final RegistryObject<Item> ARTIFICIAL_DERMIS = ITEMS.register(
+            "artificial_dermis",
+            () -> new Item(new Item.Properties().stacksTo(16))
     );
     public static final RegistryObject<Item> PUPIL_PENLIGHT = ITEMS.register(
             "pupil_penlight",

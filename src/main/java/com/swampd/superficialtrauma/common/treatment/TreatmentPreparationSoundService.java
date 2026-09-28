@@ -130,10 +130,12 @@ public final class TreatmentPreparationSoundService {
                     && hasItem(actor, ModItems.BANDAGE.get())
                     && (hasItem(actor, ModItems.MEDICAL_TAPE.get())
                     || hasItem(actor, ModItems.SELF_ADHESIVE_BANDAGE.get()));
-            case DEBRIDEMENT -> TreatmentProcedure.DEBRIDEMENT.isApplicable(wound, TreatmentAction.APPLY)
-                    && BodyStateCapability.get(actor).map(BodyState::hasSurgerySkill).orElse(false)
+            case DEBRIDEMENT -> BodyStateCapability.get(actor).map(BodyState::hasSurgerySkill).orElse(false)
                     && hasItem(actor, ModItems.SURGICAL_KIT.get())
-                    && hasItem(actor, ModItems.SALINE_SOLUTION.get());
+                    && ((TreatmentProcedure.DEBRIDEMENT.isApplicable(wound, TreatmentAction.APPLY)
+                    && hasItem(actor, ModItems.SALINE_SOLUTION.get()))
+                    || (TreatmentProcedure.SKIN_GRAFT.isApplicable(wound, TreatmentAction.APPLY)
+                    && hasItem(actor, ModItems.ARTIFICIAL_DERMIS.get())));
         };
     }
 

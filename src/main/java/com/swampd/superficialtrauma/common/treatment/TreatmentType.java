@@ -15,8 +15,11 @@ public enum TreatmentType {
     MEDICAL_GAUZE(() -> ModItems.MEDICAL_GAUZE.get()),
     ICE_PACK(() -> ModItems.ICE_PACK.get()),
     TOURNIQUET(() -> ModItems.TOURNIQUET.get()),
+    POVIDONE_IODINE(() -> ModItems.POVIDONE_IODINE.get()),
+    MEDICAL_ALCOHOL(() -> ModItems.MEDICAL_ALCOHOL.get()),
     SALINE_SOLUTION(() -> ModItems.SALINE_SOLUTION.get()),
-    SURGICAL_KIT(() -> ModItems.SURGICAL_KIT.get());
+    SURGICAL_KIT(() -> ModItems.SURGICAL_KIT.get()),
+    ARTIFICIAL_DERMIS(() -> ModItems.ARTIFICIAL_DERMIS.get());
 
     private final Supplier<Item> requiredItem;
 

@@ -11,6 +11,7 @@ public enum MedicationType {
             3L * 60L * 20L,
             4.0F,
             1.0F,
+            0,
             0
     ),
     MORPHINE(
@@ -20,7 +21,18 @@ public enum MedicationType {
             3L * 60L * 20L,
             6.0F,
             2.0F,
-            0
+            0,
+            1
+    ),
+    REMIFENTANIL(
+            MedicationRoute.INJECTION,
+            MedicationFamily.OPIOID,
+            5L * 20L,
+            60L * 20L,
+            14.0F,
+            16.0F,
+            0,
+            3
     ),
     NALOXONE(
             MedicationRoute.INJECTION,
@@ -29,6 +41,7 @@ public enum MedicationType {
             0L,
             0.0F,
             0.0F,
+            0,
             0
     ),
     EPINEPHRINE(
@@ -38,7 +51,8 @@ public enum MedicationType {
             3L * 60L * 20L,
             5.0F,
             0.0F,
-            1
+            1,
+            0
     ),
     METOPROLOL(
             MedicationRoute.ORAL,
@@ -47,7 +61,8 @@ public enum MedicationType {
             5L * 60L * 20L,
             4.0F,
             0.0F,
-            -2
+            -2,
+            0
     ),
     ATROPINE_SULFATE(
             MedicationRoute.INJECTION,
@@ -56,7 +71,8 @@ public enum MedicationType {
             3L * 60L * 20L,
             3.0F,
             0.0F,
-            1
+            1,
+            0
     ),
     PRALIDOXIME_CHLORIDE(
             MedicationRoute.INJECTION,
@@ -65,6 +81,27 @@ public enum MedicationType {
             60L * 20L,
             2.0F,
             0.0F,
+            0,
+            0
+    ),
+    AMOXICILLIN(
+            MedicationRoute.ORAL,
+            MedicationFamily.ANTIBIOTIC,
+            50L,
+            3L * 60L * 20L,
+            5.0F,
+            0.0F,
+            0,
+            0
+    ),
+    CEFTRIAXONE(
+            MedicationRoute.INJECTION,
+            MedicationFamily.ANTIBIOTIC,
+            5L * 20L,
+            3L * 60L * 20L,
+            5.0F,
+            0.0F,
+            0,
             0
     );
 
@@ -75,6 +112,7 @@ public enum MedicationType {
     private final float concentration;
     private final float painReduction;
     private final int heartRateShift;
+    private final int opioidEquivalentLayers;
 
     MedicationType(
             MedicationRoute route,
@@ -83,7 +121,8 @@ public enum MedicationType {
             long effectDurationTicks,
             float concentration,
             float painReduction,
-            int heartRateShift
+            int heartRateShift,
+            int opioidEquivalentLayers
     ) {
         this.route = route;
         this.family = family;
@@ -92,6 +131,7 @@ public enum MedicationType {
         this.concentration = concentration;
         this.painReduction = painReduction;
         this.heartRateShift = heartRateShift;
+        this.opioidEquivalentLayers = Math.max(0, opioidEquivalentLayers);
     }
 
     public MedicationRoute route() {
@@ -120,6 +160,10 @@ public enum MedicationType {
 
     public int heartRateShift() {
         return heartRateShift;
+    }
+
+    public int opioidEquivalentLayers() {
+        return opioidEquivalentLayers;
     }
 
     public boolean createsActiveDose() {

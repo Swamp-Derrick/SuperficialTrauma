@@ -326,7 +326,7 @@ public final class MedicationService {
         if (type == MedicationType.NALOXONE && !state.hasActiveOpioidDose()) {
             return false;
         }
-        return type.route() == MedicationRoute.INJECTION || state.canAct();
+        return type.route().allowsPatient(actor == patient, state.canAct());
     }
 
     private static boolean hasRequiredInspection(ServerPlayer actor, ServerPlayer patient) {
@@ -338,6 +338,8 @@ public final class MedicationService {
             case PARACETAMOL -> hasItem(actor, ModItems.PARACETAMOL.get());
             case MORPHINE -> hasItem(actor, ModItems.SYRINGE.get())
                     && hasItem(actor, ModItems.MORPHINE_VIAL.get());
+            case REMIFENTANIL -> hasItem(actor, ModItems.SYRINGE.get())
+                    && hasItem(actor, ModItems.REMIFENTANIL_INJECTION.get());
             case NALOXONE -> hasItem(actor, ModItems.SYRINGE.get())
                     && hasItem(actor, ModItems.NALOXONE.get());
             case EPINEPHRINE -> hasItem(actor, ModItems.SYRINGE.get())
@@ -347,6 +349,9 @@ public final class MedicationService {
                     && hasItem(actor, ModItems.ATROPINE_SULFATE_INJECTION.get());
             case PRALIDOXIME_CHLORIDE -> hasItem(actor, ModItems.SYRINGE.get())
                     && hasItem(actor, ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get());
+            case AMOXICILLIN -> hasItem(actor, ModItems.AMOXICILLIN.get());
+            case CEFTRIAXONE -> hasItem(actor, ModItems.SYRINGE.get())
+                    && hasItem(actor, ModItems.CEFTRIAXONE.get());
         };
     }
 
@@ -356,6 +361,10 @@ public final class MedicationService {
             case MORPHINE -> {
                 consumeOne(actor, ModItems.SYRINGE.get());
                 consumeOne(actor, ModItems.MORPHINE_VIAL.get());
+            }
+            case REMIFENTANIL -> {
+                consumeOne(actor, ModItems.SYRINGE.get());
+                consumeOne(actor, ModItems.REMIFENTANIL_INJECTION.get());
             }
             case NALOXONE -> {
                 consumeOne(actor, ModItems.SYRINGE.get());
@@ -373,6 +382,11 @@ public final class MedicationService {
             case PRALIDOXIME_CHLORIDE -> {
                 consumeOne(actor, ModItems.SYRINGE.get());
                 consumeOne(actor, ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get());
+            }
+            case AMOXICILLIN -> consumeOne(actor, ModItems.AMOXICILLIN.get());
+            case CEFTRIAXONE -> {
+                consumeOne(actor, ModItems.SYRINGE.get());
+                consumeOne(actor, ModItems.CEFTRIAXONE.get());
             }
         }
         actor.getInventory().setChanged();
@@ -402,8 +416,9 @@ public final class MedicationService {
 
     private static MedicalActionSound soundFor(MedicationType type) {
         return switch (type) {
-            case PARACETAMOL, METOPROLOL -> MedicalActionSound.TABLETS;
-            case MORPHINE, NALOXONE, EPINEPHRINE, ATROPINE_SULFATE -> MedicalActionSound.VIAL;
+            case PARACETAMOL, METOPROLOL, AMOXICILLIN -> MedicalActionSound.TABLETS;
+            case MORPHINE, REMIFENTANIL, NALOXONE, EPINEPHRINE,
+                    ATROPINE_SULFATE, CEFTRIAXONE -> MedicalActionSound.VIAL;
             case PRALIDOXIME_CHLORIDE -> MedicalActionSound.AMPOULE;
         };
     }
@@ -418,6 +433,8 @@ public final class MedicationService {
         }
         boolean morphineAvailable = isEligiblePatient(actor, patient, MedicationType.MORPHINE)
                 && hasRequiredItems(actor, MedicationType.MORPHINE);
+        boolean remifentanilAvailable = isEligiblePatient(actor, patient, MedicationType.REMIFENTANIL)
+                && hasRequiredItems(actor, MedicationType.REMIFENTANIL);
         boolean naloxoneAvailable = isEligiblePatient(actor, patient, MedicationType.NALOXONE)
                 && hasRequiredItems(actor, MedicationType.NALOXONE);
         boolean epinephrineAvailable = isEligiblePatient(actor, patient, MedicationType.EPINEPHRINE)
@@ -426,11 +443,15 @@ public final class MedicationService {
                 && hasRequiredItems(actor, MedicationType.ATROPINE_SULFATE);
         boolean pralidoximeAvailable = isEligiblePatient(actor, patient, MedicationType.PRALIDOXIME_CHLORIDE)
                 && hasRequiredItems(actor, MedicationType.PRALIDOXIME_CHLORIDE);
+        boolean ceftriaxoneAvailable = isEligiblePatient(actor, patient, MedicationType.CEFTRIAXONE)
+                && hasRequiredItems(actor, MedicationType.CEFTRIAXONE);
         return morphineAvailable
+                || remifentanilAvailable
                 || naloxoneAvailable
                 || epinephrineAvailable
                 || atropineAvailable
-                || pralidoximeAvailable;
+                || pralidoximeAvailable
+                || ceftriaxoneAvailable;
     }
 
     private static void sendPatientMedicationNotice(

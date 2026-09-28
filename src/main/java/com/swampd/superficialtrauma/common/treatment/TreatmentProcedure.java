@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.common.treatment;
 
 import com.swampd.superficialtrauma.common.wound.WoundCovering;
+import com.swampd.superficialtrauma.common.wound.WoundDisinfectant;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundType;
 
@@ -46,12 +47,29 @@ public enum TreatmentProcedure {
             8L * 20L,
             new TreatmentIngredient(TreatmentType.TOURNIQUET, 1)
     ),
+    POVIDONE_IODINE(
+            null,
+            TreatmentType.POVIDONE_IODINE,
+            new TreatmentIngredient(TreatmentType.POVIDONE_IODINE, 1)
+    ),
+    MEDICAL_ALCOHOL(
+            null,
+            TreatmentType.MEDICAL_ALCOHOL,
+            new TreatmentIngredient(TreatmentType.MEDICAL_ALCOHOL, 1)
+    ),
     DEBRIDEMENT(
             null,
             TreatmentType.SURGICAL_KIT,
             12L * 20L,
             new TreatmentIngredient(TreatmentType.SALINE_SOLUTION, 1),
             new TreatmentIngredient(TreatmentType.SURGICAL_KIT, 1)
+    ),
+    SKIN_GRAFT(
+            null,
+            TreatmentType.ARTIFICIAL_DERMIS,
+            50L * 20L,
+            new TreatmentIngredient(TreatmentType.SURGICAL_KIT, 1),
+            new TreatmentIngredient(TreatmentType.ARTIFICIAL_DERMIS, 1)
     );
 
     private static final long DEFAULT_DURATION_TICKS = 5L * 20L;
@@ -105,6 +123,12 @@ public enum TreatmentProcedure {
             return wound.woundTags().contains(com.swampd.superficialtrauma.common.wound.WoundTag.NEEDS_DEBRIDEMENT_1)
                     || wound.isInfected();
         }
+        if (isSkinGraft()) {
+            return wound.hasNecrosis();
+        }
+        if (isDisinfection()) {
+            return wound.canDisinfect();
+        }
         if (isIcePack()) {
             return wound.canApplyIcePack();
         }
@@ -126,6 +150,12 @@ public enum TreatmentProcedure {
         }
         if (isDebridement()) {
             return action == TreatmentAction.APPLY && wound.canDebride();
+        }
+        if (isSkinGraft()) {
+            return action == TreatmentAction.APPLY && wound.canSkinGraft();
+        }
+        if (isDisinfection()) {
+            return action == TreatmentAction.APPLY && wound.canDisinfect();
         }
         if (isIcePack()) {
             return action == TreatmentAction.APPLY && wound.canApplyIcePack();
@@ -153,6 +183,10 @@ public enum TreatmentProcedure {
         return this == DEBRIDEMENT;
     }
 
+    public boolean isSkinGraft() {
+        return this == SKIN_GRAFT;
+    }
+
     public boolean isIcePack() {
         return this == ICE_PACK;
     }
@@ -161,8 +195,20 @@ public enum TreatmentProcedure {
         return this == TOURNIQUET;
     }
 
+    public boolean isDisinfection() {
+        return this == POVIDONE_IODINE || this == MEDICAL_ALCOHOL;
+    }
+
+    public WoundDisinfectant disinfectant() {
+        return switch (this) {
+            case POVIDONE_IODINE -> WoundDisinfectant.POVIDONE_IODINE;
+            case MEDICAL_ALCOHOL -> WoundDisinfectant.MEDICAL_ALCOHOL;
+            default -> null;
+        };
+    }
+
     public boolean requiresSurgerySkill() {
-        return isDebridement();
+        return isDebridement() || isSkinGraft();
     }
 
     public boolean requiresFirstAidSkill() {
@@ -193,6 +239,8 @@ public enum TreatmentProcedure {
             case MEDICAL_GAUZE -> WOUND_PACKING;
             case ICE_PACK -> ICE_PACK;
             case TOURNIQUET -> TOURNIQUET;
+            case POVIDONE_IODINE -> POVIDONE_IODINE;
+            case MEDICAL_ALCOHOL -> MEDICAL_ALCOHOL;
             case SURGICAL_KIT -> DEBRIDEMENT;
             default -> null;
         };
@@ -220,7 +268,11 @@ public enum TreatmentProcedure {
             case MEDICAL_GAUZE -> WOUND_PACKING.supports(wound);
             case ICE_PACK -> ICE_PACK.supports(wound);
             case TOURNIQUET -> TOURNIQUET.supports(wound);
-            case SALINE_SOLUTION, SURGICAL_KIT -> DEBRIDEMENT.supports(wound);
+            case POVIDONE_IODINE -> POVIDONE_IODINE.supports(wound);
+            case MEDICAL_ALCOHOL -> MEDICAL_ALCOHOL.supports(wound);
+            case SALINE_SOLUTION -> DEBRIDEMENT.supports(wound);
+            case SURGICAL_KIT -> DEBRIDEMENT.supports(wound) || SKIN_GRAFT.supports(wound);
+            case ARTIFICIAL_DERMIS -> SKIN_GRAFT.supports(wound);
         };
     }
 

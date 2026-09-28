@@ -22,10 +22,11 @@ public final class ClientBodyDragInput {
             return;
         }
 
+        boolean draggerInWater = minecraft.player.isInWaterOrBubble();
         boolean blocked = minecraft.screen != null
                 || ClientDownedPoses.get(minecraft.player.getId()).isPresent()
-                || minecraft.options.keyJump.isDown()
-                || !minecraft.options.keyShift.isDown();
+                || (!draggerInWater && minecraft.options.keyJump.isDown())
+                || (!draggerInWater && !minecraft.options.keyShift.isDown());
         if (blocked || !ClientModEvents.DRAG_BODY.isDown()) {
             clear(true);
             return;

@@ -15,6 +15,11 @@ public record TreatmentSession(
         Vec3 actorStartPosition,
         Vec3 patientStartPosition
 ) {
+    public TreatmentSession withDeadline(long deadline) {
+        return new TreatmentSession(actorId, patientId, woundId, procedure, action,
+                startedGameTime, deadline, actorStartPosition, patientStartPosition);
+    }
+
     public boolean isSelfTreatment() {
         return actorId.equals(patientId);
     }

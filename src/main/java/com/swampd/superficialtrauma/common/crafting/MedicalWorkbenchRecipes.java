@@ -46,6 +46,12 @@ public final class MedicalWorkbenchRecipes {
         add(recipes, "tourniquet", ModItems.TOURNIQUET, 1, 45,
                 ingredient(Items.LEATHER, 2), ingredient(Items.STRING, 2),
                 ingredient(Items.IRON_NUGGET, 1));
+        add(recipes, "povidone_iodine", ModItems.POVIDONE_IODINE, 1, 60,
+                ingredient(Items.GLASS_BOTTLE, 1), ingredient(Items.RED_DYE, 1),
+                ingredient(Items.NETHER_WART, 1));
+        add(recipes, "medical_alcohol", ModItems.MEDICAL_ALCOHOL, 1, 60,
+                ingredient(Items.GLASS_BOTTLE, 1), ingredient(Items.SUGAR, 2),
+                ingredient(Items.FERMENTED_SPIDER_EYE, 1));
         add(recipes, "saline_solution", ModItems.SALINE_SOLUTION, 1, 45,
                 ingredient(Items.GLASS_BOTTLE, 1), ingredient(Items.SNOWBALL, 2));
         add(recipes, "blood_bag", ModItems.BLOOD_BAG, 1, 60,
@@ -58,6 +64,9 @@ public final class MedicalWorkbenchRecipes {
         add(recipes, "morphine_vial", ModItems.MORPHINE_VIAL, 1, 60,
                 ingredient(Items.GLASS_BOTTLE, 1), ingredient(Items.POPPY, 2),
                 ingredient(Items.SUGAR, 1));
+        add(recipes, "remifentanil_injection", ModItems.REMIFENTANIL_INJECTION, 1, 180,
+                ingredient(Items.GLASS_BOTTLE, 1), ingredient(Items.GHAST_TEAR, 1),
+                ingredient(Items.BLAZE_POWDER, 2), ingredient(Items.DIAMOND, 1));
         add(recipes, "naloxone", ModItems.NALOXONE, 1, 75,
                 ingredient(Items.GLASS_BOTTLE, 1), ingredient(Items.SPIDER_EYE, 1),
                 ingredient(Items.SUGAR, 2));
@@ -92,6 +101,15 @@ public final class MedicalWorkbenchRecipes {
         add(recipes, "pralidoxime_chloride_injection", ModItems.PRALIDOXIME_CHLORIDE_INJECTION, 1, 120,
                 ingredient(Items.GLASS_BOTTLE, 1), ingredient(Items.QUARTZ, 1),
                 ingredient(Items.BLAZE_POWDER, 1), ingredient(Items.SUGAR, 1));
+        add(recipes, "amoxicillin", ModItems.AMOXICILLIN, 2, 60,
+                ingredient(Items.SUGAR, 2), ingredient(Items.BLUE_DYE, 1),
+                ingredient(Items.PAPER, 1));
+        add(recipes, "ceftriaxone", ModItems.CEFTRIAXONE, 1, 90,
+                ingredient(Items.GLASS_BOTTLE, 1), ingredient(Items.QUARTZ, 1),
+                ingredient(Items.SUGAR, 2), ingredient(Items.BLUE_DYE, 1));
+        add(recipes, "artificial_dermis", ModItems.ARTIFICIAL_DERMIS, 1, 120,
+                ingredient(Items.LEATHER, 2), ingredient(Items.SLIME_BALL, 2),
+                ingredient(Items.WHITE_WOOL, 1), ingredient(Items.HONEYCOMB, 1));
         return Collections.unmodifiableList(recipes);
     }
 

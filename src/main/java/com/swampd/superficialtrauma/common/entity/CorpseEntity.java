@@ -19,6 +19,7 @@ import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.Container;
 import net.minecraft.world.ContainerHelper;
@@ -231,6 +232,19 @@ public final class CorpseEntity extends LivingEntity implements Container {
         );
     }
 
+    public void rotateBody(float clockwiseDegrees) {
+        if (!Float.isFinite(clockwiseDegrees) || clockwiseDegrees == 0.0F) {
+            return;
+        }
+        float bodyYaw = Mth.wrapDegrees(entityData.get(BODY_YAW) + clockwiseDegrees);
+        entityData.set(BODY_YAW, bodyYaw);
+        setYRot(bodyYaw);
+        setYBodyRot(bodyYaw);
+        setYHeadRot(bodyYaw);
+        updateCorpseBoundingBox();
+        setChanged();
+    }
+
     public GameProfile createOwnerProfile() {
         GameProfile profile = new GameProfile(
                 ownerId().orElse(getUUID()),
@@ -253,10 +267,14 @@ public final class CorpseEntity extends LivingEntity implements Container {
         setNoGravity(false);
         super.tick();
         if (!level().isClientSide) {
-            Vec3 pull = BodyDragService.horizontalPull(this);
-            double verticalMovement = getDeltaMovement().y;
+            Vec3 pull = BodyDragService.pullMovement(this);
+            double verticalMovement = BodyDragService.bodyVerticalMovement(
+                    this,
+                    getDeltaMovement().y,
+                    pull.y
+            );
             setDeltaMovement(pull.x, verticalMovement, pull.z);
-            if (BodyDragService.isBeingDragged(this)) {
+            if (BodyDragService.isBeingDragged(this) || isInWaterOrBubble()) {
                 hurtMarked = true;
             }
         }

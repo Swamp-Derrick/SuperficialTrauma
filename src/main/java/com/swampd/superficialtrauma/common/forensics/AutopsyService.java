@@ -4,6 +4,7 @@ import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.entity.CorpseEntity;
 import com.swampd.superficialtrauma.common.init.ModItems;
 import com.swampd.superficialtrauma.common.qte.TimingQteDefinition;
+import com.swampd.superficialtrauma.common.qte.MedicalTimingQte;
 import com.swampd.superficialtrauma.common.qte.TimingQteResult;
 import com.swampd.superficialtrauma.common.qte.TimingQteService;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSound;
@@ -25,22 +26,11 @@ public final class AutopsyService {
     private static final double MAX_CONTINUE_DISTANCE_SQUARED = 6.0D * 6.0D;
     private static final double ACTION_MOVEMENT_TOLERANCE_SQUARED = 0.12D * 0.12D;
     private static final long PERIODIC_SYNC_TICKS = 10L;
-    private static final float CHECKLIST_QTE_CHANCE_PER_SECOND = 0.13F;
-    private static final long CHECKLIST_QTE_ROLL_INTERVAL_TICKS = 20L;
-    private static final long CHECKLIST_QTE_COOLDOWN_TICKS = 3L * 20L;
-    private static final long CHECKLIST_QTE_FAILURE_PENALTY_TICKS = 5L * 20L;
-    private static final long CHECKLIST_QTE_PERFECT_REWARD_TICKS = 2L * 20L;
-    private static final long CHECKLIST_QTE_FINAL_BUFFER_TICKS = 4L * 20L;
-    private static final int CHECKLIST_QTE_SWEEP_DURATION_TICKS = 26;
-    private static final TimingQteDefinition CHECKLIST_QTE = new TimingQteDefinition(
-            10,
-            CHECKLIST_QTE_SWEEP_DURATION_TICKS,
-            0.28F,
-            0.68F,
-            0.06F,
-            0.18F,
-            8
-    );
+    private static final float CHECKLIST_QTE_CHANCE_PER_SECOND = MedicalTimingQte.CHANCE_PER_SECOND;
+    private static final long CHECKLIST_QTE_ROLL_INTERVAL_TICKS = MedicalTimingQte.ROLL_INTERVAL_TICKS;
+    private static final long CHECKLIST_QTE_COOLDOWN_TICKS = MedicalTimingQte.COOLDOWN_TICKS;
+    private static final long CHECKLIST_QTE_FINAL_BUFFER_TICKS = MedicalTimingQte.FINAL_BUFFER_TICKS;
+    private static final TimingQteDefinition CHECKLIST_QTE = MedicalTimingQte.DEFINITION;
     private static final Map<UUID, Session> SESSIONS = new HashMap<>();
 
     private AutopsyService() {
@@ -229,12 +219,7 @@ public final class AutopsyService {
             return;
         }
         long gameTime = examiner.serverLevel().getGameTime();
-        if (result == TimingQteResult.PERFECT) {
-            session.actionEndGameTime = Math.max(gameTime, session.actionEndGameTime
-                    - CHECKLIST_QTE_PERFECT_REWARD_TICKS);
-        } else if (result.failed()) {
-            session.actionEndGameTime += CHECKLIST_QTE_FAILURE_PENALTY_TICKS;
-        }
+        session.actionEndGameTime = MedicalTimingQte.adjustedDeadline(session.actionEndGameTime, gameTime, result);
         session.nextQteRollGameTime = gameTime + CHECKLIST_QTE_COOLDOWN_TICKS;
         CorpseEntity corpse = findCorpse(examiner, session.corpseId);
         if (corpse != null) {

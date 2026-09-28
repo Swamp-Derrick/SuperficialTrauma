@@ -17,6 +17,7 @@ import com.swampd.superficialtrauma.common.treatment.TreatmentMovementRules;
 import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
 import com.swampd.superficialtrauma.common.treatment.TreatmentType;
 import com.swampd.superficialtrauma.common.wound.WoundCovering;
+import com.swampd.superficialtrauma.common.wound.WoundDisinfectant;
 import com.swampd.superficialtrauma.common.wound.WoundInstance;
 import com.swampd.superficialtrauma.common.wound.WoundTag;
 import com.swampd.superficialtrauma.common.wound.WoundType;
@@ -44,6 +45,8 @@ public final class BodyStateRoundTripTest {
         verifyPendingDamageAccumulation();
         verifyIndependentDamageWindows();
         verifyWoundDefinitions();
+        verifyPunctureAndFrostbiteDebridement();
+        verifyCrushIcePackHealing();
         verifyTemporaryDressing();
         verifyCoveringVariants();
         verifyWoundPacking();
@@ -51,13 +54,17 @@ public final class BodyStateRoundTripTest {
         verifyIcePackTreatment();
         verifyTourniquetAndNecrosis();
         verifyInfectionAndDebridement();
+        verifyDisinfectionAndHealingFloor();
         verifyTemporaryDressingContamination();
         verifySystemicInfectionSettlement();
+        verifyAntibioticInfectionControl();
         verifyDebugInfectionSetter();
         verifySkillKnowledgeRoundTrip();
         verifyTreatmentMovementRules();
         verifyPainAccumulationAndTags();
         verifyStressAndPainRecovery();
+        verifyPainRecoveryCurveAndOpioids();
+        verifyTraumaticShockMedicationProtection();
         verifyTraumaticShockWarningAndCollapse();
         verifyShockWarningCancellationAndNbt();
         verifyLethalDamageIncapacitation();
@@ -106,6 +113,7 @@ public final class BodyStateRoundTripTest {
         verifyVersionSevenPoseMigrationDefaults();
         verifyWoundLimitAndActiveWindowUpdate();
         verifyTimingQteHalfOpenRanges();
+        MedicalRevisionTest.run();
         System.out.println("Superficial Trauma BodyState self-test passed.");
     }
 
@@ -138,6 +146,21 @@ public final class BodyStateRoundTripTest {
         assertEquals(2, WoundInstance.explosionSeverityFor(8.0F), "8 must enter explosion severity 2");
         assertEquals(2, WoundInstance.explosionSeverityFor(15.9999F), "explosion value below 16 must remain severity 2");
         assertEquals(3, WoundInstance.explosionSeverityFor(16.0F), "16 must enter explosion severity 3");
+
+        assertEquals(0, WoundInstance.severityFor(WoundType.PUNCTURE, 3.9999F), "puncture below 4 must remain pending");
+        assertEquals(1, WoundInstance.severityFor(WoundType.PUNCTURE, 4.0F), "4 must enter puncture severity 1");
+        assertEquals(2, WoundInstance.severityFor(WoundType.PUNCTURE, 10.0F), "10 must enter puncture severity 2");
+        assertEquals(3, WoundInstance.severityFor(WoundType.PUNCTURE, 15.0F), "15 must enter puncture severity 3");
+
+        assertEquals(0, WoundInstance.severityFor(WoundType.CRUSH, 1.9999F), "crush below 2 must remain pending");
+        assertEquals(1, WoundInstance.severityFor(WoundType.CRUSH, 2.0F), "2 must enter crush severity 1");
+        assertEquals(2, WoundInstance.severityFor(WoundType.CRUSH, 6.0F), "6 must enter crush severity 2");
+        assertEquals(3, WoundInstance.severityFor(WoundType.CRUSH, 12.0F), "12 must enter crush severity 3");
+
+        assertEquals(0, WoundInstance.severityFor(WoundType.FROSTBITE, 5.9999F), "freeze damage below 6 must remain pending");
+        assertEquals(1, WoundInstance.severityFor(WoundType.FROSTBITE, 6.0F), "6 must enter frostbite severity 1");
+        assertEquals(2, WoundInstance.severityFor(WoundType.FROSTBITE, 12.0F), "12 must enter frostbite severity 2");
+        assertEquals(3, WoundInstance.severityFor(WoundType.FROSTBITE, 16.0F), "16 must enter frostbite severity 3");
     }
 
     private static void verifyGunshotRangesAndContext() {
@@ -391,15 +414,22 @@ public final class BodyStateRoundTripTest {
 
     private static void verifyAssistedBreathing() {
         BodyState state = new BodyState();
+        state.setRespiratoryDistressForDebug(10.0F, 0L);
         assertEquals(true, state.incapacitate(CollapseReason.HEMORRHAGIC_SHOCK, 0L), "test patient must become downed");
         long initialDeadline = state.bloodOxygenDeadlineGameTime();
         assertEquals(true, state.advanceAssistedBreathing(20L, 0, 20L, true), "assisted breathing must apply while incapacitated");
         assertEquals(initialDeadline + 20L, state.bloodOxygenDeadlineGameTime(), "assisted breathing must pause natural oxygen loss");
-        assertFloatEquals(-1.0F, state.respiratoryDistress(), "one second of assisted breathing must reduce respiratory distress by one");
+        assertFloatEquals(9.0F, state.respiratoryDistress(), "one second of assisted breathing must reduce base respiratory distress by one");
         assertEquals(true, state.advanceAssistedBreathing(40L, 1, 60L, true), "three held seconds must grant an oxygen pulse");
         assertEquals(initialDeadline + 240L, state.bloodOxygenDeadlineGameTime(), "one oxygen point must add nine seconds after pausing three seconds");
         assertFloatEquals(21.0F, state.bloodOxygen(), "one completed assisted-breathing pulse must restore one oxygen point");
-        assertFloatEquals(-3.0F, state.respiratoryDistress(), "three total seconds of assisted breathing must reduce distress by three");
+        assertFloatEquals(7.0F, state.respiratoryDistress(), "three total seconds of assisted breathing must reduce base distress by three");
+
+        BodyState zeroFloor = new BodyState();
+        zeroFloor.incapacitate(CollapseReason.HEMORRHAGIC_SHOCK, 0L);
+        zeroFloor.advanceAssistedBreathing(200L, 0, 200L, true);
+        assertFloatEquals(0.0F, zeroFloor.baseRespiratoryDistress(), "assisted breathing must not create negative base distress");
+        assertFloatEquals(0.0F, zeroFloor.respiratoryDistress(), "assisted breathing at zero must remain at zero");
     }
 
     private static void verifyInfusionProgression() {
@@ -660,17 +690,23 @@ public final class BodyStateRoundTripTest {
         naturalRecovery.resumeBodyProgression(0L);
         naturalRecovery.setRespiratoryDistressForDebug(10.0F, 0L);
         naturalRecovery.advanceBodyProgression(20L);
-        assertFloatEquals(9.9F, naturalRecovery.respiratoryDistress(), "respiratory distress must naturally recover by 0.1 each second");
+        assertFloatEquals(9.92F, naturalRecovery.respiratoryDistress(), "respiratory distress must naturally recover by 0.08 each second");
 
         BodyState epinephrineRecovery = new BodyState();
         epinephrineRecovery.resumeBodyProgression(0L);
         epinephrineRecovery.setRespiratoryDistressForDebug(10.0F, 0L);
         epinephrineRecovery.applyMedication(MedicationType.EPINEPHRINE, 0L, false);
         epinephrineRecovery.advanceBodyProgression(20L);
-        assertFloatEquals(9.5F, epinephrineRecovery.respiratoryDistress(), "one epinephrine layer must increase recovery to 0.5 per second");
+        assertFloatEquals(9.52F, epinephrineRecovery.respiratoryDistress(), "one epinephrine layer must increase recovery to 0.48 per second");
         epinephrineRecovery.applyMedication(MedicationType.EPINEPHRINE, 20L, false);
         epinephrineRecovery.advanceBodyProgression(40L);
-        assertFloatEquals(8.6F, epinephrineRecovery.respiratoryDistress(), "two epinephrine layers must recover 0.9 per second");
+        assertFloatEquals(8.64F, epinephrineRecovery.respiratoryDistress(), "two epinephrine layers must recover 0.88 per second");
+
+        BodyState epinephrineFloor = new BodyState();
+        epinephrineFloor.resumeBodyProgression(0L);
+        epinephrineFloor.applyMedication(MedicationType.EPINEPHRINE, 0L, false);
+        epinephrineFloor.advanceBodyProgression(20L);
+        assertFloatEquals(0.0F, epinephrineFloor.baseRespiratoryDistress(), "epinephrine must not create negative base distress");
 
         BodyState opioidLayers = new BodyState();
         opioidLayers.applyMedication(MedicationType.MORPHINE, 0L);
@@ -684,6 +720,66 @@ public final class BodyStateRoundTripTest {
         assertFloatEquals(14.0F, restoredOpioids.respiratoryDistress(), "opioid respiratory contribution must survive NBT through active doses");
         restoredOpioids.applyMedication(MedicationType.NALOXONE, 3L);
         assertFloatEquals(0.0F, restoredOpioids.respiratoryDistress(), "naloxone must remove every dynamic opioid respiratory contribution");
+
+        BodyState opioidRecoveryIsolation = new BodyState();
+        opioidRecoveryIsolation.applyMedication(MedicationType.MORPHINE, 0L, false);
+        opioidRecoveryIsolation.resumeBodyProgression(0L);
+        opioidRecoveryIsolation.advanceBodyProgression(20L);
+        assertFloatEquals(0.0F, opioidRecoveryIsolation.baseRespiratoryDistress(), "natural recovery must not create negative base distress to offset opioids");
+        assertFloatEquals(2.0F, opioidRecoveryIsolation.respiratoryDistress(), "an opioid respiratory modifier must remain intact while its dose is active");
+        opioidRecoveryIsolation.applyMedication(MedicationType.NALOXONE, 21L, false);
+        assertFloatEquals(0.0F, opioidRecoveryIsolation.respiratoryDistress(), "naloxone must remove opioids without revealing negative respiratory debt");
+
+        BodyState atropineModifierIsolation = new BodyState();
+        atropineModifierIsolation.applyMedication(MedicationType.ATROPINE_SULFATE, 0L, false);
+        atropineModifierIsolation.applyMedication(MedicationType.ATROPINE_SULFATE, 1L, false);
+        atropineModifierIsolation.resumeBodyProgression(1L);
+        atropineModifierIsolation.advanceBodyProgression(21L);
+        assertFloatEquals(0.0F, atropineModifierIsolation.baseRespiratoryDistress(), "atropine must not create positive base compensation");
+        assertFloatEquals(-1.0F, atropineModifierIsolation.respiratoryDistress(), "two atropine layers must retain their temporary negative modifier");
+        atropineModifierIsolation.advanceBodyProgression(3_601L);
+        assertFloatEquals(0.0F, atropineModifierIsolation.baseRespiratoryDistress(), "atropine expiry must not leave positive base respiratory debt");
+        assertFloatEquals(0.0F, atropineModifierIsolation.respiratoryDistress(), "atropine expiry must remove its negative modifier cleanly");
+
+        assertEquals(1, MedicationType.MORPHINE.opioidEquivalentLayers(), "one morphine dose must retain one opioid-equivalent layer");
+        assertEquals(3, MedicationType.REMIFENTANIL.opioidEquivalentLayers(), "one remifentanil dose must contribute three opioid-equivalent layers");
+        BodyState remifentanil = new BodyState();
+        remifentanil.applyDamage(WoundType.SHARP, 16.0F, 0L);
+        assertEquals(true, remifentanil.applyMedication(MedicationType.REMIFENTANIL, 100L, false), "remifentanil must create one short-lived active dose");
+        assertEquals(1, remifentanil.activeDoseCount(MedicationType.REMIFENTANIL), "remifentanil must remain one stored drug dose rather than three duplicate doses");
+        assertEquals(3, remifentanil.activeOpioidEquivalentLayerCount(), "the stored remifentanil dose must expose three opioid-equivalent layers");
+        assertFloatEquals(14.0F, remifentanil.bloodDrugConcentration(), "one remifentanil dose must add fourteen drug concentration");
+        assertFloatEquals(16.0F, remifentanil.medicationPainReduction(), "one remifentanil dose must reduce pain by sixteen");
+        assertFloatEquals(4.0F, remifentanil.pain(), "remifentanil analgesia must immediately reduce effective pain");
+        assertFloatEquals(14.0F, remifentanil.opioidRespiratoryDistressContribution(), "three opioid-equivalent layers must contribute fourteen respiratory distress");
+        assertEquals(true, remifentanil.isTraumaticShockProtectionPaused(), "three opioid-equivalent layers must freeze traumatic-shock protection");
+        BodyState restoredRemifentanil = new BodyState();
+        restoredRemifentanil.deserializeNBT(remifentanil.serializeNBT());
+        assertEquals(3, restoredRemifentanil.activeOpioidEquivalentLayerCount(), "remifentanil opioid equivalence must survive NBT through its medication type");
+        assertEquals(true, restoredRemifentanil.applyMedication(MedicationType.NALOXONE, 101L, false), "naloxone must clear remifentanil as an opioid");
+        assertEquals(0, restoredRemifentanil.activeDoseCount(MedicationType.REMIFENTANIL), "naloxone must remove the remifentanil dose");
+        assertFloatEquals(0.0F, restoredRemifentanil.bloodDrugConcentration(), "naloxone must remove remifentanil concentration");
+        assertFloatEquals(0.0F, restoredRemifentanil.medicationPainReduction(), "naloxone must remove remifentanil analgesia");
+        assertFloatEquals(0.0F, restoredRemifentanil.opioidRespiratoryDistressContribution(), "naloxone must remove remifentanil respiratory suppression");
+
+        BodyState remifentanilMorphineInteraction = new BodyState();
+        remifentanilMorphineInteraction.applyMedication(MedicationType.REMIFENTANIL, 0L, false);
+        remifentanilMorphineInteraction.applyMedication(MedicationType.MORPHINE, 1L, false);
+        assertEquals(4, remifentanilMorphineInteraction.activeOpioidEquivalentLayerCount(), "remifentanil and morphine must combine into four opioid-equivalent layers");
+        assertFloatEquals(20.0F, remifentanilMorphineInteraction.respiratoryDistress(), "remifentanil and morphine respiratory suppression must reach the gameplay cap");
+        assertFloatEquals(20.0F, remifentanilMorphineInteraction.bloodDrugConcentration(), "remifentanil and morphine concentration must reach the overdose threshold");
+        assertEquals(CollapseReason.HYPOXIA, remifentanilMorphineInteraction.collapseReason(), "combined remifentanil and morphine must collapse from hypoxia before generic overdose");
+
+        BodyState remifentanilExpiry = new BodyState();
+        remifentanilExpiry.applyMedication(MedicationType.REMIFENTANIL, 100L, false);
+        remifentanilExpiry.resumeBodyProgression(100L);
+        remifentanilExpiry.advanceBodyProgression(1_299L);
+        assertEquals(1, remifentanilExpiry.activeDoseCount(MedicationType.REMIFENTANIL), "remifentanil must remain active for the full sixty-second half-open interval");
+        remifentanilExpiry.advanceBodyProgression(1_300L);
+        assertEquals(0, remifentanilExpiry.activeDoseCount(MedicationType.REMIFENTANIL), "remifentanil must expire at exactly sixty seconds");
+        assertFloatEquals(0.0F, remifentanilExpiry.opioidRespiratoryDistressContribution(), "remifentanil opioid respiratory contribution must end with the dose");
+        assertFloatEquals(0.0F, remifentanilExpiry.baseRespiratoryDistress(), "remifentanil must not leave negative base respiratory debt");
+        assertFloatEquals(0.0F, remifentanilExpiry.respiratoryDistress(), "remifentanil expiry must return a clean patient to zero distress");
 
         BodyState opioidHypoxia = new BodyState();
         for (int layer = 0; layer < 4; layer++) {
@@ -699,13 +795,26 @@ public final class BodyStateRoundTripTest {
         assertEquals(false, hypoxia.advanceAwakening(10.0F, 1L).changed(), "hypoxia awakening must require health above ten");
         assertEquals(true, hypoxia.advanceAwakening(10.1F, 2L).started(), "distress three and health above ten must begin hypoxia awakening");
 
-        BodyState clamped = new BodyState();
-        clamped.setRespiratoryDistressForDebug(-10.0F, 0L);
-        clamped.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 1L);
-        clamped.advanceAssistedBreathing(200L, 0, 10L, true);
-        assertFloatEquals(-10.0F, clamped.respiratoryDistress(), "assisted recovery must respect the negative ten lower bound");
-        clamped.addRespiratoryDistress(100.0F);
-        assertFloatEquals(20.0F, clamped.respiratoryDistress(), "respiratory distress must respect the upper bound of twenty");
+        BodyState debugFloor = new BodyState();
+        debugFloor.setRespiratoryDistressForDebug(-10.0F, 0L);
+        assertFloatEquals(0.0F, debugFloor.baseRespiratoryDistress(), "debug writes must not create negative base distress");
+
+        BodyState medicationFloor = new BodyState();
+        for (int dose = 0; dose < 12; dose++) {
+            medicationFloor.applyMedication(MedicationType.ATROPINE_SULFATE, dose, false);
+        }
+        assertFloatEquals(0.0F, medicationFloor.baseRespiratoryDistress(), "negative medication modifiers must remain separate from base distress");
+        assertFloatEquals(-10.0F, medicationFloor.respiratoryDistress(), "temporary medication modifiers must retain the negative ten final floor");
+
+        BodyState legacyNegativeBase = new BodyState();
+        CompoundTag legacyNegativeTag = legacyNegativeBase.serializeNBT();
+        legacyNegativeTag.putFloat("BaseRespiratoryDistress", -8.0F);
+        legacyNegativeBase.deserializeNBT(legacyNegativeTag);
+        assertFloatEquals(0.0F, legacyNegativeBase.baseRespiratoryDistress(), "stored negative base distress must migrate to zero");
+
+        BodyState upperClamp = new BodyState();
+        upperClamp.addRespiratoryDistress(100.0F);
+        assertFloatEquals(20.0F, upperClamp.respiratoryDistress(), "respiratory distress must respect the upper bound of twenty");
     }
 
     private static void verifyOrganophosphateToxicologyAndAntidotes() {
@@ -906,10 +1015,22 @@ public final class BodyStateRoundTripTest {
     }
 
     private static void verifyTraumaticShockAwakeningAndRetryCooldown() {
+        BodyState threshold = new BodyState();
+        threshold.applyDamage(WoundType.BLUNT, 14.0F, 0L);
+        assertFloatEquals(15.0F, threshold.pain(), "awakening threshold setup must produce exactly fifteen pain");
+        threshold.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 0L);
+        assertEquals(false, threshold.advanceAwakening(6.0F, 1L).changed(), "pain equal to fifteen must block traumatic-shock awakening");
+
+        BodyState belowThreshold = new BodyState();
+        belowThreshold.applyDamage(WoundType.BLUNT, 13.0F, 0L);
+        assertFloatEquals(14.0F, belowThreshold.pain(), "below-threshold setup must produce fourteen pain");
+        belowThreshold.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 0L);
+        assertEquals(true, belowThreshold.advanceAwakening(6.0F, 1L).started(), "pain below fifteen and health above five must begin awakening");
+
         BodyState state = new BodyState();
         state.incapacitate(CollapseReason.TRAUMATIC_SHOCK, 0L);
         assertEquals(false, state.advanceAwakening(5.0F, 0L).changed(), "health equal to five must not begin awakening");
-        assertEquals(true, state.advanceAwakening(5.1F, 1L).started(), "pain below twenty and health above five must begin awakening");
+        assertEquals(true, state.advanceAwakening(5.1F, 1L).started(), "pain below fifteen and health above five must begin awakening");
 
         state.applyDownedDamage(1.0F, 20L);
         assertEquals(BodyLifeState.INCAPACITATED, state.lifeState(), "damage during awakening must return the patient to incapacitated");
@@ -984,6 +1105,112 @@ public final class BodyStateRoundTripTest {
         assertEquals(true, extensive.woundTags().contains(WoundTag.BLEEDING_2), "level-3 explosion wound must carry bleeding 2");
         assertFloatEquals(0.0F, extensive.baseHealingPerSecond(), "level-3 explosion wound must not naturally heal");
         assertFloatEquals(10.0F, extensive.minimumHealingProgressWithoutSkinGraft(), "skin-graft floor must be recorded as H=10");
+    }
+
+    private static void verifyPunctureAndFrostbiteDebridement() {
+        BodyState punctureOneState = new BodyState();
+        WoundInstance punctureOne = requireWound(punctureOneState.applyDamage(
+                WoundType.PUNCTURE,
+                4.0F,
+                0.29F,
+                0L
+        ));
+        assertEquals(1, punctureOne.severity(), "four projectile damage must create low-energy puncture trauma");
+        assertEquals(true, punctureOne.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "a puncture roll below thirty percent must require debridement");
+        assertEquals(1, punctureOne.bleedingLevel(false), "puncture severity one must bleed at level one");
+        assertFloatEquals(0.5F, punctureOne.baseHealingPerSecond(), "puncture severity one must heal at 0.5 H/s");
+        punctureOne.advanceInfection(WoundInstance.INFECTION_SPREAD_INTERVAL_TICKS);
+        assertFloatEquals(1.0F, punctureOne.infectionContribution(), "a dirty severity-one puncture must receive contamination and its first deep-wound infection pulse");
+
+        BodyState cleanPunctureState = new BodyState();
+        WoundInstance cleanPuncture = requireWound(cleanPunctureState.applyDamage(
+                WoundType.PUNCTURE,
+                10.0F,
+                0.80F,
+                0L
+        ));
+        assertEquals(false, cleanPuncture.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "the puncture level-two debridement range must be half open");
+        cleanPunctureState.applyDamage(WoundType.PUNCTURE, 5.0F, 0.0F, 1L);
+        assertEquals(3, cleanPuncture.severity(), "a level-two puncture may accumulate into a through wound");
+        assertEquals(false, cleanPuncture.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "level-two to level-three accumulation must carry the prior cleaning state without a new roll");
+
+        BodyState dirtyPunctureState = new BodyState();
+        WoundInstance dirtyPuncture = requireWound(dirtyPunctureState.applyDamage(
+                WoundType.PUNCTURE,
+                10.0F,
+                0.79F,
+                0L
+        ));
+        dirtyPunctureState.applyDamage(WoundType.PUNCTURE, 5.0F, 0.99F, 1L);
+        assertEquals(true, dirtyPuncture.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "an accumulated through wound must retain its level-two debridement tag");
+
+        BodyState directThroughState = new BodyState();
+        WoundInstance directThrough = requireWound(directThroughState.applyDamage(
+                WoundType.PUNCTURE,
+                15.0F,
+                0.64F,
+                0L
+        ));
+        assertEquals(true, directThrough.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "a direct through wound must use the sixty-five-percent roll");
+
+        BodyState frostbiteTwoState = new BodyState();
+        WoundInstance frostbiteTwo = requireWound(frostbiteTwoState.applyDamage(
+                WoundType.FROSTBITE,
+                12.0F,
+                0.79F,
+                0L
+        ));
+        assertEquals(true, frostbiteTwo.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "frostbite severity two must use the eighty-percent debridement roll");
+        assertEquals(true, frostbiteTwo.woundTags().contains(WoundTag.PAIN_3), "frostbite severity two must carry pain three");
+
+        BodyState severeFrostbiteState = new BodyState();
+        WoundInstance severeFrostbite = requireWound(severeFrostbiteState.applyDamage(
+                WoundType.FROSTBITE,
+                16.0F,
+                0.99F,
+                0L
+        ));
+        assertEquals(true, severeFrostbite.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "severe frostbite must always require debridement");
+        assertEquals(true, severeFrostbite.woundTags().contains(WoundTag.NECROSIS_3), "severe frostbite must carry necrosis three");
+        assertFloatEquals(0.08F, severeFrostbite.baseHealingPerSecond(), "severe frostbite must heal at 0.08 H/s before its grafting floor");
+        severeFrostbite.advanceNaturalHealing(2_000.0F);
+        assertFloatEquals(40.0F, severeFrostbite.healingProgress(), "a wound requiring debridement must stop at H=40");
+        assertEquals(true, severeFrostbiteState.debrideWound(severeFrostbite.id()), "debridement must release the infection-control healing floor");
+        severeFrostbite.advanceNaturalHealing(2_000.0F);
+        assertFloatEquals(10.0F, severeFrostbite.healingProgress(), "severe frostbite must stop at H=10 until skin grafting exists");
+    }
+
+    private static void verifyCrushIcePackHealing() {
+        BodyState mildState = new BodyState();
+        WoundInstance mild = requireWound(mildState.applyDamage(WoundType.CRUSH, 2.0F, 0L));
+        assertFloatEquals(0.8F, mild.baseHealingPerSecond(), "mild crush trauma must naturally heal at 0.8 H/s");
+        assertEquals(true, mildState.applyIcePack(mild.id(), 0L), "mild crush trauma must accept one ice pack");
+        assertEquals(true, mild.icePackApplied(), "crush trauma must retain its cold-treatment state");
+        assertFloatEquals(3.0F, mild.baseHealingPerSecond(false), "an iced mild crush injury must heal at 3 H/s while stationary");
+        assertFloatEquals(0.8F, mild.baseHealingPerSecond(true), "movement must return an iced mild crush injury to its base rate");
+        mildState.resumeBodyProgression(0L);
+        mildState.advanceBodyProgression(20L, false);
+        assertFloatEquals(97.0F, mild.healingProgress(), "one stationary second must apply the ice-pack acceleration");
+        mildState.advanceBodyProgression(40L, true);
+        assertFloatEquals(96.2F, mild.healingProgress(), "one moving second must apply only the base crush recovery rate");
+
+        BodyState restoredState = new BodyState();
+        restoredState.deserializeNBT(mildState.serializeNBT());
+        WoundInstance restored = restoredState.wound(mild.id())
+                .orElseThrow(() -> new AssertionError("an iced crush wound must survive NBT"));
+        assertEquals(true, restored.icePackApplied(), "NBT must preserve crush ice-pack treatment");
+
+        WoundInstance moderate = WoundInstance.create(WoundType.CRUSH, 6.0F, 0L, 400L);
+        assertEquals(true, moderate.woundTags().contains(WoundTag.PAIN_2), "moderate crush trauma must carry pain two");
+        assertEquals(true, moderate.applyIcePack(), "moderate crush trauma must accept an ice pack");
+        assertFloatEquals(1.0F, moderate.baseHealingPerSecond(false), "an iced moderate crush injury must heal at 1 H/s while stationary");
+        assertFloatEquals(0.3F, moderate.baseHealingPerSecond(true), "movement must restore the moderate crush base rate");
+
+        WoundInstance severe = WoundInstance.create(WoundType.CRUSH, 12.0F, 0L, 400L);
+        assertEquals(true, severe.woundTags().contains(WoundTag.NECROSIS_2), "severe crush trauma must retain intrinsic necrosis two");
+        assertEquals(true, severe.woundTags().contains(WoundTag.BLEEDING_1), "severe crush trauma must bleed at level one");
+        assertFloatEquals(0.1F, severe.baseHealingPerSecond(), "severe crush trauma must heal at 0.1 H/s");
+        assertEquals(false, severe.canApplyIcePack(), "severe crush trauma must reject ice packs");
     }
 
     private static void verifyTemporaryDressing() {
@@ -1242,9 +1469,11 @@ public final class BodyStateRoundTripTest {
         WoundInstance bluntTwo = WoundInstance.create(WoundType.BLUNT, 4.0F, 0L, 400L);
         for (TreatmentType type : TreatmentType.values()) {
             assertEquals(
-                    type == TreatmentType.ICE_PACK,
+                    type == TreatmentType.ICE_PACK
+                            || type == TreatmentType.POVIDONE_IODINE
+                            || type == TreatmentType.MEDICAL_ALCOHOL,
                     TreatmentProcedure.supportsType(bluntTwo, type),
-                    "severity-two blunt trauma must expose only the ice pack"
+                    "severity-two blunt trauma must expose the ice pack and preventive disinfectants"
             );
         }
 
@@ -1280,7 +1509,7 @@ public final class BodyStateRoundTripTest {
         assertEquals(false, wound.woundTags().contains(WoundTag.NECROSIS_1), "Necrosis 2 must replace Necrosis 1");
         assertEquals(true, wound.woundTags().contains(WoundTag.NECROSIS_2), "Necrosis 2 must be stored as a wound tag");
         assertFloatEquals(4.0F, (float) state.necrosisMaximumHealthReduction(), "Necrosis 2 must reduce maximum health by four");
-        assertEquals(true, state.hasNecrosisSlowness(), "Necrosis 2 must request Slowness I");
+        assertEquals(true, state.hasNecrosisFatigue(), "Necrosis 2 must contribute fatigue");
 
         BodyState restored = new BodyState();
         restored.deserializeNBT(state.serializeNBT());
@@ -1299,7 +1528,7 @@ public final class BodyStateRoundTripTest {
         assertEquals(WoundInstance.TOURNIQUET_NECROSIS_TWO_TICKS - 20L, restoredWound.tourniquetAccumulatedTicks(), "accumulated time must recover one-for-one after the delay");
         restoredWound.advanceTourniquet(removedAt + WoundInstance.NECROSIS_TWO_RECOVERY_TICKS);
         assertEquals(0, restoredWound.tourniquetNecrosisLevel(), "Necrosis 2 must clear after four uninterrupted minutes without a tourniquet");
-        assertEquals(false, restored.hasNecrosisSlowness(), "clearing Necrosis 2 must remove its slowness request");
+        assertEquals(false, restored.hasNecrosisFatigue(), "clearing Necrosis 2 must remove its fatigue contribution");
 
         assertEquals(true, restored.applyTourniquet(restoredWound.id(), removedAt + WoundInstance.NECROSIS_TWO_RECOVERY_TICKS), "retained accumulated time must permit reapplication");
         assertEquals(1, restoredWound.tourniquetNecrosisLevel(), "reapplying after partial recovery must immediately restore the retained Necrosis 1 level");
@@ -1355,17 +1584,124 @@ public final class BodyStateRoundTripTest {
         state.applyDamage(WoundType.SHARP, 5.0F, 0L);
         state.resumeBodyProgression(0L);
 
-        state.advanceBodyProgression(429L);
-        assertFloatEquals(5.0F, state.basePain(), "base pain must not recover during stress or its first 1.5-second wait");
+        state.advanceBodyProgression(479L);
+        assertFloatEquals(5.0F, state.basePain(), "base pain must not recover during stress or its first four-second wait");
 
-        BodyProgressionResult firstRecovery = state.advanceBodyProgression(430L);
-        assertFloatEquals(1.0F, firstRecovery.recoveredBasePain(), "the first recovery step must remove one base-pain point");
-        assertFloatEquals(4.0F, state.basePain(), "base pain must decrease by one every 1.5 seconds");
-        assertFloatEquals(5.0F, state.pain(), "pain 1 must remain as a one-point wound contribution");
+        BodyProgressionResult firstRecovery = state.advanceBodyProgression(480L);
+        assertFloatEquals(0.5F, firstRecovery.recoveredBasePain(), "one wound-pain layer must halve the four-second recovery amount");
+        assertFloatEquals(4.5F, state.basePain(), "one wound-pain layer must recover one base-pain point every eight seconds");
+        assertFloatEquals(5.5F, state.pain(), "pain 1 must remain as a one-point wound contribution");
 
-        BodyProgressionResult delayedRecovery = state.advanceBodyProgression(490L);
-        assertFloatEquals(2.0F, delayedRecovery.recoveredBasePain(), "delayed processing must catch up complete recovery intervals");
-        assertFloatEquals(2.0F, state.basePain(), "two additional intervals must remove two points");
+        BodyProgressionResult delayedRecovery = state.advanceBodyProgression(640L);
+        assertFloatEquals(1.0F, delayedRecovery.recoveredBasePain(), "delayed processing must catch up complete four-second intervals at the current rate");
+        assertFloatEquals(3.5F, state.basePain(), "two additional one-layer intervals must remove one point");
+    }
+
+    private static void verifyPainRecoveryCurveAndOpioids() {
+        assertEquals(1, WoundTag.PAIN_1.painRecoveryLayers(), "pain 1 must count as one recovery-slowdown layer");
+        assertEquals(2, WoundTag.PAIN_2.painRecoveryLayers(), "pain 2 must count as two recovery-slowdown layers");
+        assertEquals(3, WoundTag.PAIN_3.painRecoveryLayers(), "pain 3 must count as three recovery-slowdown layers rather than its four-point contribution");
+        assertEquals(2, WoundTag.ALCOHOL_PAIN_2.painRecoveryLayers(), "alcohol irritation pain 2 must add two recovery-slowdown layers");
+
+        BodyState noWoundPain = new BodyState();
+        noWoundPain.applyDamage(WoundType.BLUNT, 1.0F, 0L);
+        assertEquals(0, noWoundPain.woundPainRecoveryLayers(), "damage below the wound threshold must not invent pain layers");
+        assertFloatEquals(1.0F, noWoundPain.basePainRecoveryPerInterval(), "zero pain layers must recover one point every four seconds");
+
+        BodyState painOne = new BodyState();
+        painOne.applyDamage(WoundType.SHARP, 5.0F, 0L);
+        assertEquals(1, painOne.woundPainRecoveryLayers(), "pain 1 must expose one recovery layer");
+        assertFloatEquals(0.5F, painOne.basePainRecoveryPerInterval(), "one layer must recover half a point every four seconds");
+
+        BodyState painTwo = new BodyState();
+        painTwo.applyDamage(WoundType.BURN, 0.25F, 0L);
+        assertEquals(2, painTwo.woundPainRecoveryLayers(), "pain 2 must expose two recovery layers");
+        assertFloatEquals(0.25F, painTwo.basePainRecoveryPerInterval(), "two layers must recover one quarter point every four seconds");
+
+        BodyState painThree = new BodyState();
+        painThree.applyDamage(WoundType.SHARP, 15.0F, 0L);
+        assertEquals(3, painThree.woundPainRecoveryLayers(), "pain 3 must expose three recovery layers");
+        assertFloatEquals(1.0F / 6.0F, painThree.basePainRecoveryPerInterval(), "three layers must recover one point every twenty-four seconds");
+
+        BodyState capped = new BodyState();
+        capped.applyDamage(WoundType.SHARP, 15.0F, 0L);
+        capped.applyDamage(WoundType.BURN, 5.0F, 0L);
+        capped.applyDamage(WoundType.PUNCTURE, 10.0F, 0L);
+        capped.applyDamage(WoundType.BLUNT, 4.0F, 0L);
+        assertEquals(8, capped.woundPainRecoveryLayers(), "wound-pain recovery slowdown must cap at eight layers");
+        assertEquals(8, capped.effectivePainRecoveryLayers(), "the non-opioid effective layer count must retain the eight-layer cap");
+        assertFloatEquals(0.0625F, capped.basePainRecoveryPerInterval(), "eight layers must recover one point every sixty-four seconds");
+
+        assertEquals(true, capped.applyMedication(MedicationType.MORPHINE, 0L, false), "one morphine dose must apply for opioid recovery testing");
+        assertEquals(2, capped.effectivePainRecoveryLayers(), "one opioid dose must cap recovery slowdown at two layers");
+        assertFloatEquals(0.25F, capped.basePainRecoveryPerInterval(), "opioids must restore high-layer recovery to one point every sixteen seconds");
+        assertEquals(true, capped.applyMedication(MedicationType.MORPHINE, 1L, false), "a second morphine dose must apply");
+        assertEquals(2, capped.effectivePainRecoveryLayers(), "additional opioid doses must not improve the two-layer recovery cap");
+        assertFloatEquals(0.25F, capped.basePainRecoveryPerInterval(), "opioid recovery acceleration must not stack by dose count");
+    }
+
+    private static void verifyTraumaticShockMedicationProtection() {
+        BodyState paracetamol = new BodyState();
+        paracetamol.applyDamage(WoundType.SHARP, 1.0F, 100L);
+        assertEquals(500L, paracetamol.traumaticShockProtectionEndGameTime(), "unmedicated trauma must retain the base twenty-second protection");
+        paracetamol.applyMedication(MedicationType.PARACETAMOL, 200L, false);
+        assertEquals(900L, paracetamol.traumaticShockProtectionEndGameTime(), "one paracetamol layer must extend total protection to forty seconds from the last injury");
+        paracetamol.applyMedication(MedicationType.PARACETAMOL, 201L, false);
+        assertEquals(1_100L, paracetamol.traumaticShockProtectionEndGameTime(), "two paracetamol layers must extend total protection to fifty seconds");
+        paracetamol.applyMedication(MedicationType.PARACETAMOL, 202L, false);
+        assertEquals(1_200L, paracetamol.traumaticShockProtectionEndGameTime(), "three paracetamol layers must extend total protection to fifty-five seconds");
+        paracetamol.applyMedication(MedicationType.PARACETAMOL, 203L, false);
+        assertEquals(1_200L, paracetamol.traumaticShockProtectionEndGameTime(), "a fourth paracetamol layer must not extend shock protection further");
+
+        BodyState opioid = new BodyState();
+        opioid.applyDamage(WoundType.SHARP, 1.0F, 100L);
+        opioid.applyMedication(MedicationType.PARACETAMOL, 200L, false);
+        opioid.applyMedication(MedicationType.PARACETAMOL, 201L, false);
+        opioid.applyMedication(MedicationType.PARACETAMOL, 202L, false);
+        opioid.applyMedication(MedicationType.MORPHINE, 250L, false);
+        assertEquals(1_300L, opioid.traumaticShockProtectionEndGameTime(), "one opioid layer must use the stronger sixty-second total instead of adding to paracetamol");
+        opioid.applyDamage(WoundType.BLUNT, 1.0F, 300L);
+        assertEquals(300L, opioid.lastTraumaticDamageGameTime(), "later trauma must replace the protection-period origin");
+        assertEquals(1_500L, opioid.traumaticShockProtectionEndGameTime(), "later trauma must calculate opioid protection from the new injury time");
+
+        BodyState lateDose = new BodyState();
+        lateDose.applyDamage(WoundType.SHARP, 1.0F, 0L);
+        lateDose.applyMedication(MedicationType.PARACETAMOL, 900L, false);
+        assertEquals(800L, lateDose.traumaticShockProtectionEndGameTime(), "late medication must not grant a fresh duration from administration time");
+        assertEquals(0L, lateDose.traumaticShockProtectionRemainingTicks(900L), "an extension already elapsed since the last injury must remain elapsed");
+
+        BodyState recovery = new BodyState();
+        recovery.applyDamage(WoundType.SHARP, 5.0F, 0L);
+        recovery.resumeBodyProgression(0L);
+        recovery.applyMedication(MedicationType.MORPHINE, 100L, false);
+        assertEquals(1_200L, recovery.traumaticShockProtectionEndGameTime(), "morphine must extend only the independent shock protection deadline");
+        assertEquals(400L, recovery.stressEndGameTime(), "morphine must not extend the twenty-second pain-recovery stress period");
+        BodyProgressionResult recoveryPulse = recovery.advanceBodyProgression(480L);
+        assertFloatEquals(0.5F, recoveryPulse.recoveredBasePain(), "base pain must recover on its original schedule during extended shock protection");
+        assertEquals(true, recovery.isTraumaticShockProtectionActive(480L), "shock protection must remain active after base pain recovery has begun");
+
+        BodyState paused = new BodyState();
+        paused.applyDamage(WoundType.SHARP, 40.0F, 0L);
+        paused.resumeBodyProgression(0L);
+        paused.applyMedication(MedicationType.MORPHINE, 100L, false);
+        paused.applyMedication(MedicationType.MORPHINE, 200L, false);
+        assertEquals(true, paused.isTraumaticShockProtectionPaused(), "two opioid layers must pause the independent shock-protection timer");
+        assertEquals(1_000L, paused.traumaticShockProtectionRemainingTicks(200L), "the paused timer must retain the remaining part of the sixty-second total");
+        paused.advanceBodyProgression(600L);
+        assertEquals(1_000L, paused.traumaticShockProtectionRemainingTicks(600L), "time under two opioid layers must not consume protection");
+        assertEquals(-1L, paused.shockWarningEndGameTime(), "two opioid layers must prevent traumatic-shock warning onset while active");
+
+        BodyState pausedRestored = new BodyState();
+        pausedRestored.deserializeNBT(paused.serializeNBT());
+        assertEquals(200L, pausedRestored.traumaticShockProtectionPausedAtGameTime(), "NBT must preserve the opioid pause origin");
+        assertEquals(1_000L, pausedRestored.traumaticShockProtectionRemainingTicks(600L), "NBT must preserve frozen protection time");
+        assertEquals(true, pausedRestored.applyMedication(MedicationType.NALOXONE, 600L, false), "naloxone must clear the opioid layers that hold the timer paused");
+        assertEquals(false, pausedRestored.isTraumaticShockProtectionPaused(), "naloxone must resume the frozen protection timer");
+        assertEquals(1_000L, pausedRestored.traumaticShockProtectionRemainingTicks(600L), "resuming must preserve rather than consume the frozen interval");
+        pausedRestored.advanceBodyProgression(1_599L);
+        assertEquals(-1L, pausedRestored.shockWarningEndGameTime(), "the resumed protection must remain valid until its exact deadline");
+        BodyProgressionResult resumedWarning = pausedRestored.advanceBodyProgression(1_600L);
+        assertEquals(true, resumedWarning.shockWarningStarted(), "traumatic-shock checks must resume when the preserved protection expires");
     }
 
     private static void verifyTraumaticShockWarningAndCollapse() {
@@ -1965,7 +2301,7 @@ public final class BodyStateRoundTripTest {
         BodyState floor = new BodyState();
         floor.applyDamage(WoundType.SHARP, 15.0F, 0L);
         floor.resumeBodyProgression(0L);
-        floor.advanceBodyProgression(850L);
+        floor.advanceBodyProgression(7_600L);
         assertFloatEquals(0.0F, floor.basePain(), "base pain must be able to recover to zero");
         assertFloatEquals(4.0F, floor.woundPainContribution(), "pain 3 must contribute four points");
         assertFloatEquals(4.0F, floor.pain(), "pain 3 must form an effective-pain floor of four");
@@ -1990,10 +2326,10 @@ public final class BodyStateRoundTripTest {
 
         restored.resumeBodyProgression(1_100L);
         assertEquals(1_400L, restored.stressEndGameTime(), "offline time must shift the stress deadline forward");
-        assertEquals(1_430L, restored.nextPainRecoveryGameTime(), "offline time must shift pain recovery forward");
-        restored.advanceBodyProgression(1_429L);
+        assertEquals(1_480L, restored.nextPainRecoveryGameTime(), "offline time must shift pain recovery forward");
+        restored.advanceBodyProgression(1_479L);
         assertFloatEquals(0.25F, restored.basePain(), "offline time must not grant pain recovery");
-        BodyProgressionResult recovery = restored.advanceBodyProgression(1_430L);
+        BodyProgressionResult recovery = restored.advanceBodyProgression(1_480L);
         assertFloatEquals(0.25F, recovery.recoveredBasePain(), "fractional base pain must recover without becoming negative");
         assertFloatEquals(2.0F, restored.pain(), "the remaining pain-2 wound tag must keep effective pain at two");
     }
@@ -2454,44 +2790,38 @@ public final class BodyStateRoundTripTest {
         assertEquals(true, wound.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "explosion severity two must require debridement");
         assertEquals(false, wound.isInfected(), "a new wound must not begin infected");
 
-        state.advanceBodyProgression(0L);
-        BodyProgressionResult beforeDebridementPulse = state.advanceBodyProgression(WoundInstance.INFECTION_SPREAD_INTERVAL_TICKS - 1L);
-        assertFloatEquals(0.0F, beforeDebridementPulse.infectionChange(), "debridement infection must wait a full three minutes");
-        BodyProgressionResult debridementPulse = state.advanceBodyProgression(WoundInstance.INFECTION_SPREAD_INTERVAL_TICKS);
-        assertFloatEquals(0.5F, debridementPulse.infectionChange(), "needs-debridement must add 0.5 infection every three minutes");
-        assertFloatEquals(0.5F, wound.infectionContribution(), "the first debridement pulse must be attributed to the wound");
+        assertFloatEquals(0.0F, wound.advanceInfection(WoundInstance.INFECTION_ONSET_DELAY_TICKS - 1L), "clean contamination must wait a full two minutes");
+        assertFloatEquals(0.5F, wound.advanceInfection(WoundInstance.INFECTION_ONSET_DELAY_TICKS), "an untreated wound must gain 0.5 contamination after two minutes");
+        assertFloatEquals(0.5F, wound.infectionContribution(), "contamination must be attributed to the wound");
+        assertFloatEquals(0.5F, wound.advanceInfection(WoundInstance.INFECTION_SPREAD_INTERVAL_TICKS), "a needs-debridement wound must receive its first deep infection pulse after three minutes");
+        assertFloatEquals(1.0F, wound.infectionContribution(), "the first two contamination pulses must remain below the visible threshold");
         assertEquals(false, wound.isInfected(), "the wound infection tag must remain hidden below 1.5 contribution");
-
-        BodyProgressionResult beforeOnset = state.advanceBodyProgression(WoundInstance.INFECTION_ONSET_DELAY_TICKS - 1L);
-        assertFloatEquals(0.0F, beforeOnset.infectionChange(), "natural infection must not begin before its full five-minute delay");
-        assertFloatEquals(0.5F, state.infection(), "the earlier debridement pulse must remain below systemic-settlement threshold");
-
-        BodyProgressionResult onset = state.advanceBodyProgression(WoundInstance.INFECTION_ONSET_DELAY_TICKS);
-        assertFloatEquals(1.0F, onset.infectionChange(), "an untreated wound must add one infection point after five minutes");
-        assertFloatEquals(1.5F, state.infection(), "natural and debridement infection must accumulate on the whole-body value");
-        assertFloatEquals(1.5F, wound.infectionContribution(), "the wound must retain its own cumulative infection contribution");
+        assertFloatEquals(0.5F, wound.advanceInfection(WoundInstance.INFECTION_SPREAD_INTERVAL_TICKS * 2L), "deep infection must continue every three minutes");
+        assertFloatEquals(1.5F, wound.infectionContribution(), "the wound must retain cumulative local infection contribution");
         assertEquals(true, wound.isInfected(), "the wound infection tag must appear at 1.5 contribution");
 
-        assertEquals(true, state.applyWoundPacking(wound.id(), WoundInstance.INFECTION_ONSET_DELAY_TICKS), "a bleeding wound must allow packing before debridement");
+        long infectedAt = WoundInstance.INFECTION_SPREAD_INTERVAL_TICKS * 2L;
+        state.setInfectionForDebug(1.5F, infectedAt);
+        assertEquals(true, state.applyWoundPacking(wound.id(), infectedAt), "a bleeding wound must allow packing before debridement");
         assertEquals(false, wound.canDebride(), "wound packing must block debridement");
-        assertEquals(true, state.removeWoundPacking(wound.id(), WoundInstance.INFECTION_ONSET_DELAY_TICKS), "packing must be removable before debridement");
+        assertEquals(true, state.removeWoundPacking(wound.id(), infectedAt), "packing must be removable before debridement");
         assertEquals(true, state.debrideWound(wound.id()), "an uncovered unpacked wound must allow debridement");
         assertEquals(false, wound.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "debridement must clear the requirement tag");
         assertEquals(false, wound.isInfected(), "debridement must clear the wound infection tag");
         assertEquals(true, wound.isDebrided(), "debridement must leave a visible completion tag");
+        assertFloatEquals(0.0F, wound.infectionContribution(), "debridement must clear the wound's local infection source");
 
         BodyState restored = new BodyState();
         restored.deserializeNBT(state.serializeNBT());
         assertFloatEquals(1.5F, restored.infection(), "infection must survive save and reload");
         assertEquals(true, restored.wounds().get(0).isDebrided(), "debridement state must survive save and reload");
         assertEquals(false, restored.wounds().get(0).isInfected(), "a reloaded debrided wound must remain uninfected");
-        assertFloatEquals(1.5F, restored.wounds().get(0).infectionContribution(), "per-wound infection contribution must survive save and reload");
+        assertFloatEquals(0.0F, restored.wounds().get(0).infectionContribution(), "cleared local infection contribution must survive save and reload");
 
-        long firstSystemicSettlement = WoundInstance.INFECTION_ONSET_DELAY_TICKS
-                + BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS;
+        long firstSystemicSettlement = infectedAt + BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS;
         BodyProgressionResult afterDebridement = restored.advanceBodyProgression(firstSystemicSettlement, false, 20);
-        assertFloatEquals(-1.0F, afterDebridement.infectionChange(), "adequate food must reduce systemic infection after debridement");
-        assertFloatEquals(0.5F, restored.infection(), "debridement must stop wound growth while nutrition resolves existing infection");
+        assertFloatEquals(-0.25F, afterDebridement.infectionChange(), "food above eighteen must reduce systemic infection by 0.25 per minute");
+        assertFloatEquals(1.25F, restored.infection(), "debridement must stop wound growth while nutrition resolves existing infection");
     }
 
     private static void verifyTemporaryDressingContamination() {
@@ -2518,17 +2848,65 @@ public final class BodyStateRoundTripTest {
         assertEquals(true, contaminatedWound.canDebride(), "removing the covering must expose a visibly infected wound for debridement");
     }
 
+    private static void verifyDisinfectionAndHealingFloor() {
+        BodyState deepState = new BodyState();
+        WoundInstance deep = requireWound(deepState.applyDamage(WoundType.EXPLOSION, 8.0F, 0L));
+        deep.advanceNaturalHealing(10_000.0F);
+        assertFloatEquals(40.0F, deep.healingProgress(), "a needs-debridement wound must not heal below H=40");
+
+        long infectedAt = WoundInstance.INFECTION_SPREAD_INTERVAL_TICKS * 2L;
+        deep.advanceInfection(infectedAt);
+        assertFloatEquals(1.5F, deep.infectionContribution(), "deep wound setup must reach visible infection");
+        assertEquals(true, deepState.disinfectWound(deep.id(), WoundDisinfectant.POVIDONE_IODINE, infectedAt), "an uncovered deep wound must accept povidone iodine");
+        assertFloatEquals(0.5F, deep.infectionContribution(), "povidone iodine must reduce a deep wound to 0.5 local infection");
+        assertEquals(false, deep.isInfected(), "povidone iodine must clear the visible infection tag below its threshold");
+        assertEquals(true, deep.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "disinfection must not replace deep debridement");
+        assertEquals(true, deep.woundTags().contains(WoundTag.DISINFECTED), "povidone iodine must grant disinfected protection");
+        assertFloatEquals(0.0F, deep.advanceInfection(infectedAt + 5L * 60L * 20L - 1L), "infection must not worsen during five-minute iodine protection");
+
+        BodyState iodineRestored = new BodyState();
+        iodineRestored.deserializeNBT(deepState.serializeNBT());
+        WoundInstance restoredDeep = iodineRestored.wound(deep.id())
+                .orElseThrow(() -> new AssertionError("disinfected wound must survive save and reload"));
+        assertEquals(deep.disinfectionEndGameTime(), restoredDeep.disinfectionEndGameTime(), "disinfection deadline must survive save and reload");
+
+        BodyState shallowState = new BodyState();
+        WoundInstance shallow = requireWound(shallowState.applyDamage(WoundType.SHARP, 0.5F, 0L));
+        shallow.advanceInfection(WoundInstance.INFECTION_ONSET_DELAY_TICKS
+                + WoundInstance.INFECTION_SPREAD_INTERVAL_TICKS * 2L);
+        assertEquals(true, shallow.isInfected(), "an untreated shallow wound must eventually become infected");
+        shallow.advanceNaturalHealing(10_000.0F);
+        assertFloatEquals(40.0F, shallow.healingProgress(), "an infected shallow wound must not heal below H=40");
+        assertEquals(true, shallowState.disinfectWound(shallow.id(), WoundDisinfectant.POVIDONE_IODINE, 10_000L), "iodine must disinfect an uncovered shallow wound");
+        assertFloatEquals(0.0F, shallow.infectionContribution(), "iodine must clear shallow local infection to zero");
+        shallow.advanceNaturalHealing(10_000.0F);
+        assertFloatEquals(0.0F, shallow.healingProgress(), "a disinfected shallow wound must resume complete healing");
+
+        BodyState alcoholState = new BodyState();
+        WoundInstance alcoholWound = requireWound(alcoholState.applyDamage(WoundType.BLUNT, 4.0F, 0L));
+        assertEquals(true, alcoholState.disinfectWound(alcoholWound.id(), WoundDisinfectant.MEDICAL_ALCOHOL, 0L), "an uncovered wound must accept medical alcohol");
+        assertEquals(true, alcoholWound.woundTags().contains(WoundTag.ALCOHOL_PAIN_2), "medical alcohol must add temporary pain two");
+        assertEquals(false, alcoholWound.advanceNaturalHealing(10.0F, false, 200L), "medical alcohol must pause wound healing for one minute");
+        alcoholWound.expireTransientTags(WoundInstance.ALCOHOL_IRRITATION_DURATION_TICKS);
+        assertEquals(false, alcoholWound.woundTags().contains(WoundTag.ALCOHOL_PAIN_2), "alcohol pain must expire after one minute");
+        assertEquals(true, alcoholWound.advanceNaturalHealing(10.0F, false, WoundInstance.ALCOHOL_IRRITATION_DURATION_TICKS), "healing must resume after alcohol irritation ends");
+    }
+
     private static void verifySystemicInfectionSettlement() {
         BodyState wellFed = stateWithInfection(1.5F);
-        wellFed.advanceBodyProgression(0L, false, 15);
+        wellFed.advanceBodyProgression(0L, false, 19);
         BodyProgressionResult recovery = wellFed.advanceBodyProgression(
                 BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS,
                 false,
-                15
+                19
         );
-        assertFloatEquals(-1.0F, recovery.infectionChange(), "food level 15 must reduce infection by one per minute");
-        assertFloatEquals(0.5F, wellFed.infection(), "systemic recovery must stop at the documented 0.5 threshold");
-        assertEquals(-1L, wellFed.nextInfectionSettlementGameTime(), "infection at 0.5 must stop the settlement timer");
+        assertFloatEquals(-0.25F, recovery.infectionChange(), "food above eighteen must reduce infection by 0.25 per minute");
+        assertFloatEquals(1.25F, wellFed.infection(), "systemic recovery must retain fractional infection values");
+        assertEquals(
+                BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS * 2L,
+                wellFed.nextInfectionSettlementGameTime(),
+                "remaining infection must keep the settlement timer active"
+        );
 
         assertSystemicGrowth(4.0F, 4.5F, 0.5F, "infection in (0,5] must grow by 0.5 without enough food");
         assertSystemicGrowth(7.0F, 8.0F, 1.0F, "infection in (5,10] must grow by one without enough food");
@@ -2551,6 +2929,61 @@ public final class BodyStateRoundTripTest {
         assertEquals(true, sepsis.becameIncapacitated(), "reaching 20 infection must incapacitate the player");
         assertEquals(BodyLifeState.INCAPACITATED, septic.lifeState(), "sepsis must enter the downed state");
         assertEquals(CollapseReason.SEPSIS, septic.collapseReason(), "sepsis must preserve its collapse reason");
+
+        septic.setInfectionForDebug(4.0F, BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS);
+        assertEquals(false, septic.advanceAwakening(20.0F, BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS + 1L).started(), "sepsis must not awaken at infection four");
+        septic.setInfectionForDebug(3.9F, BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS + 2L);
+        assertEquals(true, septic.advanceAwakening(20.0F, BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS + 3L).started(), "sepsis must enter awakening below infection four");
+    }
+
+    private static void verifyAntibioticInfectionControl() {
+        BodyState amoxicillin = stateWithInfection(4.0F);
+        assertEquals(true, amoxicillin.applyMedication(MedicationType.AMOXICILLIN, 0L, false), "the first amoxicillin layer must apply");
+        assertEquals(true, amoxicillin.applyMedication(MedicationType.AMOXICILLIN, 1L, false), "a second amoxicillin dose must queue behind the first");
+        assertEquals(2, amoxicillin.activeAmoxicillinDoseCount(), "queued antibiotic doses must retain independent concentration layers");
+        assertFloatEquals(10.0F, amoxicillin.bloodDrugConcentration(), "two queued amoxicillin doses must add ten drug concentration immediately");
+        assertEquals(3L * 60L * 20L, amoxicillin.activeDrugDoses().get(0).expiresGameTime(), "the first antibiotic dose must keep its original expiry");
+        assertEquals(6L * 60L * 20L, amoxicillin.activeDrugDoses().get(1).expiresGameTime(), "the second antibiotic dose must begin after the first and expire three minutes later");
+        amoxicillin.advanceBodyProgression(BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS, false, 0);
+        assertFloatEquals(4.0F, amoxicillin.infection(), "amoxicillin must stop systemic infection growth");
+        amoxicillin.advanceBodyProgression(3L * 60L * 20L, false, 0);
+        assertFloatEquals(5.0F, amoxicillin.bloodDrugConcentration(), "the first dose concentration must disappear when its own stage ends");
+        assertFloatEquals(4.0F, amoxicillin.infection(), "the queued second dose must continue suppressing infection growth");
+        amoxicillin.advanceBodyProgression(
+                6L * 60L * 20L,
+                false,
+                0
+        );
+        assertFloatEquals(0.0F, amoxicillin.bloodDrugConcentration(), "the second dose concentration must disappear after its queued stage");
+        assertFloatEquals(4.0F, amoxicillin.infection(), "final antibiotic expiry must reset rather than immediately settle infection");
+        amoxicillin.advanceBodyProgression(
+                6L * 60L * 20L + BodyState.INFECTION_SETTLEMENT_INTERVAL_TICKS,
+                false,
+                0
+        );
+        assertFloatEquals(4.5F, amoxicillin.infection(), "systemic infection growth must resume one minute after the queued doses end");
+
+        BodyState ceftriaxone = stateWithInfection(5.0F);
+        assertEquals(true, ceftriaxone.applyMedication(MedicationType.CEFTRIAXONE, 0L, false), "the first ceftriaxone layer must apply");
+        assertEquals(true, ceftriaxone.applyMedication(MedicationType.CEFTRIAXONE, 1L, false), "a second ceftriaxone dose must queue behind the first");
+        assertFloatEquals(10.0F, ceftriaxone.bloodDrugConcentration(), "queued ceftriaxone doses must each add five drug concentration");
+        assertEquals(
+                BodyState.CEFTRIAXONE_INFECTION_REDUCTION_INTERVAL_TICKS,
+                ceftriaxone.nextCeftriaxoneInfectionReductionGameTime(),
+                "ceftriaxone must schedule its first reduction after forty seconds"
+        );
+
+        BodyState restored = new BodyState();
+        restored.deserializeNBT(ceftriaxone.serializeNBT());
+        assertEquals(
+                ceftriaxone.nextCeftriaxoneInfectionReductionGameTime(),
+                restored.nextCeftriaxoneInfectionReductionGameTime(),
+                "ceftriaxone reduction timer must survive save and reload"
+        );
+        restored.advanceBodyProgression(BodyState.CEFTRIAXONE_INFECTION_REDUCTION_INTERVAL_TICKS, false, 0);
+        float reduction = 5.0F - restored.infection();
+        assertEquals(true, reduction >= 1.5F - EPSILON && reduction <= 2.0F + EPSILON, "ceftriaxone must reduce systemic infection by 1.5 to 2.0");
+        assertFloatEquals(Math.round(reduction * 10.0F) / 10.0F, reduction, "ceftriaxone reduction must use one decimal place");
     }
 
     private static void verifySkillKnowledgeRoundTrip() {

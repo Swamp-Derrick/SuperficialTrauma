@@ -185,6 +185,15 @@ tasks.register('bodyStateSelfTest', JavaExec) {
     mainClass = 'com.swampd.superficialtrauma.common.body.BodyStateRoundTripTest'
 }
 
+tasks.register('vitalSignsVisualSelfTest', JavaExec) {
+    group = 'verification'
+    description = 'Checks visual thresholds, smooth transitions, interpolation, and lifecycle reset.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.swampd.superficialtrauma.client.VitalSignsVisualStateTest'
+}
+
 tasks.named('check').configure {
     dependsOn tasks.named('bodyStateSelfTest')
+    dependsOn tasks.named('vitalSignsVisualSelfTest')
 }

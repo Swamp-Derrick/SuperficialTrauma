@@ -29,15 +29,16 @@ public final class ClientHeartRateSounds {
             return;
         }
 
-        int level = audibleHeartRateLevel(ClientBodyState.snapshot());
-        if (level < 0) {
-            resetHeartbeatCadence();
-            ensureBreathing(minecraft, Math.abs(level));
-            return;
+        BodyState state = ClientBodyState.snapshot();
+        int level = audibleHeartRateLevel(state);
+        int breathingSeverity = audibleBreathingSeverity(state, level);
+        if (breathingSeverity > 0) {
+            ensureBreathing(minecraft, breathingSeverity);
+        } else {
+            stopBreathing(minecraft);
         }
 
-        stopBreathing(minecraft);
-        if (level == 0) {
+        if (level <= 0) {
             resetHeartbeatCadence();
             return;
         }
@@ -72,6 +73,28 @@ public final class ClientHeartRateSounds {
             return 0;
         }
         return state.effectiveHeartRateLevel();
+    }
+
+    private static int audibleBreathingSeverity(BodyState state, int heartRateLevel) {
+        BodyLifeState lifeState = state.lifeState();
+        if (lifeState == BodyLifeState.CARDIAC_ARREST
+                || lifeState == BodyLifeState.VENTRICULAR_FIBRILLATION
+                || lifeState == BodyLifeState.BRAIN_DEAD) {
+            return 0;
+        }
+
+        int severity = heartRateLevel < 0 ? Math.abs(heartRateLevel) : 0;
+        float respiratoryDistress = state.respiratoryDistress();
+        if (respiratoryDistress >= 18.0F) {
+            return 3;
+        }
+        if (respiratoryDistress >= 14.0F) {
+            return Math.max(2, severity);
+        }
+        if (respiratoryDistress >= BodyState.RESPIRATORY_DISTRESS_BRADYCARDIA_THRESHOLD) {
+            return Math.max(1, severity);
+        }
+        return severity;
     }
 
     private static void ensureBreathing(Minecraft minecraft, int severity) {
@@ -142,9 +165,9 @@ public final class ClientHeartRateSounds {
         private void updateSeverity(int severity) {
             int clampedSeverity = Math.max(1, Math.min(3, severity));
             volume = switch (clampedSeverity) {
-                case 1 -> 0.38F;
-                case 2 -> 0.58F;
-                default -> 0.78F;
+                case 1 -> 0.84F;
+                case 2 -> 1.70F;
+                default -> 2.40F;
             };
             pitch = switch (clampedSeverity) {
                 case 1 -> 1.0F;

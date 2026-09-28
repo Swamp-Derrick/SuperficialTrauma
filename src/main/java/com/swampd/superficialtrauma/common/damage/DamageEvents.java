@@ -134,7 +134,16 @@ public final class DamageEvents {
                         sourceDistance
                 );
             } else if (!shotgunPelletQueued && classification.woundType() != null) {
-                WoundUpdateResult result = bodyState.applyDamage(classification.woundType(), finalDamage, gameTime);
+                WoundType woundType = classification.woundType();
+                WoundUpdateResult result = woundType == WoundType.PUNCTURE
+                        || woundType == WoundType.FROSTBITE
+                        ? bodyState.applyDamage(
+                                woundType,
+                                finalDamage,
+                                player.getRandom().nextFloat(),
+                                gameTime
+                        )
+                        : bodyState.applyDamage(woundType, finalDamage, gameTime);
                 SuperficialTrauma.LOGGER.info(
                         "Final damage D={} type={} classified={} reason={} result={} A={}",
                         finalDamage,

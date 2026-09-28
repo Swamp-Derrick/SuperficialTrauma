@@ -615,7 +615,7 @@ public final class DebugCommands {
         BodyState painState = new BodyState();
         painState.applyDamage(WoundType.SHARP, 5.0F, 0L);
         painState.resumeBodyProgression(0L);
-        BodyProgressionResult painRecovery = painState.advanceBodyProgression(430L);
+        BodyProgressionResult painRecovery = painState.advanceBodyProgression(480L);
 
         BodyState bleedingState = new BodyState();
         bleedingState.applyDamage(WoundType.SHARP, 15.0F, 0L);
@@ -678,9 +678,9 @@ public final class DebugCommands {
                 && progression.healedWounds() == 0
                 && Math.abs(progressionState.wounds().get(0).healingProgress() - 99.0F) < 0.0001F
                 && Math.abs(progressionState.basePain() - 1.5F) < 0.0001F
-                && Math.abs(painRecovery.recoveredBasePain() - 1.0F) < 0.0001F
-                && Math.abs(painState.basePain() - 4.0F) < 0.0001F
-                && Math.abs(painState.pain() - 5.0F) < 0.0001F
+                && Math.abs(painRecovery.recoveredBasePain() - 0.5F) < 0.0001F
+                && Math.abs(painState.basePain() - 4.5F) < 0.0001F
+                && Math.abs(painState.pain() - 5.5F) < 0.0001F
                 && Math.abs(bleedingPulse.bleedingDamage() - 1.0F) < 0.0001F
                 && shockWarning.shockWarningStarted()
                 && incapacitated.becameIncapacitated()

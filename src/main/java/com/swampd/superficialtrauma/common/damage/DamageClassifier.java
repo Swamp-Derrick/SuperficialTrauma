@@ -30,8 +30,8 @@ public final class DamageClassifier {
             return DamageClassification.cgmProjectile(kind, reason, context);
         }
 
-        if (source.is(DamageTypeTags.IS_FIRE)) {
-            return DamageClassification.burn("fire_or_lava");
+        if (source.is(DamageTypeTags.IS_FIRE) || source.is(DamageTypes.LIGHTNING_BOLT)) {
+            return DamageClassification.burn("fire_lava_or_lightning");
         }
         if (source.is(DamageTypeTags.IS_DROWNING)
                 || source.is(DamageTypes.STARVE)
@@ -45,8 +45,28 @@ public final class DamageClassifier {
             return DamageClassification.deferred("non_traumatic_damage");
         }
 
-        if (source.is(DamageTypeTags.IS_PROJECTILE) && patient.getArmorValue() <= 0) {
-            return DamageClassification.deferred("unarmored_projectile_not_implemented");
+        if (source.is(DamageTypes.CACTUS)
+                || source.is(DamageTypes.SWEET_BERRY_BUSH)
+                || source.is(DamageTypes.STING)
+                || source.is(DamageTypes.THORNS)) {
+            return DamageClassification.deferred("minor_environmental_puncture_ignored");
+        }
+
+        if (source.is(DamageTypeTags.IS_FREEZING)) {
+            return DamageClassification.frostbite("freezing");
+        }
+
+        if (source.is(DamageTypeTags.IS_PROJECTILE)
+                || source.is(DamageTypes.STALAGMITE)
+                || source.is(DamageTypes.FALLING_STALACTITE)) {
+            return DamageClassification.puncture("projectile_or_impalement");
+        }
+
+        if (source.is(DamageTypes.CRAMMING)
+                || source.is(DamageTypes.FLY_INTO_WALL)
+                || source.is(DamageTypes.FALLING_BLOCK)
+                || source.is(DamageTypes.FALLING_ANVIL)) {
+            return DamageClassification.crush("compression_or_impact");
         }
 
         if (source.getDirectEntity() instanceof LivingEntity attacker) {
@@ -61,9 +81,11 @@ public final class DamageClassifier {
         if (source.is(DamageTypeTags.IS_FALL)) {
             return DamageClassification.blunt("fall");
         }
-        if (source.is(DamageTypeTags.IS_PROJECTILE)) {
-            return DamageClassification.blunt("armored_projectile");
+        if (source.is(DamageTypes.MOB_ATTACK)
+                || source.is(DamageTypes.MOB_ATTACK_NO_AGGRO)
+                || source.is(DamageTypes.PLAYER_ATTACK)) {
+            return DamageClassification.blunt("unarmed_or_blunt_melee");
         }
-        return DamageClassification.blunt("blunt_or_fallback");
+        return DamageClassification.unknown("unclassified_damage");
     }
 }

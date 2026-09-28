@@ -15,6 +15,7 @@ public enum MedicalActionSound {
     TABLETS(8),
     VIAL(20),
     AMPOULE(20),
+    PLASTIC_CONTAINER(27),
     SYRINGE_START(20),
     RESUSCITATION_1(20),
     RESUSCITATION_2(20),

@@ -111,6 +111,7 @@ public final class HealthScreen extends Screen {
     @Override
     public void tick() {
         super.tick();
+        ClientTimingQteState.tick();
         if (!hasSnapshot()) {
             return;
         }
@@ -262,6 +263,7 @@ public final class HealthScreen extends Screen {
             }
         }
         ClientMedicalInspectionNotice.render(graphics, width, height);
+        TimingQteRenderer.render(graphics, font, width, height, partialTick);
     }
 
     private void drawWholeBodyColumn(
@@ -369,6 +371,9 @@ public final class HealthScreen extends Screen {
             );
         }
 
+        lineY = drawValue(graphics, x, lineY, availableWidth,
+                "screen.superficialtrauma.health.fatigue", Integer.toString(state.fatigueLevel()),
+                state.fatigueLevel() > 0 ? WARN_COLOR : TEXT_COLOR);
         lineY += 7;
         if (!hasStethoscope()) {
             drawWrappedWithin(
@@ -467,6 +472,9 @@ public final class HealthScreen extends Screen {
                 TEXT_COLOR
         );
         float effectivePain = state.pain();
+        lineY = drawValue(graphics, x, lineY, availableWidth,
+                "screen.superficialtrauma.health.fatigue", Integer.toString(state.fatigueLevel()),
+                state.fatigueLevel() > 0 ? WARN_COLOR : TEXT_COLOR);
         lineY = drawValue(
                 graphics,
                 x,
@@ -540,7 +548,7 @@ public final class HealthScreen extends Screen {
                 lineY,
                 availableWidth,
                 "screen.superficialtrauma.health.respiratory_distress_debug",
-                oneDecimal(state.respiratoryDistress()),
+                respiratoryDistressDebugValue(state),
                 state.respiratoryDistress() >= BodyState.RESPIRATORY_DISTRESS_COLLAPSE_THRESHOLD
                         ? DANGER_COLOR
                         : state.hasVisibleRespiratoryDistress() ? WARN_COLOR : TEXT_COLOR
@@ -820,6 +828,12 @@ public final class HealthScreen extends Screen {
         };
     }
 
+    private static String respiratoryDistressDebugValue(BodyState state) {
+        return oneDecimal(state.baseRespiratoryDistress())
+                + "/" + oneDecimal(state.respiratoryDistressModifier())
+                + "/" + oneDecimal(state.respiratoryDistress());
+    }
+
     private static int heartRateColor(int level) {
         return switch (Math.abs(level)) {
             case 3 -> DANGER_COLOR;
@@ -1085,6 +1099,9 @@ public final class HealthScreen extends Screen {
         if (wound.tourniquetApplied()) {
             labels.add(Component.translatable("tourniquet.superficialtrauma.applied").getString());
         }
+        if (wound.icePackApplied()) {
+            labels.add(Component.translatable("wound_treatment.superficialtrauma.ice_pack_applied").getString());
+        }
 
         int effectiveBleedingLevel = wound.bleedingLevel(state.movementBleedingActive());
         if (effectiveBleedingLevel > 0) {
@@ -1102,6 +1119,11 @@ public final class HealthScreen extends Screen {
                 continue;
             }
             if (tag == WoundTag.INFECTED_1 && wound.covering().isApplied()) {
+                if (hasStethoscope()) {
+                    labels.add(Component.translatable(
+                            "screen.superficialtrauma.health.suspected_infection"
+                    ).getString());
+                }
                 continue;
             }
             if (tag.disorientationLevel() > 0) {
@@ -1165,7 +1187,7 @@ public final class HealthScreen extends Screen {
         }
         if (text != null) {
             int buttonsPerRow = treatmentButtonsPerRow(availableWidth);
-            int buttonRows = (5 + buttonsPerRow - 1) / buttonsPerRow;
+            int buttonRows = (10 + buttonsPerRow - 1) / buttonsPerRow;
             if (!state.canAct()) {
                 buttonRows += (2 + buttonsPerRow - 1) / buttonsPerRow;
             }
@@ -1405,40 +1427,64 @@ public final class HealthScreen extends Screen {
                 startX + (3 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 drugY + (3 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 state,
-                ModItems.NALOXONE.get(),
-                MedicationButtonType.NALOXONE,
+                ModItems.REMIFENTANIL_INJECTION.get(),
+                MedicationButtonType.REMIFENTANIL,
                 anyMedicalActionActive
         );
         addMedicationItemButton(
                 startX + (4 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 drugY + (4 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 state,
-                ModItems.EPINEPHRINE_INJECTION.get(),
-                MedicationButtonType.EPINEPHRINE,
+                ModItems.NALOXONE.get(),
+                MedicationButtonType.NALOXONE,
                 anyMedicalActionActive
         );
         addMedicationItemButton(
                 startX + (5 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 drugY + (5 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 state,
-                ModItems.METOPROLOL.get(),
-                MedicationButtonType.METOPROLOL,
+                ModItems.EPINEPHRINE_INJECTION.get(),
+                MedicationButtonType.EPINEPHRINE,
                 anyMedicalActionActive
         );
         addMedicationItemButton(
                 startX + (6 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 drugY + (6 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 state,
-                ModItems.ATROPINE_SULFATE_INJECTION.get(),
-                MedicationButtonType.ATROPINE_SULFATE,
+                ModItems.METOPROLOL.get(),
+                MedicationButtonType.METOPROLOL,
                 anyMedicalActionActive
         );
         addMedicationItemButton(
                 startX + (7 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 drugY + (7 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
                 state,
+                ModItems.ATROPINE_SULFATE_INJECTION.get(),
+                MedicationButtonType.ATROPINE_SULFATE,
+                anyMedicalActionActive
+        );
+        addMedicationItemButton(
+                startX + (8 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                drugY + (8 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                state,
                 ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get(),
                 MedicationButtonType.PRALIDOXIME_CHLORIDE,
+                anyMedicalActionActive
+        );
+        addMedicationItemButton(
+                startX + (9 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                drugY + (9 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                state,
+                ModItems.CEFTRIAXONE.get(),
+                MedicationButtonType.CEFTRIAXONE,
+                anyMedicalActionActive
+        );
+        addMedicationItemButton(
+                startX + (10 % buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                drugY + (10 / buttonsPerRow) * TREATMENT_BUTTON_STEP,
+                state,
+                ModItems.AMOXICILLIN.get(),
+                MedicationButtonType.AMOXICILLIN,
                 anyMedicalActionActive
         );
     }
@@ -1465,6 +1511,12 @@ public final class HealthScreen extends Screen {
                         && countItem(ModItems.MORPHINE_VIAL.get()) > 0;
                 missingRequiredItem = countItem(item) <= 0;
                 onPress = () -> submitPreparedMedication(MedicationType.MORPHINE);
+            } else if (buttonType == MedicationButtonType.REMIFENTANIL
+                    && medicationPreparation.patientEntityId() == displayedEntityId()) {
+                active = medicationPreparationStillValid(state)
+                        && countItem(ModItems.REMIFENTANIL_INJECTION.get()) > 0;
+                missingRequiredItem = countItem(item) <= 0;
+                onPress = () -> submitPreparedMedication(MedicationType.REMIFENTANIL);
             } else if (buttonType == MedicationButtonType.NALOXONE
                     && medicationPreparation.patientEntityId() == displayedEntityId()) {
                 active = medicationPreparationStillValid(state)
@@ -1490,6 +1542,12 @@ public final class HealthScreen extends Screen {
                         && countItem(ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get()) > 0;
                 missingRequiredItem = countItem(item) <= 0;
                 onPress = () -> submitPreparedMedication(MedicationType.PRALIDOXIME_CHLORIDE);
+            } else if (buttonType == MedicationButtonType.CEFTRIAXONE
+                    && medicationPreparation.patientEntityId() == displayedEntityId()) {
+                active = medicationPreparationStillValid(state)
+                        && countItem(ModItems.CEFTRIAXONE.get()) > 0;
+                missingRequiredItem = countItem(item) <= 0;
+                onPress = () -> submitPreparedMedication(MedicationType.CEFTRIAXONE);
             }
         } else {
             switch (buttonType) {
@@ -1499,14 +1557,17 @@ public final class HealthScreen extends Screen {
                             && state.lifeState() != BodyLifeState.BRAIN_DEAD
                             && countItem(item) <= 0
                             && (countItem(ModItems.MORPHINE_VIAL.get()) > 0
+                            || countItem(ModItems.REMIFENTANIL_INJECTION.get()) > 0
                             || (state.hasActiveOpioidDose() && countItem(ModItems.NALOXONE.get()) > 0)
                             || countItem(ModItems.EPINEPHRINE_INJECTION.get()) > 0
                             || countItem(ModItems.ATROPINE_SULFATE_INJECTION.get()) > 0
-                            || countItem(ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get()) > 0);
+                            || countItem(ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get()) > 0
+                            || countItem(ModItems.CEFTRIAXONE.get()) > 0);
                     onPress = this::beginMedicationPreparation;
                 }
                 case PARACETAMOL -> {
                     active = actorCanAct()
+                            && !inspectingOtherPlayer
                             && state.canAct()
                             && countItem(ModItems.PARACETAMOL.get()) > 0;
                     missingRequiredItem = actorCanAct() && state.canAct() && countItem(item) <= 0;
@@ -1515,10 +1576,12 @@ public final class HealthScreen extends Screen {
                             MedicationType.PARACETAMOL
                     );
                 }
-                case MORPHINE, NALOXONE, EPINEPHRINE, ATROPINE_SULFATE, PRALIDOXIME_CHLORIDE -> {
+                case MORPHINE, REMIFENTANIL, NALOXONE, EPINEPHRINE, ATROPINE_SULFATE,
+                        PRALIDOXIME_CHLORIDE, CEFTRIAXONE -> {
                 }
                 case METOPROLOL -> {
                     active = actorCanAct()
+                            && !inspectingOtherPlayer
                             && state.canAct()
                             && countItem(ModItems.METOPROLOL.get()) > 0;
                     missingRequiredItem = actorCanAct()
@@ -1527,6 +1590,17 @@ public final class HealthScreen extends Screen {
                     onPress = () -> ModNetworking.requestMedication(
                             displayedEntityId(),
                             MedicationType.METOPROLOL
+                    );
+                }
+                case AMOXICILLIN -> {
+                    active = actorCanAct()
+                            && !inspectingOtherPlayer
+                            && state.canAct()
+                            && countItem(ModItems.AMOXICILLIN.get()) > 0;
+                    missingRequiredItem = actorCanAct() && state.canAct() && countItem(item) <= 0;
+                    onPress = () -> ModNetworking.requestMedication(
+                            displayedEntityId(),
+                            MedicationType.AMOXICILLIN
                     );
                 }
             }
@@ -1889,8 +1963,9 @@ public final class HealthScreen extends Screen {
                 }
             } else if (preparation.matches(patientEntityId, wound.id())
                     && preparation.kind() == PreparationKind.DEBRIDEMENT
-                    && type == TreatmentType.SALINE_SOLUTION) {
-                TreatmentProcedure procedure = TreatmentProcedure.DEBRIDEMENT;
+                    && (type == TreatmentType.SALINE_SOLUTION || type == TreatmentType.ARTIFICIAL_DERMIS)) {
+                TreatmentProcedure procedure = type == TreatmentType.ARTIFICIAL_DERMIS
+                        ? TreatmentProcedure.SKIN_GRAFT : TreatmentProcedure.DEBRIDEMENT;
                 active = actorHasSurgerySkill()
                         && procedure.isApplicable(wound, TreatmentAction.APPLY)
                         && hasRequiredItems(procedure);
@@ -2014,16 +2089,29 @@ public final class HealthScreen extends Screen {
                             TreatmentAction.APPLY
                     );
                 }
-                case TOURNIQUET, SALINE_SOLUTION -> {
-                }
-                case SURGICAL_KIT -> {
-                    TreatmentProcedure procedure = TreatmentProcedure.DEBRIDEMENT;
-                    boolean skillAvailable = actorHasSurgerySkill();
-                    active = skillAvailable
+                case POVIDONE_IODINE, MEDICAL_ALCOHOL -> {
+                    TreatmentProcedure procedure = TreatmentProcedure.singleStepFor(type);
+                    active = procedure != null
                             && procedure.isApplicable(wound, TreatmentAction.APPLY)
                             && hasRequiredItems(procedure);
-                    missingRequiredItem = skillAvailable
+                    missingRequiredItem = procedure != null
                             && procedure.isApplicable(wound, TreatmentAction.APPLY)
+                            && countItem(type) <= 0;
+                    if (procedure != null) {
+                        onPress = () -> ModNetworking.requestTreatment(
+                                patientEntityId,
+                                wound.id(),
+                                procedure,
+                                TreatmentAction.APPLY
+                        );
+                    }
+                }
+                case TOURNIQUET, SALINE_SOLUTION, ARTIFICIAL_DERMIS -> {
+                }
+                case SURGICAL_KIT -> {
+                    boolean skillAvailable = actorHasSurgerySkill();
+                    active = canPrepareSurgery(wound);
+                    missingRequiredItem = skillAvailable
                             && countItem(type) <= 0;
                     onPress = () -> beginPreparation(
                             patientEntityId,
@@ -2144,10 +2232,12 @@ public final class HealthScreen extends Screen {
                 && state.lifeState() != BodyLifeState.BRAIN_DEAD
                 && countItem(ModItems.SYRINGE.get()) > 0
                 && (countItem(ModItems.MORPHINE_VIAL.get()) > 0
+                || countItem(ModItems.REMIFENTANIL_INJECTION.get()) > 0
                 || (state.hasActiveOpioidDose() && countItem(ModItems.NALOXONE.get()) > 0)
                 || countItem(ModItems.EPINEPHRINE_INJECTION.get()) > 0
                 || countItem(ModItems.ATROPINE_SULFATE_INJECTION.get()) > 0
-                || countItem(ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get()) > 0);
+                || countItem(ModItems.PRALIDOXIME_CHLORIDE_INJECTION.get()) > 0
+                || countItem(ModItems.CEFTRIAXONE.get()) > 0);
     }
 
     private boolean medicationPreparationStillValid(BodyState state) {
@@ -2189,10 +2279,16 @@ public final class HealthScreen extends Screen {
                     && countItem(TreatmentType.BANDAGE) > 0
                     && (countItem(TreatmentType.MEDICAL_TAPE) > 0
                     || countItem(TreatmentType.SELF_ADHESIVE_BANDAGE) > 0);
-            case DEBRIDEMENT -> actorHasSurgerySkill()
-                    && TreatmentProcedure.DEBRIDEMENT.isApplicable(wound, TreatmentAction.APPLY)
-                    && hasRequiredItems(TreatmentProcedure.DEBRIDEMENT);
+            case DEBRIDEMENT -> canPrepareSurgery(wound);
         };
+    }
+
+    private boolean canPrepareSurgery(WoundInstance wound) {
+        return actorHasSurgerySkill()
+                && ((TreatmentProcedure.DEBRIDEMENT.isApplicable(wound, TreatmentAction.APPLY)
+                && hasRequiredItems(TreatmentProcedure.DEBRIDEMENT))
+                || (TreatmentProcedure.SKIN_GRAFT.isApplicable(wound, TreatmentAction.APPLY)
+                && hasRequiredItems(TreatmentProcedure.SKIN_GRAFT)));
     }
 
     private boolean patientMovedSincePreparation() {
@@ -2572,6 +2668,10 @@ public final class HealthScreen extends Screen {
 
     @Override
     public void removed() {
+        if (minecraft != null && minecraft.getConnection() != null) {
+            ModNetworking.cancelSkinGraft();
+        }
+        ClientTimingQteState.clear();
         draggingWoundScrollbar = false;
         stopAssistedBreathing();
         stopCpr();
@@ -2691,6 +2791,14 @@ public final class HealthScreen extends Screen {
         return false;
     }
 
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_SPACE && ClientTimingQteState.press()) {
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
     private static String oneDecimal(float value) {
         return String.format(Locale.ROOT, "%.1f", value);
     }
@@ -2782,11 +2890,14 @@ public final class HealthScreen extends Screen {
         SYRINGE,
         PARACETAMOL,
         MORPHINE,
+        REMIFENTANIL,
         NALOXONE,
         EPINEPHRINE,
         METOPROLOL,
         ATROPINE_SULFATE,
-        PRALIDOXIME_CHLORIDE
+        PRALIDOXIME_CHLORIDE,
+        CEFTRIAXONE,
+        AMOXICILLIN
     }
 
     private enum ElectrocardiogramRhythm {

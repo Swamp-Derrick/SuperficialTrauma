@@ -28,6 +28,18 @@ public record DamageClassification(
         return wound(WoundType.SHARP, DamageKind.SHARP, reason);
     }
 
+    public static DamageClassification puncture(String reason) {
+        return wound(WoundType.PUNCTURE, DamageKind.PUNCTURE, reason);
+    }
+
+    public static DamageClassification crush(String reason) {
+        return wound(WoundType.CRUSH, DamageKind.CRUSH, reason);
+    }
+
+    public static DamageClassification frostbite(String reason) {
+        return wound(WoundType.FROSTBITE, DamageKind.FROSTBITE, reason);
+    }
+
     public static DamageClassification burn(String reason) {
         return wound(WoundType.BURN, DamageKind.BURN, reason);
     }
@@ -79,6 +91,10 @@ public record DamageClassification(
 
     public static DamageClassification deferred(String reason) {
         return new DamageClassification(null, DamageKind.DEFERRED, reason, "none", "none", "none");
+    }
+
+    public static DamageClassification unknown(String reason) {
+        return new DamageClassification(null, DamageKind.UNKNOWN, reason, "none", "none", "none");
     }
 
     public Optional<WoundType> woundTypeOptional() {

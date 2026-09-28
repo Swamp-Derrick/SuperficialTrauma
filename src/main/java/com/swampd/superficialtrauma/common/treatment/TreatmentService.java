@@ -3,6 +3,8 @@ package com.swampd.superficialtrauma.common.treatment;
 import com.swampd.superficialtrauma.common.body.BodyState;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.medication.MedicationService;
+import com.swampd.superficialtrauma.common.qte.MedicalTimingQte;
+import com.swampd.superficialtrauma.common.qte.TimingQteService;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSound;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSoundChannel;
 import com.swampd.superficialtrauma.common.sound.MedicalActionSoundService;
@@ -23,6 +25,7 @@ public final class TreatmentService {
     private static final double MAX_TREATMENT_DISTANCE_SQUARED = 4.5D * 4.5D;
     private static final Map<UUID, TreatmentSession> SESSION_BY_ACTOR = new HashMap<>();
     private static final Map<UUID, UUID> ACTOR_BY_PATIENT = new HashMap<>();
+    private static final Map<UUID, Long> NEXT_QTE_ROLL = new HashMap<>();
 
     private TreatmentService() {
     }
@@ -101,6 +104,9 @@ public final class TreatmentService {
         );
         TreatmentPreparationSoundService.stop(actor);
         SESSION_BY_ACTOR.put(actor.getUUID(), session);
+        if (procedure.isSkinGraft()) {
+            NEXT_QTE_ROLL.put(actor.getUUID(), gameTime + MedicalTimingQte.ROLL_INTERVAL_TICKS);
+        }
         ACTOR_BY_PATIENT.put(patient.getUUID(), actor.getUUID());
         ModNetworking.sendTreatmentStarted(actor, patient.getId(), session);
         sendPatientActionNotice(actor, patient, procedure);
@@ -168,6 +174,48 @@ public final class TreatmentService {
         }
         if (actor.serverLevel().getGameTime() >= session.endsGameTime()) {
             complete(actor, patient, session);
+        } else if (session.procedure().isSkinGraft()) {
+            maybeStartSurgeryQte(actor, session);
+        }
+    }
+
+    private static void maybeStartSurgeryQte(ServerPlayer actor, TreatmentSession expected) {
+        long now = actor.serverLevel().getGameTime();
+        if (TimingQteService.hasActive(actor)
+                || now < NEXT_QTE_ROLL.getOrDefault(actor.getUUID(), Long.MAX_VALUE)
+                || expected.endsGameTime() - now <= MedicalTimingQte.FINAL_BUFFER_TICKS) {
+            return;
+        }
+        NEXT_QTE_ROLL.put(actor.getUUID(), now + MedicalTimingQte.ROLL_INTERVAL_TICKS);
+        if (actor.getRandom().nextFloat() >= MedicalTimingQte.CHANCE_PER_SECOND) {
+            return;
+        }
+        TimingQteService.start(actor, MedicalTimingQte.DEFINITION, (player, result) -> {
+            if (SESSION_BY_ACTOR.get(player.getUUID()) != expected) {
+                return;
+            }
+            // Revalidate movement, materials and wound before applying a QTE result.
+            NEXT_QTE_ROLL.put(player.getUUID(), player.serverLevel().getGameTime() + MedicalTimingQte.COOLDOWN_TICKS);
+            tick(player);
+            if (SESSION_BY_ACTOR.get(player.getUUID()) != expected) {
+                return;
+            }
+            long gameTime = player.serverLevel().getGameTime();
+            TreatmentSession updated = expected.withDeadline(
+                    MedicalTimingQte.adjustedDeadline(expected.endsGameTime(), gameTime, result));
+            SESSION_BY_ACTOR.put(player.getUUID(), updated);
+            NEXT_QTE_ROLL.put(player.getUUID(), gameTime + MedicalTimingQte.COOLDOWN_TICKS);
+            ServerPlayer patient = player(player, updated.patientId());
+            if (patient != null) {
+                ModNetworking.sendTreatmentStarted(player, patient.getId(), updated);
+            }
+        });
+    }
+
+    public static void cancelSkinGraft(ServerPlayer actor) {
+        TreatmentSession session = SESSION_BY_ACTOR.get(actor.getUUID());
+        if (session != null && session.procedure().isSkinGraft()) {
+            cancelActor(actor.getUUID(), TreatmentCancelReason.ACTION);
         }
     }
 
@@ -193,6 +241,12 @@ public final class TreatmentService {
     }
 
     public static void clearAll() {
+        for (TreatmentSession session : SESSION_BY_ACTOR.values()) {
+            if (session.procedure().isSkinGraft()) {
+                TimingQteService.forgetPlayer(session.actorId());
+            }
+        }
+        NEXT_QTE_ROLL.clear();
         SESSION_BY_ACTOR.clear();
         ACTOR_BY_PATIENT.clear();
     }
@@ -214,6 +268,15 @@ public final class TreatmentService {
         if (session.procedure().isDebridement()) {
             changed = session.action() == TreatmentAction.APPLY
                     && state.get().debrideWound(session.woundId());
+        } else if (session.procedure().isSkinGraft()) {
+            changed = state.get().skinGraftWound(session.woundId(), gameTime);
+        } else if (session.procedure().isDisinfection()) {
+            changed = session.action() == TreatmentAction.APPLY
+                    && state.get().disinfectWound(
+                    session.woundId(),
+                    session.procedure().disinfectant(),
+                    gameTime
+            );
         } else if (session.procedure().isIcePack()) {
             changed = session.action() == TreatmentAction.APPLY
                     && state.get().applyIcePack(session.woundId(), gameTime);
@@ -267,6 +330,15 @@ public final class TreatmentService {
     }
 
     private static void release(TreatmentSession session) {
+        NEXT_QTE_ROLL.remove(session.actorId());
+        if (session.procedure().isSkinGraft()) {
+            ServerPlayer actor = findOnlinePlayer(session.actorId());
+            if (actor != null) {
+                TimingQteService.cancel(actor);
+            } else {
+                TimingQteService.forgetPlayer(session.actorId());
+            }
+        }
         SESSION_BY_ACTOR.remove(session.actorId());
         ACTOR_BY_PATIENT.computeIfPresent(
                 session.patientId(),
@@ -294,6 +366,12 @@ public final class TreatmentService {
         }
         if (procedure.isDebridement()) {
             return MedicalActionSound.LIQUID_POUCH;
+        }
+        if (procedure.isSkinGraft()) {
+            return MedicalActionSound.CLOTH_WRAPPING;
+        }
+        if (procedure.isDisinfection()) {
+            return MedicalActionSound.PLASTIC_CONTAINER;
         }
         if (procedure.isWoundPacking()) {
             return MedicalActionSound.PACKING;
@@ -335,7 +413,8 @@ public final class TreatmentService {
         }
         return actor == patient
                 || (actor.distanceToSqr(patient) <= MAX_TREATMENT_DISTANCE_SQUARED
-                && actor.hasLineOfSight(patient));
+                && actor.hasLineOfSight(patient)
+                && InspectionService.isInspecting(actor, patient.getId()));
     }
 
     private static boolean hasRequiredItems(ServerPlayer actor, TreatmentProcedure procedure) {

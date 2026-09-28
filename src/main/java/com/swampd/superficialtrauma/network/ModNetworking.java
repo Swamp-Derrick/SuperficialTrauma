@@ -26,6 +26,7 @@ import com.swampd.superficialtrauma.network.packet.DownedPoseSyncS2CPacket;
 import com.swampd.superficialtrauma.network.packet.RequestBodyStateC2SPacket;
 import com.swampd.superficialtrauma.network.packet.RequestLootTargetC2SPacket;
 import com.swampd.superficialtrauma.network.packet.CloseInspectionC2SPacket;
+import com.swampd.superficialtrauma.network.packet.CancelSkinGraftC2SPacket;
 import com.swampd.superficialtrauma.network.packet.CloseInspectionS2CPacket;
 import com.swampd.superficialtrauma.network.packet.InspectionSnapshotS2CPacket;
 import com.swampd.superficialtrauma.network.packet.MedicalInspectionNoticeS2CPacket;
@@ -54,6 +55,7 @@ import com.swampd.superficialtrauma.network.packet.TimingQteStartS2CPacket;
 import com.swampd.superficialtrauma.network.packet.TimingQteSubmitC2SPacket;
 import com.swampd.superficialtrauma.network.packet.BodyDragActionC2SPacket;
 import com.swampd.superficialtrauma.network.packet.BodyDragStateS2CPacket;
+import com.swampd.superficialtrauma.network.packet.BodyRotationActionC2SPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -68,7 +70,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "28";
+    private static final String PROTOCOL_VERSION = "31";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
@@ -83,6 +85,9 @@ public final class ModNetworking {
     }
 
     public static void register() {
+        CHANNEL.registerMessage(nextPacketId++, CancelSkinGraftC2SPacket.class,
+                CancelSkinGraftC2SPacket::encode, CancelSkinGraftC2SPacket::decode,
+                CancelSkinGraftC2SPacket::handle, Optional.of(NetworkDirection.PLAY_TO_SERVER));
         CHANNEL.registerMessage(
                 nextPacketId++,
                 BodyStateSyncS2CPacket.class,
@@ -355,6 +360,14 @@ public final class ModNetworking {
                 BodyDragStateS2CPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT)
         );
+        CHANNEL.registerMessage(
+                nextPacketId++,
+                BodyRotationActionC2SPacket.class,
+                BodyRotationActionC2SPacket::encode,
+                BodyRotationActionC2SPacket::decode,
+                BodyRotationActionC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER)
+        );
     }
 
     public static void syncBodyState(ServerPlayer player) {
@@ -435,6 +448,10 @@ public final class ModNetworking {
         CHANNEL.sendToServer(new CloseInspectionC2SPacket(targetEntityId));
     }
 
+    public static void cancelSkinGraft() {
+        CHANNEL.sendToServer(new CancelSkinGraftC2SPacket());
+    }
+
     public static void requestTreatment(
             int patientEntityId,
             UUID woundId,
@@ -472,6 +489,10 @@ public final class ModNetworking {
 
     public static void setBodyDragHolding(int targetEntityId, boolean holding) {
         CHANNEL.sendToServer(new BodyDragActionC2SPacket(targetEntityId, holding));
+    }
+
+    public static void setBodyRotationHolding(int targetEntityId, boolean holding) {
+        CHANNEL.sendToServer(new BodyRotationActionC2SPacket(targetEntityId, holding));
     }
 
     public static void setAssistedBreathing(int patientEntityId, boolean active) {

@@ -3,7 +3,7 @@ package com.swampd.superficialtrauma.common.wound;
 import java.util.Locale;
 
 public enum WoundTag {
-    SLOWNESS_1,
+    FATIGUE_1,
     PAIN_1,
     PAIN_2,
     PAIN_3,
@@ -20,6 +20,8 @@ public enum WoundTag {
     NECROSIS_3,
     NEEDS_DEBRIDEMENT_1,
     INFECTED_1,
+    DISINFECTED,
+    ALCOHOL_PAIN_2,
     DEBRIDED;
 
     public String serializedName() {
@@ -29,9 +31,18 @@ public enum WoundTag {
     public float painContribution() {
         return switch (this) {
             case PAIN_1 -> 1.0F;
-            case PAIN_2 -> 2.0F;
+            case PAIN_2, ALCOHOL_PAIN_2 -> 2.0F;
             case PAIN_3 -> 4.0F;
             default -> 0.0F;
+        };
+    }
+
+    public int painRecoveryLayers() {
+        return switch (this) {
+            case PAIN_1 -> 1;
+            case PAIN_2, ALCOHOL_PAIN_2 -> 2;
+            case PAIN_3 -> 3;
+            default -> 0;
         };
     }
 
@@ -55,6 +66,9 @@ public enum WoundTag {
     }
 
     public static WoundTag fromSerializedName(String name) {
+        if ("slowness_1".equals(name)) {
+            return FATIGUE_1; // Preserve pre-fatigue saved wounds.
+        }
         for (WoundTag tag : values()) {
             if (tag.serializedName().equals(name)) {
                 return tag;

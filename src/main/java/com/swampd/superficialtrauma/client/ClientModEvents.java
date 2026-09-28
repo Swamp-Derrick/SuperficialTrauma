@@ -10,6 +10,7 @@ import net.minecraft.client.renderer.entity.EntityRenderers;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
 import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
+import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
@@ -30,7 +31,13 @@ public final class ClientModEvents {
     public static final KeyMapping DRAG_BODY = new KeyMapping(
             "key.superficialtrauma.drag_body",
             InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_J,
+            GLFW.GLFW_KEY_LEFT_CONTROL,
+            "key.categories.superficialtrauma"
+    );
+    public static final KeyMapping ROTATE_BODY = new KeyMapping(
+            "key.superficialtrauma.rotate_body",
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_R,
             "key.categories.superficialtrauma"
     );
 
@@ -51,10 +58,19 @@ public final class ClientModEvents {
     public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
         event.register(OPEN_HEALTH_HUD);
         event.register(DRAG_BODY);
+        event.register(ROTATE_BODY);
     }
 
     @SubscribeEvent
     public static void onRegisterGuiOverlays(RegisterGuiOverlaysEvent event) {
+        event.registerAbove(
+                VanillaGuiOverlay.VIGNETTE.id(),
+                "vital_signs_overlay",
+                (gui, graphics, partialTick, width, height) -> {
+                    gui.setupOverlayRenderState(true, false);
+                    ClientVitalSignsOverlay.render(graphics, width, height, partialTick);
+                }
+        );
         event.registerAboveAll(
                 "downed_overlay",
                 (gui, graphics, partialTick, width, height) -> ClientDownedOverlay.render(graphics, width, height)

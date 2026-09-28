@@ -5,6 +5,9 @@ import java.util.Locale;
 public enum WoundType {
     BLUNT,
     SHARP,
+    PUNCTURE,
+    CRUSH,
+    FROSTBITE,
     BURN,
     EXPLOSION,
     GUNSHOT_LOW_VELOCITY,

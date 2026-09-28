@@ -7,5 +7,6 @@ public enum MedicationFamily {
     OPIOID_ANTAGONIST,
     ADRENERGIC,
     ANTICHOLINERGIC,
-    OXIME
+    OXIME,
+    ANTIBIOTIC
 }
