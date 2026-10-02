@@ -5,20 +5,22 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.init.ModEntities;
 import com.swampd.superficialtrauma.common.init.ModMenus;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.resources.ResourceLocation;
+import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
+import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.client.renderer.entity.EntityRenderers;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
-import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
-import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
+import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
+import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import org.lwjgl.glfw.GLFW;
 
-@Mod.EventBusSubscriber(
+@EventBusSubscriber(
         modid = SuperficialTrauma.MOD_ID,
-        bus = Mod.EventBusSubscriber.Bus.MOD,
         value = Dist.CLIENT
 )
 public final class ClientModEvents {
@@ -45,13 +47,15 @@ public final class ClientModEvents {
     }
 
     @SubscribeEvent
-    public static void onClientSetup(FMLClientSetupEvent event) {
-        event.enqueueWork(() -> {
-            MenuScreens.register(ModMenus.LOOT_TARGET.get(), LootTargetScreen::new);
-            MenuScreens.register(ModMenus.DEFIBRILLATOR_STATION.get(), DefibrillatorStationScreen::new);
-            MenuScreens.register(ModMenus.MEDICAL_WORKBENCH.get(), MedicalWorkbenchScreen::new);
-            EntityRenderers.register(ModEntities.CORPSE.get(), CorpseRenderer::new);
-        });
+    public static void onRegisterScreens(RegisterMenuScreensEvent event) {
+        event.register(ModMenus.LOOT_TARGET.get(), LootTargetScreen::new);
+        event.register(ModMenus.DEFIBRILLATOR_STATION.get(), DefibrillatorStationScreen::new);
+        event.register(ModMenus.MEDICAL_WORKBENCH.get(), MedicalWorkbenchScreen::new);
+    }
+
+    @SubscribeEvent
+    public static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {
+        event.registerEntityRenderer(ModEntities.CORPSE.get(), CorpseRenderer::new);
     }
 
     @SubscribeEvent
@@ -62,23 +66,15 @@ public final class ClientModEvents {
     }
 
     @SubscribeEvent
-    public static void onRegisterGuiOverlays(RegisterGuiOverlaysEvent event) {
-        event.registerAbove(
-                VanillaGuiOverlay.VIGNETTE.id(),
-                "vital_signs_overlay",
-                (gui, graphics, partialTick, width, height) -> {
-                    gui.setupOverlayRenderState(true, false);
-                    ClientVitalSignsOverlay.render(graphics, width, height, partialTick);
-                }
-        );
-        event.registerAboveAll(
-                "downed_overlay",
-                (gui, graphics, partialTick, width, height) -> ClientDownedOverlay.render(graphics, width, height)
-        );
-        event.registerAboveAll(
-                "awakening_recovery_overlay",
-                (gui, graphics, partialTick, width, height) ->
-                        ClientAwakeningRecovery.render(graphics, width, height, partialTick)
-        );
+    public static void onRegisterGuiOverlays(RegisterGuiLayersEvent event) {
+        event.registerAbove(VanillaGuiLayers.CAMERA_OVERLAYS,
+                ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "vital_signs_overlay"),
+                (graphics, delta) -> ClientVitalSignsOverlay.render(graphics,
+                        graphics.guiWidth(), graphics.guiHeight(), delta.getGameTimeDeltaPartialTick(false)));
+        event.registerAboveAll(ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "downed_overlay"),
+                (graphics, delta) -> ClientDownedOverlay.render(graphics, graphics.guiWidth(), graphics.guiHeight()));
+        event.registerAboveAll(ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "awakening_recovery_overlay"),
+                (graphics, delta) -> ClientAwakeningRecovery.render(graphics,
+                        graphics.guiWidth(), graphics.guiHeight(), delta.getGameTimeDeltaPartialTick(false)));
     }
 }

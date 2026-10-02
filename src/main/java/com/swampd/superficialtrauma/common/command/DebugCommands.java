@@ -34,14 +34,14 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.event.RegisterCommandsEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.registries.ForgeRegistries;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.minecraft.core.registries.BuiltInRegistries;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Mod.EventBusSubscriber(modid = SuperficialTrauma.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
+@EventBusSubscriber(modid = SuperficialTrauma.MOD_ID)
 public final class DebugCommands {
     private DebugCommands() {
     }
@@ -306,7 +306,7 @@ public final class DebugCommands {
             return 0;
         }
 
-        ResourceLocation itemId = ForgeRegistries.ITEMS.getKey(heldStack.getItem());
+        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(heldStack.getItem());
         DamageKind kind = CgmAmmoTags.classify(heldStack);
         context.getSource().sendSuccess(() -> Component.literal(
                 "Ammo " + (itemId == null ? "unknown" : itemId)

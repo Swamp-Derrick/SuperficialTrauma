@@ -66,7 +66,7 @@ public final class TreatmentService {
             return false;
         }
 
-        Optional<BodyState> bodyState = BodyStateCapability.get(patient).resolve();
+        Optional<BodyState> bodyState = BodyStateCapability.get(patient);
         Optional<WoundInstance> wound = bodyState.flatMap(state -> state.wound(woundId));
         if (wound.isEmpty() || !procedure.isApplicable(wound.get(), action)) {
             actor.displayClientMessage(
@@ -155,7 +155,6 @@ public final class TreatmentService {
         }
 
         Optional<WoundInstance> wound = BodyStateCapability.get(patient)
-                .resolve()
                 .flatMap(state -> state.wound(session.woundId()));
         if (wound.isEmpty() || !session.procedure().isApplicable(wound.get(), session.action())) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.WOUND_CHANGED);
@@ -252,7 +251,7 @@ public final class TreatmentService {
     }
 
     private static void complete(ServerPlayer actor, ServerPlayer patient, TreatmentSession session) {
-        Optional<BodyState> state = BodyStateCapability.get(patient).resolve();
+        Optional<BodyState> state = BodyStateCapability.get(patient);
         Optional<WoundInstance> wound = state.flatMap(bodyState -> bodyState.wound(session.woundId()));
         if (state.isEmpty()
                 || wound.isEmpty()
@@ -434,7 +433,7 @@ public final class TreatmentService {
         if (action == TreatmentAction.REMOVE) {
             return true;
         }
-        Optional<BodyState> bodyState = BodyStateCapability.get(actor).resolve();
+        Optional<BodyState> bodyState = BodyStateCapability.get(actor);
         if (bodyState.isEmpty()) {
             return false;
         }
@@ -483,7 +482,7 @@ public final class TreatmentService {
     }
 
     private static ServerPlayer findOnlinePlayer(UUID actorId) {
-        net.minecraft.server.MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        net.minecraft.server.MinecraftServer server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
         if (server == null) {
             return null;
         }

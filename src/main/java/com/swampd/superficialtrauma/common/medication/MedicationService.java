@@ -476,7 +476,7 @@ public final class MedicationService {
     }
 
     private static ServerPlayer findOnlinePlayer(UUID playerId) {
-        net.minecraft.server.MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        net.minecraft.server.MinecraftServer server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
         return server == null ? null : server.getPlayerList().getPlayer(playerId);
     }
 

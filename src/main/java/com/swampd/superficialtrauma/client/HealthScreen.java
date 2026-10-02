@@ -171,9 +171,17 @@ public final class HealthScreen extends Screen {
         }
     }
 
+    // Screen.render in 1.21 also blurs the background. Our panels are already drawn,
+    // so render only the widgets here; a second background pass would blur the text.
+    private void renderWidgets(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        for (var renderable : renderables) {
+            renderable.render(graphics, mouseX, mouseY, partialTick);
+        }
+    }
+
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics);
+        renderBackground(graphics, mouseX, mouseY, partialTick);
         Layout layout = layout();
 
         graphics.fill(
@@ -198,7 +206,7 @@ public final class HealthScreen extends Screen {
                     layout.panelY + layout.panelHeight / 2,
                     TEXT_COLOR
             );
-            super.render(graphics, mouseX, mouseY, partialTick);
+            renderWidgets(graphics, mouseX, mouseY, partialTick);
             ClientMedicalInspectionNotice.render(graphics, width, height);
             return;
         }
@@ -237,7 +245,7 @@ public final class HealthScreen extends Screen {
             drawPreparationShade(graphics, layout);
         }
 
-        super.render(graphics, mouseX, mouseY, partialTick);
+        renderWidgets(graphics, mouseX, mouseY, partialTick);
         for (TreatmentItemButton button : treatmentButtons) {
             if (button.isHovered()) {
                 Component tooltip = button.tooltip();
@@ -2737,7 +2745,7 @@ public final class HealthScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalDelta, double delta) {
         WoundScrollInteraction interaction = woundScrollInteraction();
         if (interaction != null && delta != 0.0D) {
             Layout layout = interaction.layout();
@@ -2768,7 +2776,7 @@ public final class HealthScreen extends Screen {
                 return true;
             }
         }
-        return super.mouseScrolled(mouseX, mouseY, delta);
+        return super.mouseScrolled(mouseX, mouseY, horizontalDelta, delta);
     }
 
     @Override

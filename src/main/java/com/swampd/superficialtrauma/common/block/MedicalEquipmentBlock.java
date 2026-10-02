@@ -11,6 +11,9 @@ import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 
 public class MedicalEquipmentBlock extends HorizontalDirectionalBlock {
+    public static final com.mojang.serialization.MapCodec<MedicalEquipmentBlock> CODEC = simpleCodec(MedicalEquipmentBlock::new);
+    @Override
+    protected com.mojang.serialization.MapCodec<? extends MedicalEquipmentBlock> codec() { return CODEC; }
     public static final DirectionProperty FACING = HorizontalDirectionalBlock.FACING;
 
     public MedicalEquipmentBlock(Properties properties) {

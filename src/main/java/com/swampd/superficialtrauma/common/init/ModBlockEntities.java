@@ -4,18 +4,18 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.block.DefibrillatorStationBlockEntity;
 import com.swampd.superficialtrauma.common.block.MedicalWorkbenchBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.registries.DeferredRegister;
-import net.minecraftforge.registries.ForgeRegistries;
-import net.minecraftforge.registries.RegistryObject;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.registries.DeferredRegister;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.neoforged.neoforge.registries.DeferredHolder;
 
 public final class ModBlockEntities {
     public static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITY_TYPES = DeferredRegister.create(
-            ForgeRegistries.BLOCK_ENTITY_TYPES,
+            BuiltInRegistries.BLOCK_ENTITY_TYPE,
             SuperficialTrauma.MOD_ID
     );
 
-    public static final RegistryObject<BlockEntityType<DefibrillatorStationBlockEntity>> DEFIBRILLATOR_STATION =
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<DefibrillatorStationBlockEntity>> DEFIBRILLATOR_STATION =
             BLOCK_ENTITY_TYPES.register(
                     "defibrillator_station",
                     () -> BlockEntityType.Builder.of(
@@ -23,7 +23,7 @@ public final class ModBlockEntities {
                             ModBlocks.DEFIBRILLATOR_STATION.get()
                     ).build(null)
             );
-    public static final RegistryObject<BlockEntityType<MedicalWorkbenchBlockEntity>> MEDICAL_WORKBENCH =
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<MedicalWorkbenchBlockEntity>> MEDICAL_WORKBENCH =
             BLOCK_ENTITY_TYPES.register(
                     "medical_workbench",
                     () -> BlockEntityType.Builder.of(

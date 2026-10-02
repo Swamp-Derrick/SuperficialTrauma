@@ -10,20 +10,19 @@ import com.swampd.superficialtrauma.common.entity.CorpseEntity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.RenderNameTagEvent;
-import net.minecraftforge.client.event.RenderPlayerEvent;
-import net.minecraftforge.eventbus.api.Event;
-import net.minecraftforge.eventbus.api.EventPriority;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.RenderNameTagEvent;
+import net.neoforged.neoforge.client.event.RenderPlayerEvent;
+import net.neoforged.bus.api.Event;
+import net.neoforged.bus.api.EventPriority;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
 
-@Mod.EventBusSubscriber(
+@EventBusSubscriber(
         modid = SuperficialTrauma.MOD_ID,
-        bus = Mod.EventBusSubscriber.Bus.FORGE,
         value = Dist.CLIENT
 )
 public final class ClientDownedPlayerRenderer {
@@ -82,7 +81,7 @@ public final class ClientDownedPlayerRenderer {
     public static void onRenderNameTag(RenderNameTagEvent event) {
         if (event.getEntity() instanceof Player player
                 && ClientDownedPoses.get(player.getId()).isPresent()) {
-            event.setResult(Event.Result.DENY);
+            event.setCanRender(net.neoforged.neoforge.common.util.TriState.FALSE);
         }
     }
 

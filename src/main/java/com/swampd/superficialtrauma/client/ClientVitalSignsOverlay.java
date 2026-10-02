@@ -166,11 +166,11 @@ public final class ClientVitalSignsOverlay {
     private static void vertex(
             VertexConsumer vertices, Matrix4f pose, float x, float y, int rgb, float alpha
     ) {
-        vertices.vertex(pose, x, y, 0.0F).color(
+        vertices.addVertex(pose, x, y, 0.0F).setColor(
                 (rgb >> 16 & 255) / 255.0F,
                 (rgb >> 8 & 255) / 255.0F,
                 (rgb & 255) / 255.0F, alpha
-        ).endVertex();
+        );
     }
 
     private static List<VeinSegment> createVeins() {

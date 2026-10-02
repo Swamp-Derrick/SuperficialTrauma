@@ -6,6 +6,8 @@ out/
 # Minecraft development runs
 run/
 run-data/
+run-1.21.1/
+run-data-1.21.1/
 src/generated/resources/
 
 # IntelliJ IDEA

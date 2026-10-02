@@ -170,34 +170,34 @@ public final class MedicalWorkbenchBlockEntity extends BlockEntity implements Co
     }
 
     @Override
-    protected void saveAdditional(CompoundTag tag) {
-        super.saveAdditional(tag);
-        ContainerHelper.saveAllItems(tag, outputs);
+    protected void saveAdditional(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+        super.saveAdditional(tag, registries);
+        ContainerHelper.saveAllItems(tag, outputs, registries);
         ListTag queueTag = new ListTag();
         for (CraftingJob job : queue) {
-            queueTag.add(job.save());
+            queueTag.add(job.save(registries));
         }
         tag.put(TAG_QUEUE, queueTag);
         if (customName != null) {
-            tag.putString("CustomName", Component.Serializer.toJson(customName));
+            tag.putString("CustomName", Component.Serializer.toJson(customName, registries));
         }
     }
 
     @Override
-    public void load(CompoundTag tag) {
-        super.load(tag);
+    public void loadAdditional(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+        super.loadAdditional(tag, registries);
         outputs = NonNullList.withSize(OUTPUT_SLOT_COUNT, ItemStack.EMPTY);
-        ContainerHelper.loadAllItems(tag, outputs);
+        ContainerHelper.loadAllItems(tag, outputs, registries);
         queue.clear();
         ListTag queueTag = tag.getList(TAG_QUEUE, Tag.TAG_COMPOUND);
         for (int index = 0; index < queueTag.size() && queue.size() < QUEUE_LIMIT; index++) {
-            CraftingJob loaded = CraftingJob.load(queueTag.getCompound(index));
+            CraftingJob loaded = CraftingJob.load(queueTag.getCompound(index), registries);
             if (loaded != null) {
                 queue.add(loaded);
             }
         }
         if (tag.contains("CustomName", Tag.TAG_STRING)) {
-            customName = Component.Serializer.fromJson(tag.getString("CustomName"));
+            customName = Component.Serializer.fromJson(tag.getString("CustomName"), registries);
         } else {
             customName = null;
         }
@@ -290,7 +290,7 @@ public final class MedicalWorkbenchBlockEntity extends BlockEntity implements Co
         for (ItemStack output : outputs) {
             if (output.isEmpty()) {
                 capacity += result.getMaxStackSize();
-            } else if (ItemStack.isSameItemSameTags(output, result)) {
+            } else if (ItemStack.isSameItemSameComponents(output, result)) {
                 capacity += Math.max(0, Math.min(output.getMaxStackSize(), getMaxStackSize()) - output.getCount());
             }
         }
@@ -303,7 +303,7 @@ public final class MedicalWorkbenchBlockEntity extends BlockEntity implements Co
             if (remaining.isEmpty()) {
                 break;
             }
-            if (!output.isEmpty() && ItemStack.isSameItemSameTags(output, remaining)) {
+            if (!output.isEmpty() && ItemStack.isSameItemSameComponents(output, remaining)) {
                 int moved = Math.min(
                         remaining.getCount(),
                         Math.min(output.getMaxStackSize(), getMaxStackSize()) - output.getCount()
@@ -376,20 +376,20 @@ public final class MedicalWorkbenchBlockEntity extends BlockEntity implements Co
             this.refunds = List.copyOf(refunds);
         }
 
-        private CompoundTag save() {
+        private CompoundTag save(net.minecraft.core.HolderLookup.Provider registries) {
             CompoundTag tag = new CompoundTag();
             tag.putString(TAG_RECIPE, recipe.key());
             tag.putInt(TAG_REMAINING, remainingTicks);
             ListTag refundTag = new ListTag();
             for (ItemStack refund : refunds) {
-                refundTag.add(refund.save(new CompoundTag()));
+                refundTag.add(refund.save(registries));
             }
             tag.put(TAG_REFUNDS, refundTag);
             return tag;
         }
 
         @Nullable
-        private static CraftingJob load(CompoundTag tag) {
+        private static CraftingJob load(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
             MedicalWorkbenchRecipe recipe = tag.contains(TAG_RECIPE, Tag.TAG_STRING)
                     ? MedicalWorkbenchRecipes.byKey(tag.getString(TAG_RECIPE))
                     : MedicalWorkbenchRecipes.byId(tag.getInt(TAG_RECIPE));
@@ -399,7 +399,7 @@ public final class MedicalWorkbenchBlockEntity extends BlockEntity implements Co
             List<ItemStack> refunds = new ArrayList<>();
             ListTag refundTag = tag.getList(TAG_REFUNDS, Tag.TAG_COMPOUND);
             for (int index = 0; index < refundTag.size(); index++) {
-                ItemStack stack = ItemStack.of(refundTag.getCompound(index));
+                ItemStack stack = ItemStack.parseOptional(registries, refundTag.getCompound(index));
                 if (!stack.isEmpty()) {
                     refunds.add(stack);
                 }

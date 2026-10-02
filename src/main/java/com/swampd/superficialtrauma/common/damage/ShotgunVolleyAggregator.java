@@ -80,11 +80,12 @@ public final class ShotgunVolleyAggregator {
             );
             changed = true;
             SuperficialTrauma.LOGGER.info(
-                    "Resolved shotgun volley pellets={} Dtotal={} result={} A={} L={} spawnTick={} hitTicks={}..{} afterDowning={}",
+                    "Resolved shotgun volley pellets={} Dtotal={} result={} A={} armor={} distance={} spawnTick={} hitTicks={}..{} afterDowning={}",
                     volley.pelletHits(),
                     volley.totalFinalDamage(),
                     result.status(),
                     result.accumulatedDamage(),
+                    volley.maximumArmorValue(),
                     volley.minimumAttackerDistance(),
                     volley.key().projectileSpawnGameTime(),
                     volley.firstHitGameTime(),

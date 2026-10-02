@@ -21,45 +21,31 @@ import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.event.AttachCapabilitiesEvent;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.event.entity.living.LivingHealEvent;
-import net.minecraftforge.event.server.ServerStoppedEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.tick.PlayerTickEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.event.entity.living.LivingHealEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-@Mod.EventBusSubscriber(modid = SuperficialTrauma.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
+@EventBusSubscriber(modid = SuperficialTrauma.MOD_ID)
 public final class BodyStateEvents {
     private static final Map<UUID, Vec3> LAST_WOUND_POSITIONS = new HashMap<>();
     private static final int INFECTION_NAUSEA_REFRESH_DURATION_TICKS = 5 * 20;
     private static final int EPINEPHRINE_EFFECT_REFRESH_DURATION_TICKS = 15;
     private static final int ORGANOPHOSPHATE_EFFECT_REFRESH_DURATION_TICKS = 5 * 20;
-    private static final UUID NECROSIS_MAX_HEALTH_MODIFIER_ID = UUID.fromString(
-            "fbd950e2-518e-4a48-a23e-ef19b1973d6c"
-    );
+    private static final net.minecraft.resources.ResourceLocation NECROSIS_MAX_HEALTH_MODIFIER_ID = net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "necrosis_max_health_modifier_id");
     private static final String NECROSIS_MAX_HEALTH_MODIFIER_NAME = "Superficial Trauma necrosis";
-    private static final UUID AWAKENING_RECOVERY_SPEED_MODIFIER_ID = UUID.fromString(
-            "af5dd27f-a30b-43c4-9867-a02820f431dd"
-    );
+    private static final net.minecraft.resources.ResourceLocation AWAKENING_RECOVERY_SPEED_MODIFIER_ID = net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "awakening_recovery_speed_modifier_id");
     private static final String AWAKENING_RECOVERY_SPEED_MODIFIER_NAME =
             "Superficial Trauma awakening recovery";
     private static final double AWAKENING_RECOVERY_SPEED_MULTIPLIER = -0.75D;
 
     private BodyStateEvents() {
-    }
-
-    @SubscribeEvent
-    public static void onAttachCapabilities(AttachCapabilitiesEvent<Entity> event) {
-        if (event.getObject() instanceof Player) {
-            BodyStateProvider provider = new BodyStateProvider();
-            event.addCapability(BodyStateCapability.ID, provider);
-            event.addListener(provider::invalidate);
-        }
     }
 
     @SubscribeEvent
@@ -69,7 +55,6 @@ public final class BodyStateEvents {
         GiveUpService.forgetPlayer(event.getOriginal().getUUID());
         BodyDragService.forgetPlayer(event.getOriginal().getUUID());
         BodyRotationService.forgetPlayer(event.getOriginal().getUUID());
-        event.getOriginal().reviveCaps();
         BodyStateCapability.get(event.getOriginal()).ifPresent(oldState ->
                 BodyStateCapability.get(event.getEntity()).ifPresent(newState -> {
                     if (event.isWasDeath()) {
@@ -79,7 +64,6 @@ public final class BodyStateEvents {
                     }
                 })
         );
-        event.getOriginal().invalidateCaps();
     }
 
     @SubscribeEvent
@@ -152,8 +136,8 @@ public final class BodyStateEvents {
     }
 
     @SubscribeEvent
-    public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END || !(event.player instanceof ServerPlayer serverPlayer)) {
+    public static void onPlayerTick(PlayerTickEvent.Post event) {
+        if (!(event.getEntity() instanceof ServerPlayer serverPlayer)) {
             return;
         }
 
@@ -362,7 +346,7 @@ public final class BodyStateEvents {
             double requiredReduction = bodyState.necrosisMaximumHealthReduction();
             AttributeModifier existing = maximumHealth.getModifier(NECROSIS_MAX_HEALTH_MODIFIER_ID);
             double requiredAmount = -requiredReduction;
-            if (existing != null && Math.abs(existing.getAmount() - requiredAmount) > 0.0001D) {
+            if (existing != null && Math.abs(existing.amount() - requiredAmount) > 0.0001D) {
                 maximumHealth.removeModifier(NECROSIS_MAX_HEALTH_MODIFIER_ID);
                 existing = null;
             }
@@ -373,9 +357,8 @@ public final class BodyStateEvents {
             } else if (existing == null) {
                 maximumHealth.addTransientModifier(new AttributeModifier(
                         NECROSIS_MAX_HEALTH_MODIFIER_ID,
-                        NECROSIS_MAX_HEALTH_MODIFIER_NAME,
                         requiredAmount,
-                        AttributeModifier.Operation.ADDITION
+                        AttributeModifier.Operation.ADD_VALUE
                 ));
             }
             if (player.getHealth() > player.getMaxHealth()) {
@@ -386,7 +369,7 @@ public final class BodyStateEvents {
     }
 
     private static void updateFatigueEffect(ServerPlayer player, BodyState state) {
-        var effect = com.swampd.superficialtrauma.common.init.ModEffects.FATIGUE.get();
+        var effect = com.swampd.superficialtrauma.common.init.ModEffects.FATIGUE;
         int level = state.lifeState() == BodyLifeState.BRAIN_DEAD ? 0 : state.fatigueLevel();
         MobEffectInstance existing = player.getEffect(effect);
         if (existing != null && (level == 0 || existing.getAmplifier() != level - 1)) {
@@ -417,9 +400,8 @@ public final class BodyStateEvents {
         if (existing == null) {
             movementSpeed.addTransientModifier(new AttributeModifier(
                     AWAKENING_RECOVERY_SPEED_MODIFIER_ID,
-                    AWAKENING_RECOVERY_SPEED_MODIFIER_NAME,
                     AWAKENING_RECOVERY_SPEED_MULTIPLIER,
-                    AttributeModifier.Operation.MULTIPLY_TOTAL
+                    AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL
             ));
         }
     }

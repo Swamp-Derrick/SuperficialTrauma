@@ -45,7 +45,7 @@ public final class CorpseEquipmentTransfer {
     ) {
         if (!(candidate.getItem() instanceof ArmorItem candidateArmor)
                 || candidateArmor.getEquipmentSlot() != equipmentSlot
-                || EnchantmentHelper.hasBindingCurse(candidate)) {
+                || EnchantmentHelper.has(candidate, net.minecraft.world.item.enchantment.EnchantmentEffectComponents.PREVENT_ARMOR_CHANGE)) {
             return false;
         }
         if (equipped.isEmpty()) {
@@ -55,7 +55,8 @@ public final class CorpseEquipmentTransfer {
                 || equippedArmor.getEquipmentSlot() != equipmentSlot) {
             return false;
         }
-        if (!mayRemoveBindingCurse && EnchantmentHelper.hasBindingCurse(equipped)) {
+        if (!mayRemoveBindingCurse && EnchantmentHelper.has(equipped,
+                net.minecraft.world.item.enchantment.EnchantmentEffectComponents.PREVENT_ARMOR_CHANGE)) {
             return false;
         }
         return isHigherQuality(quality(candidateArmor, candidate), quality(equippedArmor, equipped));
@@ -95,7 +96,7 @@ public final class CorpseEquipmentTransfer {
     private static int findBackpackDestination(Inventory inventory, ItemStack stack) {
         for (int slot = 0; slot < 36; slot++) {
             ItemStack existing = inventory.getItem(slot);
-            if (ItemStack.isSameItemSameTags(existing, stack)
+            if (ItemStack.isSameItemSameComponents(existing, stack)
                     && existing.getCount() + stack.getCount()
                     <= Math.min(existing.getMaxStackSize(), inventory.getMaxStackSize())) {
                 return slot;
@@ -122,19 +123,23 @@ public final class CorpseEquipmentTransfer {
         return new ArmorQuality(
                 armor.getDefense(),
                 armor.getToughness(),
-                armor.getMaterial().getKnockbackResistance(),
+                armor.getMaterial().value().knockbackResistance(),
                 protectionScore(stack),
                 remainingDurability(stack)
         );
     }
 
     private static int protectionScore(ItemStack stack) {
-        var enchantments = EnchantmentHelper.getEnchantments(stack);
-        return enchantments.getOrDefault(Enchantments.ALL_DAMAGE_PROTECTION, 0) * 4
-                + enchantments.getOrDefault(Enchantments.BLAST_PROTECTION, 0)
-                + enchantments.getOrDefault(Enchantments.FIRE_PROTECTION, 0)
-                + enchantments.getOrDefault(Enchantments.PROJECTILE_PROTECTION, 0)
-                + enchantments.getOrDefault(Enchantments.FALL_PROTECTION, 0);
+        int score = 0;
+        for (var entry : EnchantmentHelper.getEnchantmentsForCrafting(stack).entrySet()) {
+            var enchantment = entry.getKey();
+            if (enchantment.is(Enchantments.PROTECTION)) score += entry.getIntValue() * 4;
+            else if (enchantment.is(Enchantments.BLAST_PROTECTION)
+                    || enchantment.is(Enchantments.FIRE_PROTECTION)
+                    || enchantment.is(Enchantments.PROJECTILE_PROTECTION)
+                    || enchantment.is(Enchantments.FEATHER_FALLING)) score += entry.getIntValue();
+        }
+        return score;
     }
 
     private static double remainingDurability(ItemStack stack) {

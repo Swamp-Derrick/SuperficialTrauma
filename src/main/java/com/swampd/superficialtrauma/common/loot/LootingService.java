@@ -9,7 +9,6 @@ import net.minecraft.world.MenuProvider;
 import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.Entity;
-import net.minecraftforge.network.NetworkHooks;
 
 import java.util.Map;
 import java.util.UUID;
@@ -67,7 +66,7 @@ public final class LootingService {
                 lootTitle(target)
         );
         try {
-            NetworkHooks.openScreen(looter, provider, buffer -> {
+            looter.openMenu(provider, buffer -> {
                 buffer.writeVarInt(target.getId());
                 buffer.writeBoolean(target instanceof CorpseEntity);
             });

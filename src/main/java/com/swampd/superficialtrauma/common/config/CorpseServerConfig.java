@@ -1,6 +1,6 @@
 package com.swampd.superficialtrauma.common.config;
 
-import net.minecraftforge.common.ForgeConfigSpec;
+import net.neoforged.neoforge.common.ModConfigSpec;
 
 public final class CorpseServerConfig {
     public static final boolean DEFAULT_COLLISION_ENABLED = false;
@@ -10,16 +10,16 @@ public final class CorpseServerConfig {
     public static final boolean DEFAULT_EMPTY_REMOVAL_ENABLED = true;
     public static final int DEFAULT_EMPTY_LIFETIME_MINUTES = 15;
 
-    public static final ForgeConfigSpec SPEC;
-    private static final ForgeConfigSpec.BooleanValue COLLISION_ENABLED;
-    private static final ForgeConfigSpec.BooleanValue CORPSE_ENTITY_PUSHING_ENABLED;
-    private static final ForgeConfigSpec.BooleanValue DOWNED_COLLISION_ENABLED;
-    private static final ForgeConfigSpec.BooleanValue DOWNED_ENTITY_PUSHING_ENABLED;
-    private static final ForgeConfigSpec.BooleanValue EMPTY_REMOVAL_ENABLED;
-    private static final ForgeConfigSpec.IntValue EMPTY_LIFETIME_MINUTES;
+    public static final ModConfigSpec SPEC;
+    private static final ModConfigSpec.BooleanValue COLLISION_ENABLED;
+    private static final ModConfigSpec.BooleanValue CORPSE_ENTITY_PUSHING_ENABLED;
+    private static final ModConfigSpec.BooleanValue DOWNED_COLLISION_ENABLED;
+    private static final ModConfigSpec.BooleanValue DOWNED_ENTITY_PUSHING_ENABLED;
+    private static final ModConfigSpec.BooleanValue EMPTY_REMOVAL_ENABLED;
+    private static final ModConfigSpec.IntValue EMPTY_LIFETIME_MINUTES;
 
     static {
-        ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
+        ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
         builder.push("corpse");
         COLLISION_ENABLED = builder
                 .comment(

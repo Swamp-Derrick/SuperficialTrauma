@@ -4,17 +4,18 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
-import net.minecraftforge.event.entity.living.LivingAttackEvent;
-import net.minecraftforge.event.entity.living.LivingEntityUseItemEvent;
-import net.minecraftforge.event.entity.living.LivingSwapItemsEvent;
-import net.minecraftforge.event.entity.player.AttackEntityEvent;
-import net.minecraftforge.event.entity.item.ItemTossEvent;
-import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import net.minecraftforge.event.level.BlockEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
+import net.neoforged.bus.api.ICancellableEvent;
+import net.neoforged.neoforge.event.entity.living.LivingEntityUseItemEvent;
+import net.neoforged.neoforge.event.entity.living.LivingSwapItemsEvent;
+import net.neoforged.neoforge.event.entity.player.AttackEntityEvent;
+import net.neoforged.neoforge.event.entity.item.ItemTossEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.neoforge.event.level.BlockEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
-@Mod.EventBusSubscriber(modid = SuperficialTrauma.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
+@EventBusSubscriber(modid = SuperficialTrauma.MOD_ID)
 public final class IncapacitationEvents {
     private IncapacitationEvents() {
     }
@@ -27,19 +28,24 @@ public final class IncapacitationEvents {
     }
 
     @SubscribeEvent
-    public static void onLivingAttack(LivingAttackEvent event) {
+    public static void onLivingAttack(LivingIncomingDamageEvent event) {
         Entity attacker = event.getSource().getEntity();
         if (attacker instanceof ServerPlayer player && cannotAct(player)) {
             event.setCanceled(true);
         }
     }
 
-    @SubscribeEvent
-    public static void onPlayerInteract(PlayerInteractEvent event) {
-        if (cannotAct(event.getEntity())) {
-            event.setCanceled(true);
+    private static void onPlayerInteract(PlayerInteractEvent event) {
+        if (cannotAct(event.getEntity()) && event instanceof ICancellableEvent cancellable) {
+            cancellable.setCanceled(true);
         }
     }
+
+    @SubscribeEvent public static void onRightClickItem(PlayerInteractEvent.RightClickItem event) { onPlayerInteract(event); }
+    @SubscribeEvent public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) { onPlayerInteract(event); }
+    @SubscribeEvent public static void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) { onPlayerInteract(event); }
+    @SubscribeEvent public static void onEntityInteract(PlayerInteractEvent.EntityInteract event) { onPlayerInteract(event); }
+    @SubscribeEvent public static void onEntityInteractSpecific(PlayerInteractEvent.EntityInteractSpecific event) { onPlayerInteract(event); }
 
     @SubscribeEvent
     public static void onUseItem(LivingEntityUseItemEvent.Start event) {

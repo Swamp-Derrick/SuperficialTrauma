@@ -59,10 +59,8 @@ import com.swampd.superficialtrauma.network.packet.BodyRotationActionC2SPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
-import net.minecraftforge.network.NetworkDirection;
-import net.minecraftforge.network.NetworkRegistry;
-import net.minecraftforge.network.PacketDistributor;
-import net.minecraftforge.network.simple.SimpleChannel;
+import net.neoforged.neoforge.network.PacketDistributor;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -70,337 +68,79 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "31";
+    private static final String PROTOCOL_VERSION = "1.21.1-1";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
-    private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
-            ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "main"),
-            () -> PROTOCOL_VERSION,
-            PROTOCOL_VERSION::equals,
-            PROTOCOL_VERSION::equals
-    );
-    private static int nextPacketId;
     private static final ConcurrentMap<UUID, Long> LAST_BODY_STATE_REQUEST = new ConcurrentHashMap<>();
 
     private ModNetworking() {
     }
 
-    public static void register() {
-        CHANNEL.registerMessage(nextPacketId++, CancelSkinGraftC2SPacket.class,
-                CancelSkinGraftC2SPacket::encode, CancelSkinGraftC2SPacket::decode,
-                CancelSkinGraftC2SPacket::handle, Optional.of(NetworkDirection.PLAY_TO_SERVER));
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                BodyStateSyncS2CPacket.class,
-                BodyStateSyncS2CPacket::encode,
-                BodyStateSyncS2CPacket::decode,
-                BodyStateSyncS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                RequestBodyStateC2SPacket.class,
-                RequestBodyStateC2SPacket::encode,
-                RequestBodyStateC2SPacket::decode,
-                RequestBodyStateC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                BloodLossFeedbackS2CPacket.class,
-                BloodLossFeedbackS2CPacket::encode,
-                BloodLossFeedbackS2CPacket::decode,
-                BloodLossFeedbackS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                DownedPoseSyncS2CPacket.class,
-                DownedPoseSyncS2CPacket::encode,
-                DownedPoseSyncS2CPacket::decode,
-                DownedPoseSyncS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                RequestLootTargetC2SPacket.class,
-                RequestLootTargetC2SPacket::encode,
-                RequestLootTargetC2SPacket::decode,
-                RequestLootTargetC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                RequestInspectionC2SPacket.class,
-                RequestInspectionC2SPacket::encode,
-                RequestInspectionC2SPacket::decode,
-                RequestInspectionC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                CloseInspectionC2SPacket.class,
-                CloseInspectionC2SPacket::encode,
-                CloseInspectionC2SPacket::decode,
-                CloseInspectionC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                InspectionSnapshotS2CPacket.class,
-                InspectionSnapshotS2CPacket::encode,
-                InspectionSnapshotS2CPacket::decode,
-                InspectionSnapshotS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                CloseInspectionS2CPacket.class,
-                CloseInspectionS2CPacket::encode,
-                CloseInspectionS2CPacket::decode,
-                CloseInspectionS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                MedicalInspectionNoticeS2CPacket.class,
-                MedicalInspectionNoticeS2CPacket::encode,
-                MedicalInspectionNoticeS2CPacket::decode,
-                MedicalInspectionNoticeS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                StartTreatmentC2SPacket.class,
-                StartTreatmentC2SPacket::encode,
-                StartTreatmentC2SPacket::decode,
-                StartTreatmentC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                TreatmentSessionS2CPacket.class,
-                TreatmentSessionS2CPacket::encode,
-                TreatmentSessionS2CPacket::decode,
-                TreatmentSessionS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                TreatmentPreparationSoundC2SPacket.class,
-                TreatmentPreparationSoundC2SPacket::encode,
-                TreatmentPreparationSoundC2SPacket::decode,
-                TreatmentPreparationSoundC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                MedicalActionSoundS2CPacket.class,
-                MedicalActionSoundS2CPacket::encode,
-                MedicalActionSoundS2CPacket::decode,
-                MedicalActionSoundS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                StartMedicationC2SPacket.class,
-                StartMedicationC2SPacket::encode,
-                StartMedicationC2SPacket::decode,
-                StartMedicationC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                MedicationPreparationC2SPacket.class,
-                MedicationPreparationC2SPacket::encode,
-                MedicationPreparationC2SPacket::decode,
-                MedicationPreparationC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                MedicationSessionS2CPacket.class,
-                MedicationSessionS2CPacket::encode,
-                MedicationSessionS2CPacket::decode,
-                MedicationSessionS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                GiveUpHoldC2SPacket.class,
-                GiveUpHoldC2SPacket::encode,
-                GiveUpHoldC2SPacket::decode,
-                GiveUpHoldC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                GiveUpSessionS2CPacket.class,
-                GiveUpSessionS2CPacket::encode,
-                GiveUpSessionS2CPacket::decode,
-                GiveUpSessionS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                AirwayActionC2SPacket.class,
-                AirwayActionC2SPacket::encode,
-                AirwayActionC2SPacket::decode,
-                AirwayActionC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                StartInfusionC2SPacket.class,
-                StartInfusionC2SPacket::encode,
-                StartInfusionC2SPacket::decode,
-                StartInfusionC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                CprActionC2SPacket.class,
-                CprActionC2SPacket::encode,
-                CprActionC2SPacket::decode,
-                CprActionC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                StartDefibrillationC2SPacket.class,
-                StartDefibrillationC2SPacket::encode,
-                StartDefibrillationC2SPacket::decode,
-                StartDefibrillationC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                DefibrillatorChargingSoundS2CPacket.class,
-                DefibrillatorChargingSoundS2CPacket::encode,
-                DefibrillatorChargingSoundS2CPacket::decode,
-                DefibrillatorChargingSoundS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                RequestAutopsyC2SPacket.class,
-                RequestAutopsyC2SPacket::encode,
-                RequestAutopsyC2SPacket::decode,
-                RequestAutopsyC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                StartAutopsyActionC2SPacket.class,
-                StartAutopsyActionC2SPacket::encode,
-                StartAutopsyActionC2SPacket::decode,
-                StartAutopsyActionC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                CloseAutopsyC2SPacket.class,
-                CloseAutopsyC2SPacket::encode,
-                CloseAutopsyC2SPacket::decode,
-                CloseAutopsyC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                AutopsyReportS2CPacket.class,
-                AutopsyReportS2CPacket::encode,
-                AutopsyReportS2CPacket::decode,
-                AutopsyReportS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                CloseAutopsyS2CPacket.class,
-                CloseAutopsyS2CPacket::encode,
-                CloseAutopsyS2CPacket::decode,
-                CloseAutopsyS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                TimingQteStartS2CPacket.class,
-                TimingQteStartS2CPacket::encode,
-                TimingQteStartS2CPacket::decode,
-                TimingQteStartS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                TimingQteSubmitC2SPacket.class,
-                TimingQteSubmitC2SPacket::encode,
-                TimingQteSubmitC2SPacket::decode,
-                TimingQteSubmitC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                TimingQteResultS2CPacket.class,
-                TimingQteResultS2CPacket::encode,
-                TimingQteResultS2CPacket::decode,
-                TimingQteResultS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                BodyDragActionC2SPacket.class,
-                BodyDragActionC2SPacket::encode,
-                BodyDragActionC2SPacket::decode,
-                BodyDragActionC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                BodyDragStateS2CPacket.class,
-                BodyDragStateS2CPacket::encode,
-                BodyDragStateS2CPacket::decode,
-                BodyDragStateS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT)
-        );
-        CHANNEL.registerMessage(
-                nextPacketId++,
-                BodyRotationActionC2SPacket.class,
-                BodyRotationActionC2SPacket::encode,
-                BodyRotationActionC2SPacket::decode,
-                BodyRotationActionC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER)
-        );
+    public static void register(RegisterPayloadHandlersEvent event) {
+        var registrar = event.registrar(PROTOCOL_VERSION);
+        registrar.playToServer(CancelSkinGraftC2SPacket.TYPE, CancelSkinGraftC2SPacket.STREAM_CODEC, CancelSkinGraftC2SPacket::handle);
+        registrar.playToClient(BodyStateSyncS2CPacket.TYPE, BodyStateSyncS2CPacket.STREAM_CODEC, BodyStateSyncS2CPacket::handle);
+        registrar.playToServer(RequestBodyStateC2SPacket.TYPE, RequestBodyStateC2SPacket.STREAM_CODEC, RequestBodyStateC2SPacket::handle);
+        registrar.playToClient(BloodLossFeedbackS2CPacket.TYPE, BloodLossFeedbackS2CPacket.STREAM_CODEC, BloodLossFeedbackS2CPacket::handle);
+        registrar.playToClient(DownedPoseSyncS2CPacket.TYPE, DownedPoseSyncS2CPacket.STREAM_CODEC, DownedPoseSyncS2CPacket::handle);
+        registrar.playToServer(RequestLootTargetC2SPacket.TYPE, RequestLootTargetC2SPacket.STREAM_CODEC, RequestLootTargetC2SPacket::handle);
+        registrar.playToServer(RequestInspectionC2SPacket.TYPE, RequestInspectionC2SPacket.STREAM_CODEC, RequestInspectionC2SPacket::handle);
+        registrar.playToServer(CloseInspectionC2SPacket.TYPE, CloseInspectionC2SPacket.STREAM_CODEC, CloseInspectionC2SPacket::handle);
+        registrar.playToClient(InspectionSnapshotS2CPacket.TYPE, InspectionSnapshotS2CPacket.STREAM_CODEC, InspectionSnapshotS2CPacket::handle);
+        registrar.playToClient(CloseInspectionS2CPacket.TYPE, CloseInspectionS2CPacket.STREAM_CODEC, CloseInspectionS2CPacket::handle);
+        registrar.playToClient(MedicalInspectionNoticeS2CPacket.TYPE, MedicalInspectionNoticeS2CPacket.STREAM_CODEC, MedicalInspectionNoticeS2CPacket::handle);
+        registrar.playToServer(StartTreatmentC2SPacket.TYPE, StartTreatmentC2SPacket.STREAM_CODEC, StartTreatmentC2SPacket::handle);
+        registrar.playToClient(TreatmentSessionS2CPacket.TYPE, TreatmentSessionS2CPacket.STREAM_CODEC, TreatmentSessionS2CPacket::handle);
+        registrar.playToServer(TreatmentPreparationSoundC2SPacket.TYPE, TreatmentPreparationSoundC2SPacket.STREAM_CODEC, TreatmentPreparationSoundC2SPacket::handle);
+        registrar.playToClient(MedicalActionSoundS2CPacket.TYPE, MedicalActionSoundS2CPacket.STREAM_CODEC, MedicalActionSoundS2CPacket::handle);
+        registrar.playToServer(StartMedicationC2SPacket.TYPE, StartMedicationC2SPacket.STREAM_CODEC, StartMedicationC2SPacket::handle);
+        registrar.playToServer(MedicationPreparationC2SPacket.TYPE, MedicationPreparationC2SPacket.STREAM_CODEC, MedicationPreparationC2SPacket::handle);
+        registrar.playToClient(MedicationSessionS2CPacket.TYPE, MedicationSessionS2CPacket.STREAM_CODEC, MedicationSessionS2CPacket::handle);
+        registrar.playToServer(GiveUpHoldC2SPacket.TYPE, GiveUpHoldC2SPacket.STREAM_CODEC, GiveUpHoldC2SPacket::handle);
+        registrar.playToClient(GiveUpSessionS2CPacket.TYPE, GiveUpSessionS2CPacket.STREAM_CODEC, GiveUpSessionS2CPacket::handle);
+        registrar.playToServer(AirwayActionC2SPacket.TYPE, AirwayActionC2SPacket.STREAM_CODEC, AirwayActionC2SPacket::handle);
+        registrar.playToServer(StartInfusionC2SPacket.TYPE, StartInfusionC2SPacket.STREAM_CODEC, StartInfusionC2SPacket::handle);
+        registrar.playToServer(CprActionC2SPacket.TYPE, CprActionC2SPacket.STREAM_CODEC, CprActionC2SPacket::handle);
+        registrar.playToServer(StartDefibrillationC2SPacket.TYPE, StartDefibrillationC2SPacket.STREAM_CODEC, StartDefibrillationC2SPacket::handle);
+        registrar.playToClient(DefibrillatorChargingSoundS2CPacket.TYPE, DefibrillatorChargingSoundS2CPacket.STREAM_CODEC, DefibrillatorChargingSoundS2CPacket::handle);
+        registrar.playToServer(RequestAutopsyC2SPacket.TYPE, RequestAutopsyC2SPacket.STREAM_CODEC, RequestAutopsyC2SPacket::handle);
+        registrar.playToServer(StartAutopsyActionC2SPacket.TYPE, StartAutopsyActionC2SPacket.STREAM_CODEC, StartAutopsyActionC2SPacket::handle);
+        registrar.playToServer(CloseAutopsyC2SPacket.TYPE, CloseAutopsyC2SPacket.STREAM_CODEC, CloseAutopsyC2SPacket::handle);
+        registrar.playToClient(AutopsyReportS2CPacket.TYPE, AutopsyReportS2CPacket.STREAM_CODEC, AutopsyReportS2CPacket::handle);
+        registrar.playToClient(CloseAutopsyS2CPacket.TYPE, CloseAutopsyS2CPacket.STREAM_CODEC, CloseAutopsyS2CPacket::handle);
+        registrar.playToClient(TimingQteStartS2CPacket.TYPE, TimingQteStartS2CPacket.STREAM_CODEC, TimingQteStartS2CPacket::handle);
+        registrar.playToServer(TimingQteSubmitC2SPacket.TYPE, TimingQteSubmitC2SPacket.STREAM_CODEC, TimingQteSubmitC2SPacket::handle);
+        registrar.playToClient(TimingQteResultS2CPacket.TYPE, TimingQteResultS2CPacket.STREAM_CODEC, TimingQteResultS2CPacket::handle);
+        registrar.playToServer(BodyDragActionC2SPacket.TYPE, BodyDragActionC2SPacket.STREAM_CODEC, BodyDragActionC2SPacket::handle);
+        registrar.playToClient(BodyDragStateS2CPacket.TYPE, BodyDragStateS2CPacket.STREAM_CODEC, BodyDragStateS2CPacket::handle);
+        registrar.playToServer(BodyRotationActionC2SPacket.TYPE, BodyRotationActionC2SPacket.STREAM_CODEC, BodyRotationActionC2SPacket::handle);
     }
 
     public static void syncBodyState(ServerPlayer player) {
-        BodyStateCapability.get(player).ifPresent(bodyState -> CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> player),
+        BodyStateCapability.get(player).ifPresent(bodyState -> PacketDistributor.sendToPlayer(player,
                 new BodyStateSyncS2CPacket(bodyState.serializeNBT())
         ));
     }
 
     public static void syncDownedPose(ServerPlayer player) {
-        CHANNEL.send(
-                PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
+        PacketDistributor.sendToPlayersTrackingEntityAndSelf(player,
                 createDownedPosePacket(player)
         );
     }
 
     public static void syncDownedPoseTo(ServerPlayer subject, ServerPlayer receiver) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> receiver),
+        PacketDistributor.sendToPlayer(receiver,
                 createDownedPosePacket(subject)
         );
     }
 
     public static void clearDownedPoseFor(ServerPlayer receiver, int subjectEntityId) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> receiver),
+        PacketDistributor.sendToPlayer(receiver,
                 DownedPoseSyncS2CPacket.active(subjectEntityId)
         );
     }
 
     public static void syncDefibrillatorCharging(ServerPlayer actor, boolean charging) {
-        CHANNEL.send(
-                PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> actor),
+        PacketDistributor.sendToPlayersTrackingEntityAndSelf(actor,
                 new DefibrillatorChargingSoundS2CPacket(actor.getId(), charging)
         );
     }
@@ -410,46 +150,45 @@ public final class ModNetworking {
             ServerPlayer receiver,
             boolean charging
     ) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> receiver),
+        PacketDistributor.sendToPlayer(receiver,
                 new DefibrillatorChargingSoundS2CPacket(actor.getId(), charging)
         );
     }
 
     public static void requestOwnBodyState() {
-        CHANNEL.sendToServer(new RequestBodyStateC2SPacket());
+        PacketDistributor.sendToServer(new RequestBodyStateC2SPacket());
     }
 
     public static void requestLootTarget(int targetEntityId) {
-        CHANNEL.sendToServer(new RequestLootTargetC2SPacket(targetEntityId));
+        PacketDistributor.sendToServer(new RequestLootTargetC2SPacket(targetEntityId));
     }
 
     public static void requestInspection(int targetEntityId) {
-        CHANNEL.sendToServer(new RequestInspectionC2SPacket(targetEntityId));
+        PacketDistributor.sendToServer(new RequestInspectionC2SPacket(targetEntityId));
     }
 
     public static void requestAutopsy(int corpseEntityId) {
-        CHANNEL.sendToServer(new RequestAutopsyC2SPacket(corpseEntityId));
+        PacketDistributor.sendToServer(new RequestAutopsyC2SPacket(corpseEntityId));
     }
 
     public static void requestAutopsyAction(int corpseEntityId, AutopsyAction action) {
-        CHANNEL.sendToServer(new StartAutopsyActionC2SPacket(corpseEntityId, action));
+        PacketDistributor.sendToServer(new StartAutopsyActionC2SPacket(corpseEntityId, action));
     }
 
     public static void closeAutopsy(int corpseEntityId) {
-        CHANNEL.sendToServer(new CloseAutopsyC2SPacket(corpseEntityId));
+        PacketDistributor.sendToServer(new CloseAutopsyC2SPacket(corpseEntityId));
     }
 
     public static void submitTimingQte(int sessionId, float elapsedTicks, boolean pressed) {
-        CHANNEL.sendToServer(new TimingQteSubmitC2SPacket(sessionId, elapsedTicks, pressed));
+        PacketDistributor.sendToServer(new TimingQteSubmitC2SPacket(sessionId, elapsedTicks, pressed));
     }
 
     public static void closeInspection(int targetEntityId) {
-        CHANNEL.sendToServer(new CloseInspectionC2SPacket(targetEntityId));
+        PacketDistributor.sendToServer(new CloseInspectionC2SPacket(targetEntityId));
     }
 
     public static void cancelSkinGraft() {
-        CHANNEL.sendToServer(new CancelSkinGraftC2SPacket());
+        PacketDistributor.sendToServer(new CancelSkinGraftC2SPacket());
     }
 
     public static void requestTreatment(
@@ -458,7 +197,7 @@ public final class ModNetworking {
             TreatmentProcedure procedure,
             TreatmentAction action
     ) {
-        CHANNEL.sendToServer(new StartTreatmentC2SPacket(patientEntityId, woundId, procedure, action));
+        PacketDistributor.sendToServer(new StartTreatmentC2SPacket(patientEntityId, woundId, procedure, action));
     }
 
     public static void setTreatmentPreparationSound(
@@ -467,7 +206,7 @@ public final class ModNetworking {
             TreatmentPreparationType type,
             boolean active
     ) {
-        CHANNEL.sendToServer(new TreatmentPreparationSoundC2SPacket(
+        PacketDistributor.sendToServer(new TreatmentPreparationSoundC2SPacket(
                 patientEntityId,
                 woundId,
                 type,
@@ -476,35 +215,35 @@ public final class ModNetworking {
     }
 
     public static void requestMedication(int patientEntityId, MedicationType type) {
-        CHANNEL.sendToServer(new StartMedicationC2SPacket(patientEntityId, type));
+        PacketDistributor.sendToServer(new StartMedicationC2SPacket(patientEntityId, type));
     }
 
     public static void setMedicationPreparation(int patientEntityId, boolean active) {
-        CHANNEL.sendToServer(new MedicationPreparationC2SPacket(patientEntityId, active));
+        PacketDistributor.sendToServer(new MedicationPreparationC2SPacket(patientEntityId, active));
     }
 
     public static void setGiveUpHolding(boolean holding) {
-        CHANNEL.sendToServer(new GiveUpHoldC2SPacket(holding));
+        PacketDistributor.sendToServer(new GiveUpHoldC2SPacket(holding));
     }
 
     public static void setBodyDragHolding(int targetEntityId, boolean holding) {
-        CHANNEL.sendToServer(new BodyDragActionC2SPacket(targetEntityId, holding));
+        PacketDistributor.sendToServer(new BodyDragActionC2SPacket(targetEntityId, holding));
     }
 
     public static void setBodyRotationHolding(int targetEntityId, boolean holding) {
-        CHANNEL.sendToServer(new BodyRotationActionC2SPacket(targetEntityId, holding));
+        PacketDistributor.sendToServer(new BodyRotationActionC2SPacket(targetEntityId, holding));
     }
 
     public static void setAssistedBreathing(int patientEntityId, boolean active) {
-        CHANNEL.sendToServer(new AirwayActionC2SPacket(patientEntityId, active));
+        PacketDistributor.sendToServer(new AirwayActionC2SPacket(patientEntityId, active));
     }
 
     public static void requestInfusion(int patientEntityId, InfusionType type) {
-        CHANNEL.sendToServer(new StartInfusionC2SPacket(patientEntityId, type));
+        PacketDistributor.sendToServer(new StartInfusionC2SPacket(patientEntityId, type));
     }
 
     public static void setCpr(int patientEntityId, boolean active) {
-        CHANNEL.sendToServer(new CprActionC2SPacket(patientEntityId, active));
+        PacketDistributor.sendToServer(new CprActionC2SPacket(patientEntityId, active));
     }
 
     public static void startDefibrillation(int patientEntityId, DefibrillationEnergy energy) {
@@ -524,7 +263,7 @@ public final class ModNetworking {
             DefibrillationEnergy energy,
             DefibrillationAction action
     ) {
-        CHANNEL.sendToServer(new StartDefibrillationC2SPacket(
+        PacketDistributor.sendToServer(new StartDefibrillationC2SPacket(
                 patientEntityId,
                 energy.joules(),
                 action
@@ -537,8 +276,7 @@ public final class ModNetworking {
             BodyState bodyState,
             boolean openScreen
     ) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> inspector),
+        PacketDistributor.sendToPlayer(inspector,
                 new InspectionSnapshotS2CPacket(
                         patient.getId(),
                         patient.getDisplayName(),
@@ -551,8 +289,7 @@ public final class ModNetworking {
     }
 
     public static void closeInspection(ServerPlayer inspector, int patientEntityId) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> inspector),
+        PacketDistributor.sendToPlayer(inspector,
                 new CloseInspectionS2CPacket(patientEntityId)
         );
     }
@@ -562,8 +299,7 @@ public final class ModNetworking {
             ServerPlayer inspector,
             net.minecraft.network.chat.Component actionItemName
     ) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> patient),
+        PacketDistributor.sendToPlayer(patient,
                 new MedicalInspectionNoticeS2CPacket(
                         inspector.getGameProfile().getName(),
                         actionItemName
@@ -572,22 +308,19 @@ public final class ModNetworking {
     }
 
     public static void sendAutopsyReport(ServerPlayer examiner, AutopsyReport report, boolean openScreen) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> examiner),
+        PacketDistributor.sendToPlayer(examiner,
                 new AutopsyReportS2CPacket(report.save(), openScreen)
         );
     }
 
     public static void closeAutopsy(ServerPlayer examiner, int corpseEntityId) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> examiner),
+        PacketDistributor.sendToPlayer(examiner,
                 new CloseAutopsyS2CPacket(corpseEntityId)
         );
     }
 
     public static void sendTimingQteStarted(ServerPlayer player, TimingQteSnapshot snapshot) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> player),
+        PacketDistributor.sendToPlayer(player,
                 new TimingQteStartS2CPacket(snapshot)
         );
     }
@@ -597,15 +330,13 @@ public final class ModNetworking {
             int sessionId,
             TimingQteResult result
     ) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> player),
+        PacketDistributor.sendToPlayer(player,
                 new TimingQteResultS2CPacket(sessionId, result)
         );
     }
 
     public static void sendTreatmentStarted(ServerPlayer actor, int patientEntityId, TreatmentSession session) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> actor),
+        PacketDistributor.sendToPlayer(actor,
                 TreatmentSessionS2CPacket.started(
                         patientEntityId,
                         session.woundId(),
@@ -621,8 +352,7 @@ public final class ModNetworking {
             TreatmentSession session,
             TreatmentCancelReason reason
     ) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> actor),
+        PacketDistributor.sendToPlayer(actor,
                 TreatmentSessionS2CPacket.cancelled(
                         -1,
                         session.woundId(),
@@ -634,8 +364,7 @@ public final class ModNetworking {
     }
 
     public static void sendTreatmentCompleted(ServerPlayer actor, int patientEntityId, TreatmentSession session) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> actor),
+        PacketDistributor.sendToPlayer(actor,
                 TreatmentSessionS2CPacket.completed(
                         patientEntityId,
                         session.woundId(),
@@ -650,8 +379,7 @@ public final class ModNetworking {
             int patientEntityId,
             MedicationSession session
     ) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> actor),
+        PacketDistributor.sendToPlayer(actor,
                 MedicationSessionS2CPacket.started(
                         patientEntityId,
                         session.type(),
@@ -665,8 +393,7 @@ public final class ModNetworking {
             MedicationSession session,
             MedicationCancelReason reason
     ) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> actor),
+        PacketDistributor.sendToPlayer(actor,
                 MedicationSessionS2CPacket.cancelled(session.type(), reason)
         );
     }
@@ -676,29 +403,25 @@ public final class ModNetworking {
             int patientEntityId,
             MedicationSession session
     ) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> actor),
+        PacketDistributor.sendToPlayer(actor,
                 MedicationSessionS2CPacket.completed(patientEntityId, session.type())
         );
     }
 
     public static void sendGiveUpStarted(ServerPlayer player, long endsGameTime) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> player),
+        PacketDistributor.sendToPlayer(player,
                 GiveUpSessionS2CPacket.started(endsGameTime)
         );
     }
 
     public static void sendGiveUpCancelled(ServerPlayer player) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> player),
+        PacketDistributor.sendToPlayer(player,
                 GiveUpSessionS2CPacket.cancelled()
         );
     }
 
     public static void sendGiveUpCompleted(ServerPlayer player) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> player),
+        PacketDistributor.sendToPlayer(player,
                 GiveUpSessionS2CPacket.completed()
         );
     }
@@ -710,8 +433,7 @@ public final class ModNetworking {
             MedicalActionSound sound,
             boolean active
     ) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> receiver),
+        PacketDistributor.sendToPlayer(receiver,
                 active
                         ? MedicalActionSoundS2CPacket.start(actor.getId(), channel, sound)
                         : MedicalActionSoundS2CPacket.stop(actor.getId(), channel)
@@ -737,15 +459,13 @@ public final class ModNetworking {
             ServerPlayer receiver,
             MedicalActionSound sound
     ) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> receiver),
+        PacketDistributor.sendToPlayer(receiver,
                 MedicalActionSoundS2CPacket.playOnce(actor.getId(), sound)
         );
     }
 
     public static void sendBloodLossFeedback(ServerPlayer player, float amount) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> player),
+        PacketDistributor.sendToPlayer(player,
                 new BloodLossFeedbackS2CPacket(amount)
         );
     }
@@ -762,8 +482,7 @@ public final class ModNetworking {
             int draggerEntityId,
             boolean active
     ) {
-        CHANNEL.send(
-                PacketDistributor.ALL.noArg(),
+        PacketDistributor.sendToAllPlayers(
                 new BodyDragStateS2CPacket(targetEntityId, draggerEntityId, active)
         );
     }
@@ -774,8 +493,7 @@ public final class ModNetworking {
             ServerPlayer receiver,
             boolean active
     ) {
-        CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> receiver),
+        PacketDistributor.sendToPlayer(receiver,
                 new BodyDragStateS2CPacket(target.getId(), dragger.getId(), active)
         );
     }
@@ -798,7 +516,6 @@ public final class ModNetworking {
 
     private static DownedPoseSyncS2CPacket createDownedPosePacket(ServerPlayer player) {
         return BodyStateCapability.get(player)
-                .resolve()
                 .flatMap(bodyState -> bodyState.downedPoseSnapshot())
                 .map(snapshot -> DownedPoseSyncS2CPacket.downed(player.getId(), snapshot))
                 .orElseGet(() -> DownedPoseSyncS2CPacket.active(player.getId()));

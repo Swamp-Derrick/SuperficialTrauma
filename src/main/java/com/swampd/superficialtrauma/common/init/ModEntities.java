@@ -6,21 +6,21 @@ import com.swampd.superficialtrauma.common.entity.CorpseEntity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.ai.attributes.Attributes;
-import net.minecraftforge.event.entity.EntityAttributeCreationEvent;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.registries.DeferredRegister;
-import net.minecraftforge.registries.ForgeRegistries;
-import net.minecraftforge.registries.RegistryObject;
+import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.registries.DeferredRegister;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.neoforged.neoforge.registries.DeferredHolder;
 
 public final class ModEntities {
     private static final DeferredRegister<EntityType<?>> ENTITY_TYPES = DeferredRegister.create(
-            ForgeRegistries.ENTITY_TYPES,
+            BuiltInRegistries.ENTITY_TYPE,
             SuperficialTrauma.MOD_ID
     );
 
-    public static final RegistryObject<EntityType<CorpseEntity>> CORPSE = ENTITY_TYPES.register(
+    public static final DeferredHolder<EntityType<?>, EntityType<CorpseEntity>> CORPSE = ENTITY_TYPES.register(
             "corpse",
             () -> EntityType.Builder.<CorpseEntity>of(CorpseEntity::new, MobCategory.MISC)
                     .sized(DownedGeometry.BODY_WIDTH, DownedGeometry.BODY_HEIGHT)
@@ -37,9 +37,8 @@ public final class ModEntities {
         ENTITY_TYPES.register(eventBus);
     }
 
-    @Mod.EventBusSubscriber(
-            modid = SuperficialTrauma.MOD_ID,
-            bus = Mod.EventBusSubscriber.Bus.MOD
+    @EventBusSubscriber(
+            modid = SuperficialTrauma.MOD_ID
     )
     public static final class AttributesRegistration {
         private AttributesRegistration() {

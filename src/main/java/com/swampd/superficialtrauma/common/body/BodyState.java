@@ -15,7 +15,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.util.Mth;
-import net.minecraftforge.common.util.INBTSerializable;
+import net.neoforged.neoforge.common.util.INBTSerializable;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -3018,6 +3018,15 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     @Override
+    public CompoundTag serializeNBT(net.minecraft.core.HolderLookup.Provider registries) {
+        return serializeNBT();
+    }
+
+    @Override
+    public void deserializeNBT(net.minecraft.core.HolderLookup.Provider registries, CompoundTag tag) {
+        deserializeNBT(tag);
+    }
+
     public CompoundTag serializeNBT() {
         CompoundTag tag = new CompoundTag();
         tag.putInt(TAG_DATA_VERSION, CURRENT_DATA_VERSION);
@@ -3133,7 +3142,6 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return tag;
     }
 
-    @Override
     public void deserializeNBT(CompoundTag tag) {
         resetToDefaults();
         int storedVersion = tag.contains(TAG_DATA_VERSION, Tag.TAG_INT) ? tag.getInt(TAG_DATA_VERSION) : 0;

@@ -5,15 +5,14 @@ import com.swampd.superficialtrauma.common.body.DownedFallDirection;
 import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.Mth;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.RenderHandEvent;
-import net.minecraftforge.client.event.ViewportEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.RenderHandEvent;
+import net.neoforged.neoforge.client.event.ViewportEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
-@Mod.EventBusSubscriber(
+@EventBusSubscriber(
         modid = SuperficialTrauma.MOD_ID,
-        bus = Mod.EventBusSubscriber.Bus.FORGE,
         value = Dist.CLIENT
 )
 public final class ClientDownedCamera {

@@ -4,13 +4,15 @@ import com.swampd.superficialtrauma.client.ClientTreatmentState;
 import com.swampd.superficialtrauma.common.treatment.TreatmentCancelReason;
 import com.swampd.superficialtrauma.common.treatment.TreatmentAction;
 import com.swampd.superficialtrauma.common.treatment.TreatmentProcedure;
-import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.network.chat.ComponentSerialization;
+import com.swampd.superficialtrauma.SuperficialTrauma;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 import java.util.UUID;
-import java.util.function.Supplier;
 
 public record TreatmentSessionS2CPacket(
         Status status,
@@ -20,7 +22,12 @@ public record TreatmentSessionS2CPacket(
         TreatmentAction action,
         long endsGameTime,
         TreatmentCancelReason cancelReason
-) {
+) implements CustomPacketPayload {
+    public static final Type<TreatmentSessionS2CPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "treatment_session_s2_cpacket"));
+    public static final StreamCodec<RegistryFriendlyByteBuf, TreatmentSessionS2CPacket> STREAM_CODEC = StreamCodec.ofMember(TreatmentSessionS2CPacket::write, TreatmentSessionS2CPacket::decode);
+    private void write(RegistryFriendlyByteBuf buffer) { encode(this, buffer); }
+    @Override public Type<TreatmentSessionS2CPacket> type() { return TYPE; }
+
     public static TreatmentSessionS2CPacket started(
             int patientEntityId,
             UUID woundId,
@@ -74,7 +81,7 @@ public record TreatmentSessionS2CPacket(
         );
     }
 
-    public static void encode(TreatmentSessionS2CPacket packet, FriendlyByteBuf buffer) {
+    public static void encode(TreatmentSessionS2CPacket packet, RegistryFriendlyByteBuf buffer) {
         buffer.writeEnum(packet.status);
         buffer.writeVarInt(packet.patientEntityId);
         buffer.writeUUID(packet.woundId);
@@ -87,7 +94,7 @@ public record TreatmentSessionS2CPacket(
         }
     }
 
-    public static TreatmentSessionS2CPacket decode(FriendlyByteBuf buffer) {
+    public static TreatmentSessionS2CPacket decode(RegistryFriendlyByteBuf buffer) {
         Status status = buffer.readEnum(Status.class);
         int patientEntityId = buffer.readVarInt();
         UUID woundId = buffer.readUUID();
@@ -108,9 +115,8 @@ public record TreatmentSessionS2CPacket(
         );
     }
 
-    public static void handle(TreatmentSessionS2CPacket packet, Supplier<NetworkEvent.Context> contextSupplier) {
-        NetworkEvent.Context context = contextSupplier.get();
-        context.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> {
+    public static void handle(TreatmentSessionS2CPacket packet, IPayloadContext context) {
+        context.enqueueWork(() -> {
             switch (packet.status) {
                 case STARTED -> ClientTreatmentState.started(
                         packet.patientEntityId,
@@ -122,8 +128,7 @@ public record TreatmentSessionS2CPacket(
                 case CANCELLED -> ClientTreatmentState.cancelled(packet.cancelReason);
                 case COMPLETED -> ClientTreatmentState.completed(packet.procedure, packet.action);
             }
-        }));
-        context.setPacketHandled(true);
+        });
     }
 
     public enum Status {

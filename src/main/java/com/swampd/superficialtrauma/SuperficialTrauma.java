@@ -1,7 +1,7 @@
 package com.swampd.superficialtrauma;
 
 import com.mojang.logging.LogUtils;
-import com.swampd.superficialtrauma.common.body.BodyState;
+import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.config.CorpseServerConfig;
 import com.swampd.superficialtrauma.common.init.ModBlocks;
 import com.swampd.superficialtrauma.common.init.ModBlockEntities;
@@ -12,12 +12,11 @@ import com.swampd.superficialtrauma.common.init.ModItems;
 import com.swampd.superficialtrauma.common.init.ModSounds;
 import com.swampd.superficialtrauma.common.init.ModEffects;
 import com.swampd.superficialtrauma.network.ModNetworking;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.common.capabilities.RegisterCapabilitiesEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.config.ModConfig;
-import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.neoforged.fml.ModContainer;
 import org.slf4j.Logger;
 
 @Mod(SuperficialTrauma.MOD_ID)
@@ -25,9 +24,9 @@ public final class SuperficialTrauma {
     public static final String MOD_ID = "superficialtrauma";
     public static final Logger LOGGER = LogUtils.getLogger();
 
-    public SuperficialTrauma(FMLJavaModLoadingContext loadingContext) {
-        IEventBus modEventBus = loadingContext.getModEventBus();
-        loadingContext.registerConfig(ModConfig.Type.SERVER, CorpseServerConfig.SPEC);
+    public SuperficialTrauma(IEventBus modEventBus, ModContainer container) {
+        container.registerConfig(ModConfig.Type.SERVER, CorpseServerConfig.SPEC);
+        BodyStateCapability.register(modEventBus);
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
         ModEntities.register(modEventBus);
@@ -37,15 +36,12 @@ public final class SuperficialTrauma {
         ModCreativeTabs.register(modEventBus);
         ModMenus.register(modEventBus);
         modEventBus.addListener(this::onCommonSetup);
-        modEventBus.addListener(this::onRegisterCapabilities);
-        ModNetworking.register();
+        modEventBus.addListener(ModNetworking::register);
     }
 
     private void onCommonSetup(FMLCommonSetupEvent event) {
+        event.enqueueWork(com.swampd.superficialtrauma.common.treatment.TreatmentEvents::registerOptionalGunEvents);
         LOGGER.info("Superficial Trauma common setup complete");
     }
 
-    private void onRegisterCapabilities(RegisterCapabilitiesEvent event) {
-        event.register(BodyState.class);
-    }
 }

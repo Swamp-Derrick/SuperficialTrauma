@@ -119,7 +119,6 @@ public final class TreatmentPreparationSoundService {
             return false;
         }
         WoundInstance wound = BodyStateCapability.get(patient)
-                .resolve()
                 .flatMap(state -> state.wound(woundId))
                 .orElse(null);
         if (wound == null) {

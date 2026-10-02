@@ -15,11 +15,13 @@ import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
-import net.minecraftforge.network.NetworkHooks;
 
 import javax.annotation.Nullable;
 
 public final class MedicalWorkbenchBlock extends MedicalEquipmentBlock implements EntityBlock {
+    public static final com.mojang.serialization.MapCodec<MedicalWorkbenchBlock> CODEC = simpleCodec(MedicalWorkbenchBlock::new);
+    @Override
+    protected com.mojang.serialization.MapCodec<MedicalWorkbenchBlock> codec() { return CODEC; }
     public MedicalWorkbenchBlock(Properties properties) {
         super(properties);
     }
@@ -50,18 +52,17 @@ public final class MedicalWorkbenchBlock extends MedicalEquipmentBlock implement
     }
 
     @Override
-    public InteractionResult use(
+    public InteractionResult useWithoutItem(
             BlockState state,
             Level level,
             BlockPos pos,
             Player player,
-            InteractionHand hand,
             BlockHitResult hit
     ) {
         if (!level.isClientSide && player instanceof ServerPlayer serverPlayer) {
             BlockEntity blockEntity = level.getBlockEntity(pos);
             if (blockEntity instanceof MedicalWorkbenchBlockEntity workbench) {
-                NetworkHooks.openScreen(serverPlayer, workbench, pos);
+                serverPlayer.openMenu(workbench, pos);
             }
         }
         return InteractionResult.sidedSuccess(level.isClientSide);
@@ -76,7 +77,7 @@ public final class MedicalWorkbenchBlock extends MedicalEquipmentBlock implement
             ItemStack stack
     ) {
         super.setPlacedBy(level, pos, state, placer, stack);
-        if (stack.hasCustomHoverName()) {
+        if (stack.has(net.minecraft.core.component.DataComponents.CUSTOM_NAME)) {
             BlockEntity blockEntity = level.getBlockEntity(pos);
             if (blockEntity instanceof MedicalWorkbenchBlockEntity workbench) {
                 workbench.setCustomName(stack.getHoverName());

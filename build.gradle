@@ -1,199 +1,115 @@
-buildscript {
-    repositories {
-        maven {
-            name = 'SpongePowered'
-            url = 'https://repo.spongepowered.org/repository/maven-public/'
-        }
-    }
-    dependencies {
-        classpath 'org.spongepowered:mixingradle:0.7-SNAPSHOT'
-    }
-}
-
 plugins {
+    id 'java-library'
     id 'eclipse'
     id 'idea'
-    id 'net.minecraftforge.gradle' version '6.0.54'
+    id 'net.neoforged.moddev' version '2.0.148'
 }
-
-apply plugin: 'org.spongepowered.mixin'
-
 group = mod_group_id
 version = mod_version
-
-base {
-    archivesName = mod_id
-}
-
+base { archivesName = "${mod_id}-neoforge-${minecraft_version}" }
 java {
-    toolchain.languageVersion = JavaLanguageVersion.of(17)
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
     withSourcesJar()
 }
-
-def compatibilityModsDirectory = file(findProperty('compatibility_mods_dir') ?: '../Compatiblemods')
+def compatibilityModsDirectory = file(findProperty('compatibility_mods_dir') ?: '../Compatiblemods-1.21.1')
 def compatibilityModsEnabled = (findProperty('enable_compatibility_mods') ?: 'false').toBoolean()
 def compatibilityArtifacts = [
-        [name: 'framework-forge-1.20.1', version: '0.6.16', file: 'framework-forge-1.20.1-0.6.16.jar'],
-        [name: 'CGM-Unofficial', version: '1.4.20+Forge+1.20.1+valfucked', file: 'CGM-Unofficial-1.4.20+Forge+1.20.1+valfucked.jar'],
-        [name: 'nzgExpansionUnofficialSD', version: '1.4.4-1.20.1', file: 'nzgExpansionUnofficialSD-1.4.4-1.20.1.jar'],
-        [name: 'redundantGunsUnofficialSD', version: '1.0.0-1.20.1', file: 'redundantGunsUnofficialSD-1.0.0-1.20.1.jar'],
-        [name: 'voicechat-forge-1.20.1', version: '2.6.21', file: 'voicechat-forge-1.20.1-2.6.21.jar']
+        'framework-neoforge-1.21.1-0.13.11.jar',
+        'cgm-1.4.4.jar',
+        'nzgExpansion-neoforge-1.5.0-port.1+1.21.1.jar'
 ]
-
-minecraft {
-    mappings channel: mapping_channel, version: mapping_version
-    copyIdeResources = true
-
+sourceSets {
+    gameTest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+neoForge {
+    version = project.neo_version
     runs {
         configureEach {
-            workingDirectory project.file('run')
-            property 'forge.logging.markers', 'REGISTRIES'
-            property 'forge.logging.console.level', 'info'
-
-            if (compatibilityModsEnabled) {
-                // Production mod jars contain SRG refmaps. In a Mojang-mapped
-                // userdev run, use the original annotation names instead.
-                property 'mixin.env.disableRefMap', 'true'
-                property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
-            }
-
-            mods {
-                "${mod_id}" {
-                    source sourceSets.main
-                }
-            }
+            // Do not upgrade the existing 1.20.1 development world.
+            gameDirectory = project.file('run-1.21.1')
+            systemProperty 'forge.logging.console.level', 'info'
         }
-
         client {
-            property 'forge.enabledGameTestNamespaces', mod_id
+            client()
+            if ((findProperty('enable_migration_client_smoke') ?: 'false').toBoolean()) {
+                systemProperty 'superficialtrauma.clientSmoke', 'true'
+            }
         }
-
-        server {
-            property 'forge.enabledGameTestNamespaces', mod_id
-            args '--nogui'
-        }
-
+        server { server(); programArgument '--nogui' }
         gameTestServer {
-            property 'forge.enabledGameTestNamespaces', mod_id
+            type = 'gameTestServer'
+            systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
         }
-
         data {
-            workingDirectory project.file('run-data')
-            args '--mod', mod_id, '--all', '--output', file('src/generated/resources/'), '--existing', file('src/main/resources/')
+            data()
+            gameDirectory = project.file('run-data-1.21.1')
+            programArguments.addAll '--mod', mod_id, '--all', '--output', file('src/generated/resources/').absolutePath,
+                    '--existing', file('src/main/resources/').absolutePath
         }
     }
-}
-
-sourceSets.main.resources {
-    srcDir 'src/generated/resources'
-}
-
-mixin {
-    add sourceSets.main, "${mod_id}.refmap.json"
-    config "${mod_id}.mixins.json"
-}
-
-repositories {
-    if (compatibilityModsEnabled) {
-        flatDir {
-            dirs compatibilityModsDirectory
+    addModdingDependenciesTo sourceSets.gameTest
+    mods {
+        "${mod_id}" {
+            sourceSet sourceSets.main
+            if ((findProperty('enable_migration_gametests') ?: 'false').toBoolean()) sourceSet sourceSets.gameTest
         }
     }
+    unitTest {
+        enable()
+        testedMod = mods."${mod_id}"
+    }
 }
-
+sourceSets.main.resources { srcDir 'src/generated/resources' }
+configurations { runtimeClasspath.extendsFrom localRuntime }
 dependencies {
-    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
-    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
-
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     if (compatibilityModsEnabled) {
-        compatibilityArtifacts.each { artifact ->
-            implementation fg.deobf("local:${artifact.name}:${artifact.version}")
-        }
+        localRuntime files(compatibilityArtifacts.collect { new File(compatibilityModsDirectory, it) })
     }
 }
-
 tasks.register('verifyCompatibilityMods') {
     group = 'verification'
-    description = 'Checks the exact local compatibility-mod baseline used for development.'
-
     doLast {
-        def missingFiles = compatibilityArtifacts.collect { artifact ->
-            new File(compatibilityModsDirectory, artifact.file)
-        }.findAll { jar -> !jar.isFile() }
-
-        if (!missingFiles.isEmpty()) {
-            throw new GradleException('Missing compatibility mods:\n' + missingFiles.collect { ' - ' + it }.join('\n'))
-        }
-
-        logger.lifecycle("Verified ${compatibilityArtifacts.size()} compatibility mods in ${compatibilityModsDirectory}")
+        def missing = compatibilityArtifacts.collect { new File(compatibilityModsDirectory, it) }.findAll { !it.isFile() }
+        if (!missing.isEmpty()) throw new GradleException('Missing compatibility mods: ' + missing.join(', '))
+        logger.lifecycle("Verified ${compatibilityArtifacts.size()} NeoForge compatibility mods in ${compatibilityModsDirectory}")
     }
 }
-
 if (compatibilityModsEnabled) {
-    tasks.named('compileJava').configure {
-        dependsOn tasks.named('verifyCompatibilityMods')
-    }
+    tasks.named('compileJava') { dependsOn tasks.named('verifyCompatibilityMods') }
 }
-
-tasks.named('processResources', ProcessResources).configure {
-    def replaceProperties = [
-            minecraft_version      : minecraft_version,
-            minecraft_version_range: minecraft_version_range,
-            forge_version          : forge_version,
-            forge_version_range    : forge_version_range,
-            loader_version_range   : loader_version_range,
-            mod_id                 : mod_id,
-            mod_name               : mod_name,
-            mod_license            : mod_license,
-            mod_version            : mod_version,
-            mod_authors            : mod_authors,
-            mod_description        : mod_description
-    ]
-
-    inputs.properties replaceProperties
-    filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
-        expand replaceProperties + [project: project]
-    }
+tasks.named('processResources', ProcessResources) {
+    def properties = [minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
+                      neo_version: neo_version, loader_version_range: loader_version_range,
+                      mod_id: mod_id, mod_name: mod_name, mod_license: mod_license, mod_version: mod_version,
+                      mod_authors: mod_authors, mod_description: mod_description]
+    inputs.properties properties
+    filesMatching(['META-INF/neoforge.mods.toml', 'pack.mcmeta']) { expand properties }
 }
-
-tasks.named('jar', Jar).configure {
-    manifest {
-        attributes([
-                'Specification-Title'      : mod_id,
-                'Specification-Vendor'     : mod_authors,
-                'Specification-Version'    : '1',
-                'Implementation-Title'     : project.name,
-                'Implementation-Version'   : project.jar.archiveVersion,
-                'Implementation-Vendor'    : mod_authors,
-                'Implementation-Timestamp' : new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
-        ])
-    }
-
-    finalizedBy 'reobfJar'
-}
-
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    options.compilerArgs.add('-Xlint:deprecation')
+    options.compilerArgs.addAll('-Xlint:deprecation', '-Xmaxerrs', '500')
 }
 
-tasks.register('bodyStateSelfTest', JavaExec) {
+tasks.withType(Jar).configureEach {
+    includeEmptyDirs = false
+}
+tasks.named('test', Test) {
+    useJUnitPlatform()
+    testLogging { events 'passed', 'skipped', 'failed'; exceptionFormat = 'full' }
+}
+tasks.register('bodyStateSelfTest') {
     group = 'verification'
-    description = 'Runs the phase-0 BodyState threshold and NBT round-trip regression test.'
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'com.swampd.superficialtrauma.common.body.BodyStateRoundTripTest'
+    dependsOn tasks.named('test')
 }
-
-tasks.register('vitalSignsVisualSelfTest', JavaExec) {
+tasks.register('vitalSignsVisualSelfTest') {
     group = 'verification'
-    description = 'Checks visual thresholds, smooth transitions, interpolation, and lifecycle reset.'
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'com.swampd.superficialtrauma.client.VitalSignsVisualStateTest'
+    dependsOn tasks.named('test')
 }
-
-tasks.named('check').configure {
-    dependsOn tasks.named('bodyStateSelfTest')
-    dependsOn tasks.named('vitalSignsVisualSelfTest')
+tasks.named('check') {
+    dependsOn tasks.named('bodyStateSelfTest'), tasks.named('vitalSignsVisualSelfTest')
 }

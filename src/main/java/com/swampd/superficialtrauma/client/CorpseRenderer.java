@@ -64,7 +64,7 @@ public final class CorpseRenderer extends LivingEntityRenderer<CorpseEntity, Pla
     public ResourceLocation getTextureLocation(CorpseEntity corpse) {
         return Minecraft.getInstance()
                 .getSkinManager()
-                .getInsecureSkinLocation(corpse.createOwnerProfile());
+                .getInsecureSkin(corpse.createOwnerProfile()).texture();
     }
 
     @Override
@@ -73,7 +73,8 @@ public final class CorpseRenderer extends LivingEntityRenderer<CorpseEntity, Pla
             PoseStack poseStack,
             float ageInTicks,
             float rotationYaw,
-            float partialTick
+            float partialTick,
+            float scale
     ) {
         float groundYaw = DownedGeometry.groundYaw(corpse.downedPose());
         poseStack.translate(0.0F, GROUND_CLEARANCE, 0.0F);
@@ -93,18 +94,8 @@ public final class CorpseRenderer extends LivingEntityRenderer<CorpseEntity, Pla
     }
 
     private static boolean usesSlimSkin(CorpseEntity corpse) {
-        GameProfile profile = corpse.createOwnerProfile();
-        Map<MinecraftProfileTexture.Type, MinecraftProfileTexture> textures = Minecraft.getInstance()
-                .getSkinManager()
-                .getInsecureSkinInformation(profile);
-        MinecraftProfileTexture skin = textures.get(MinecraftProfileTexture.Type.SKIN);
-        if (skin != null) {
-            String modelName = skin.getMetadata("model");
-            if (modelName != null) {
-                return "slim".equals(modelName);
-            }
-        }
-        return "slim".equals(DefaultPlayerSkin.getSkinModelName(profile.getId()));
+        return Minecraft.getInstance().getSkinManager().getInsecureSkin(corpse.createOwnerProfile()).model()
+                == net.minecraft.client.resources.PlayerSkin.Model.SLIM;
     }
 
     private static final class StaticPlayerModel extends PlayerModel<CorpseEntity> {
@@ -130,10 +121,7 @@ public final class CorpseRenderer extends LivingEntityRenderer<CorpseEntity, Pla
                 VertexConsumer vertexConsumer,
                 int packedLight,
                 int packedOverlay,
-                float red,
-                float green,
-                float blue,
-                float alpha
+                int color
         ) {
             setAllVisible(true);
             super.renderToBuffer(
@@ -141,10 +129,7 @@ public final class CorpseRenderer extends LivingEntityRenderer<CorpseEntity, Pla
                     vertexConsumer,
                     packedLight,
                     packedOverlay,
-                    red,
-                    green,
-                    blue,
-                    alpha
+                    color
             );
         }
     }

@@ -7,13 +7,17 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 
 /** One owned effect, with vanilla-equivalent Slowness/Weakness attributes; never removes external potions. */
 public final class FatigueEffect extends MobEffect {
-    private static final String SPEED_ID = "d2104543-6dd3-493d-b724-f2537c80ec56";
-    private static final String DAMAGE_ID = "c620dd2a-f629-4df1-a1c2-086ab3b02de8";
+    private static final net.minecraft.resources.ResourceLocation SPEED_ID =
+            net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("superficialtrauma", "fatigue_speed");
+    private static final net.minecraft.resources.ResourceLocation DAMAGE_ID =
+            net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("superficialtrauma", "fatigue_damage");
 
     public FatigueEffect() {
         super(MobEffectCategory.HARMFUL, 0x9B9872);
-        addAttributeModifier(Attributes.MOVEMENT_SPEED, SPEED_ID, -0.15D, AttributeModifier.Operation.MULTIPLY_TOTAL);
-        addAttributeModifier(Attributes.ATTACK_DAMAGE, DAMAGE_ID, -4.0D, AttributeModifier.Operation.ADDITION);
+        addAttributeModifier(Attributes.MOVEMENT_SPEED, SPEED_ID, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL,
+                amplifier -> -0.15D * slownessLevel(amplifier + 1));
+        addAttributeModifier(Attributes.ATTACK_DAMAGE, DAMAGE_ID, AttributeModifier.Operation.ADD_VALUE,
+                amplifier -> -4.0D * weaknessLevel(amplifier + 1));
     }
 
     public static int slownessLevel(int fatigue) {
@@ -24,10 +28,4 @@ public final class FatigueEffect extends MobEffect {
         return Math.max(0, Math.min(4, fatigue)) / 2;
     }
 
-    @Override
-    public double getAttributeModifierValue(int amplifier, AttributeModifier modifier) {
-        return modifier.getId().toString().equals(SPEED_ID)
-                ? -0.15D * slownessLevel(amplifier + 1)
-                : -4.0D * weaknessLevel(amplifier + 1);
-    }
 }

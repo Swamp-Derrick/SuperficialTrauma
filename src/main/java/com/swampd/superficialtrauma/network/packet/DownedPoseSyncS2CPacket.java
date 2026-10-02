@@ -4,12 +4,14 @@ import com.swampd.superficialtrauma.client.ClientDownedPoses;
 import com.swampd.superficialtrauma.common.body.DownedFallDirection;
 import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
 import com.swampd.superficialtrauma.common.body.DownedPosture;
-import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.network.chat.ComponentSerialization;
+import com.swampd.superficialtrauma.SuperficialTrauma;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
 
-import java.util.function.Supplier;
 
 public record DownedPoseSyncS2CPacket(
         int playerEntityId,
@@ -18,7 +20,12 @@ public record DownedPoseSyncS2CPacket(
         float bodyYaw,
         DownedPosture posture,
         DownedFallDirection fallDirection
-) {
+) implements CustomPacketPayload {
+    public static final Type<DownedPoseSyncS2CPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "downed_pose_sync_s2_cpacket"));
+    public static final StreamCodec<RegistryFriendlyByteBuf, DownedPoseSyncS2CPacket> STREAM_CODEC = StreamCodec.ofMember(DownedPoseSyncS2CPacket::write, DownedPoseSyncS2CPacket::decode);
+    private void write(RegistryFriendlyByteBuf buffer) { encode(this, buffer); }
+    @Override public Type<DownedPoseSyncS2CPacket> type() { return TYPE; }
+
     public static DownedPoseSyncS2CPacket active(int playerEntityId) {
         return new DownedPoseSyncS2CPacket(
                 playerEntityId,
@@ -41,7 +48,7 @@ public record DownedPoseSyncS2CPacket(
         );
     }
 
-    public static void encode(DownedPoseSyncS2CPacket packet, FriendlyByteBuf buffer) {
+    public static void encode(DownedPoseSyncS2CPacket packet, RegistryFriendlyByteBuf buffer) {
         buffer.writeVarInt(packet.playerEntityId);
         buffer.writeBoolean(packet.downed);
         if (packet.downed) {
@@ -52,7 +59,7 @@ public record DownedPoseSyncS2CPacket(
         }
     }
 
-    public static DownedPoseSyncS2CPacket decode(FriendlyByteBuf buffer) {
+    public static DownedPoseSyncS2CPacket decode(RegistryFriendlyByteBuf buffer) {
         int playerEntityId = buffer.readVarInt();
         if (!buffer.readBoolean()) {
             return active(playerEntityId);
@@ -69,12 +76,9 @@ public record DownedPoseSyncS2CPacket(
 
     public static void handle(
             DownedPoseSyncS2CPacket packet,
-            Supplier<NetworkEvent.Context> contextSupplier
+            IPayloadContext context
     ) {
-        NetworkEvent.Context context = contextSupplier.get();
-        context.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(
-                Dist.CLIENT,
-                () -> () -> ClientDownedPoses.update(
+        context.enqueueWork(() -> ClientDownedPoses.update(
                         packet.playerEntityId,
                         packet.downed
                                 ? new DownedPoseSnapshot(
@@ -85,7 +89,6 @@ public record DownedPoseSyncS2CPacket(
                                 )
                                 : null
                 )
-        ));
-        context.setPacketHandled(true);
+        );
     }
 }

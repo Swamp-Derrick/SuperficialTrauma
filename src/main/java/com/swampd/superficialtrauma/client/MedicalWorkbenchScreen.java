@@ -121,7 +121,6 @@ public final class MedicalWorkbenchScreen extends AbstractContainerScreen<Medica
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics);
         super.render(graphics, mouseX, mouseY, partialTick);
         renderTooltip(graphics, mouseX, mouseY);
         renderCustomItemTooltip(graphics, mouseX, mouseY);
@@ -408,7 +407,7 @@ public final class MedicalWorkbenchScreen extends AbstractContainerScreen<Medica
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalDelta, double delta) {
         if (inside(
                 mouseX,
                 mouseY,
@@ -421,7 +420,7 @@ public final class MedicalWorkbenchScreen extends AbstractContainerScreen<Medica
             recipeScroll = Mth.clamp(recipeScroll - (int) Math.signum(delta), 0, maximumScroll);
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, delta);
+        return super.mouseScrolled(mouseX, mouseY, horizontalDelta, delta);
     }
 
     private int recipeAt(double mouseX, double mouseY) {

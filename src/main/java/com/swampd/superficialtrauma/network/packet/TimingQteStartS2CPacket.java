@@ -2,15 +2,22 @@ package com.swampd.superficialtrauma.network.packet;
 
 import com.swampd.superficialtrauma.client.ClientTimingQteState;
 import com.swampd.superficialtrauma.common.qte.TimingQteSnapshot;
-import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.network.chat.ComponentSerialization;
+import com.swampd.superficialtrauma.SuperficialTrauma;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
 
-import java.util.function.Supplier;
 
-public record TimingQteStartS2CPacket(TimingQteSnapshot snapshot) {
-    public static void encode(TimingQteStartS2CPacket packet, FriendlyByteBuf buffer) {
+public record TimingQteStartS2CPacket(TimingQteSnapshot snapshot) implements CustomPacketPayload {
+    public static final Type<TimingQteStartS2CPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "timing_qte_start_s2_cpacket"));
+    public static final StreamCodec<RegistryFriendlyByteBuf, TimingQteStartS2CPacket> STREAM_CODEC = StreamCodec.ofMember(TimingQteStartS2CPacket::write, TimingQteStartS2CPacket::decode);
+    private void write(RegistryFriendlyByteBuf buffer) { encode(this, buffer); }
+    @Override public Type<TimingQteStartS2CPacket> type() { return TYPE; }
+
+    public static void encode(TimingQteStartS2CPacket packet, RegistryFriendlyByteBuf buffer) {
         TimingQteSnapshot snapshot = packet.snapshot;
         buffer.writeVarInt(snapshot.sessionId());
         buffer.writeLong(snapshot.cursorStartGameTime());
@@ -20,7 +27,7 @@ public record TimingQteStartS2CPacket(TimingQteSnapshot snapshot) {
         buffer.writeFloat(snapshot.successEnd());
     }
 
-    public static TimingQteStartS2CPacket decode(FriendlyByteBuf buffer) {
+    public static TimingQteStartS2CPacket decode(RegistryFriendlyByteBuf buffer) {
         return new TimingQteStartS2CPacket(new TimingQteSnapshot(
                 buffer.readVarInt(),
                 buffer.readLong(),
@@ -31,12 +38,8 @@ public record TimingQteStartS2CPacket(TimingQteSnapshot snapshot) {
         ));
     }
 
-    public static void handle(TimingQteStartS2CPacket packet, Supplier<NetworkEvent.Context> contextSupplier) {
-        NetworkEvent.Context context = contextSupplier.get();
-        context.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(
-                Dist.CLIENT,
-                () -> () -> ClientTimingQteState.start(packet.snapshot)
-        ));
-        context.setPacketHandled(true);
+    public static void handle(TimingQteStartS2CPacket packet, IPayloadContext context) {
+        context.enqueueWork(() -> ClientTimingQteState.start(packet.snapshot)
+        );
     }
 }

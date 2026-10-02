@@ -1,64 +1,63 @@
-# Compatibility baseline
+# NeoForge 1.21.1 compatibility baseline
 
-The files below are the exact local development baseline. They live in `../Compatiblemods` and are not redistributed inside this repository or the Superficial Trauma JAR.
+The exact baseline below comes from the user's local test instance:
+`E:\.minecraft\versions\1.21.1 neoforge test\mods`.
+
+These third-party JARs are **not redistributed** in this repository or the Superficial Trauma JAR. CGM remains optional.
 
 | Role | Mod ID | Version | Filename |
-|---|---|---:|---|
-| CGM library | `framework` | 0.6.16 | `framework-forge-1.20.1-0.6.16.jar` |
-| Gun system | `cgm` | 1.4.20 | `CGM-Unofficial-1.4.20+Forge+1.20.1+valfucked.jar` |
-| Medium-ammo gun expansion | `nzgexpansion` | 1.4.4 | `nzgExpansionUnofficialSD-1.4.4-1.20.1.jar` |
-| Additional gun expansion | `redundantguns` | 1.0.0 | `redundantGunsUnofficialSD-1.0.0-1.20.1.jar` |
-| Corpse integration | `corpse` | 1.20.1-1.0.23 | `corpse-forge-1.20.1-1.0.23.jar` |
-| Voice integration | `voicechat`, `voicechat_api` | 1.20.1-2.6.21 / API 2.6.20 | `voicechat-forge-1.20.1-2.6.21.jar` |
+|---|---|---|---|
+| Library | `framework` | 0.13.11 | `framework-neoforge-1.21.1-0.13.11.jar` |
+| Gun system | `cgm` | 1.4.4 | `cgm-1.4.4.jar` |
+| Gun expansion | `nzgmaddon` | 1.5.0-port.1+1.21.1 | `nzgExpansion-neoforge-1.5.0-port.1+1.21.1.jar` |
 
-## Dependency chain
+Target: Minecraft 1.21.1, NeoForge 21.1.252, Java 21. The instance's installed NeoForge version matches the build baseline.
 
-```text
-Framework 0.6.16
-└─ CGM Unofficial 1.4.20
-   └─ NineZero's Gun Expansion Unofficial 1.4.4
-      └─ Redundant Guns Unofficial 1.0.0
-```
+## Ammunition classification
 
-Corpse and Simple Voice Chat are independent optional integrations. Superficial Trauma must continue to load when any optional integration is absent.
+Classification inspects the supplied CGM projectile's actual `getItem()` and `getWeapon()` results. Tags are in the 1.21 singular `tags/item` directory.
 
-## Data-driven ammunition groups
-
-CGM projectiles are inspected on the server, then their actual ammunition item is classified through Superficial Trauma item tags. The built-in baseline is:
-
-| Group | Tag | Built-in optional entries |
+| Group | Tag | Optional entries |
 |---|---|---|
 | Low velocity | `superficialtrauma:ammo/low_velocity` | `cgm:basic_bullet` |
-| High velocity | `superficialtrauma:ammo/high_velocity` | `cgm:advanced_bullet`, `nzgexpansion:medium_bullet` |
+| High velocity | `superficialtrauma:ammo/high_velocity` | `cgm:advanced_bullet`, `nzgmaddon:medium_bullet` |
 | Shotgun | `superficialtrauma:ammo/shotgun` | `cgm:shell` |
 
-The entries are optional so Superficial Trauma still loads without CGM. Other gun add-ons can append ammunition through a data pack instead of becoming compile-time dependencies.
+The supplied NineZero port uses **nzgmaddon**, not the former **nzgexpansion** namespace. Other compatible projectile-based addons can extend these tags with a data pack. Unknown ammunition is not silently classified as blunt trauma.
 
-## Development-run requirements
+CGM fire/reload cancellation hooks are registered reflectively against the concrete NeoForge events. No CGM classes are required to load Superficial Trauma without CGM.
 
-CGM's production JAR contains an SRG refmap. The Gradle run configuration therefore disables that production refmap when the compatibility pack is enabled, allowing the original Mojang-mapped Mixin annotation names to resolve in Forge userdev. This setting affects development runs only and is not written into the released mod JAR.
+## Reproduce compatibility checks
 
-## Known baseline warnings
+PowerShell, from the repository, with Java 21:
 
-The 2026-08-04 compatibility-enabled client smoke test reached the main-menu resource and sound initialization stage. The following warnings originate in the pinned compatibility JARs and did not prevent startup:
+```powershell
+.\gradlew.bat build
+.\gradlew.bat runGameTestServer -Penable_migration_gametests=true -Penable_compatibility_mods=true '-Pcompatibility_mods_dir=E:\.minecraft\versions\1.21.1 neoforge test\mods'
+.\gradlew.bat runClient -Penable_migration_gametests=true -Penable_migration_client_smoke=true -Penable_compatibility_mods=true '-Pcompatibility_mods_dir=E:\.minecraft\versions\1.21.1 neoforge test\mods'
+```
 
-- CGM contains the invalid uppercase resource path `assets/cgm/sounds/SOUND-LICENSE.txt`; Minecraft ignores that license text resource.
-- CGM declares an optional Simple Planes Mixin target while Simple Planes is absent.
-- Redundant Guns references a missing `carbine_rifle_rearsight_folded` special model.
-- NineZero's Gun Expansion reports a missing `cgm:item/pump_shotgun` texture for the double-barreled shotgun model.
-- NineZero's Gun Expansion registers four Bullpup sound events whose sound files are absent.
+The client smoke option creates a new disposable development world in `run-1.21.1`, opens the main medical interfaces, captures screenshots and exits. It is not a multiplayer playtest. Test code is in a separate source set and is not packaged into the mod JAR.
 
-These warnings are tracked separately from Superficial Trauma. They should be repaired in the respective compatibility projects before a polished modpack release.
+Without compatibility flags, the build and development runs do not load any of these three mods. The old Forge SRG-refmap workaround is no longer applied.
 
-## Checksums
+## Verified and not verified
 
-SHA-256 checksums:
+- Actual CGM shotgun hit callback: close-range lethal volley produces shotgun trauma, preserves the downed player, and records the weapon for forensics.
+- Actual CGM shell and NineZero medium-ammunition tag lookup: passed.
+- Dedicated GameTest server with all three supplied JARs: passed.
+- Integrated client/server login, health-state payload, station inventory, loot inventory and autopsy report delivery: passed.
+- CGM aiming/reloading during treatment, all addon guns, latency-sensitive dragging and two-person resuscitation: require multiplayer regression testing.
+- No NeoForge Simple Voice Chat or standalone Corpse JAR was supplied or tested. The built-in corpse system does not require the Corpse mod. The old Forge compatibility table is historical, not a claim of 1.21 support.
+
+## Observed third-party / development warnings
+
+CGM contains the invalid resource path `cgm:sounds/SOUND-LICENSE.txt`; Minecraft ignores that text file. This warning did not prevent the client or server tests. Development resource-URL and vanilla shader/sound warnings are tracked separately from Superficial Trauma failures. No missing Superficial Trauma model or sound was reported in the final smoke run.
+
+## SHA-256
 
 ```text
-9C92918E6D4B3BB78D45CEEE532941D709C0E37ABA79E70FC76BE91A3DAF4EAD  framework-forge-1.20.1-0.6.16.jar
-779988F5029EE895068675D08B5A86947238583D014C84C2A4B352A875EA1436  CGM-Unofficial-1.4.20+Forge+1.20.1+valfucked.jar
-002498E23B960643E4413359906CDCE2D596F45FF6C272EDF5CD078069A0DB3F  nzgExpansionUnofficialSD-1.4.4-1.20.1.jar
-5A24D80E0A88AFA1C5FBB08F519D96BA9862E852EEEB9880C802BC2AD3FF4EC4  redundantGunsUnofficialSD-1.0.0-1.20.1.jar
-8D77C5FC8DC981C750A8E66D4665F055457F748F0CE49A303D9BC50347BDBF7C  corpse-forge-1.20.1-1.0.23.jar
-D752FC395F5485DE6636FAAF629599BF3C04C95077B017041AD0FE456B32833B  voicechat-forge-1.20.1-2.6.21.jar
+429EA90A162D7C25C1463EE60979E4D7B1DDB525D9384A3A2A2F45D70BDA03F5  framework-neoforge-1.21.1-0.13.11.jar
+50370FC5FDBD39406C8DF50604324C4AA8C6C5C24E4A2AA38F057F6D3CBD9B4F  cgm-1.4.4.jar
+A2A08393F35F3E1031C8C3D544644B038B9DCBA302DFD4A381363ABBEA016435  nzgExpansion-neoforge-1.5.0-port.1+1.21.1.jar
 ```

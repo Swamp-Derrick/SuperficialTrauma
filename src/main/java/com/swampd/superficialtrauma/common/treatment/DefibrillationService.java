@@ -355,9 +355,9 @@ public final class DefibrillationService {
     }
 
     private static ServerPlayer findOnlinePlayer(UUID playerId) {
-        return net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer() == null
+        return net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer() == null
                 ? null
-                : net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer()
+                : net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer()
                 .getPlayerList().getPlayer(playerId);
     }
 

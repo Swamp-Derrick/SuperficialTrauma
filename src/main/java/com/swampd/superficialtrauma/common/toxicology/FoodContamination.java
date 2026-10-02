@@ -3,6 +3,8 @@ package com.swampd.superficialtrauma.common.toxicology;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.component.CustomData;
 
 public final class FoodContamination {
     private static final String TAG_CONTAMINATION = "SuperficialTraumaContamination";
@@ -13,10 +15,10 @@ public final class FoodContamination {
     }
 
     public static boolean isDdvpContaminated(ItemStack stack) {
-        if (stack == null || stack.isEmpty() || !stack.hasTag()) {
+        if (stack == null || stack.isEmpty()) {
             return false;
         }
-        CompoundTag root = stack.getTag();
+        CompoundTag root = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag();
         if (root == null || !root.contains(TAG_CONTAMINATION, Tag.TAG_COMPOUND)) {
             return false;
         }
@@ -29,7 +31,8 @@ public final class FoodContamination {
         }
         CompoundTag contamination = new CompoundTag();
         contamination.putString(TAG_SUBSTANCE, DDVP);
-        stack.getOrCreateTag().put(TAG_CONTAMINATION, contamination);
+        CustomData.update(DataComponents.CUSTOM_DATA, stack,
+                data -> data.put(TAG_CONTAMINATION, contamination));
         return true;
     }
 }

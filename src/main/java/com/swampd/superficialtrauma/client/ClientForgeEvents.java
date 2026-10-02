@@ -7,20 +7,19 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
-import net.minecraftforge.client.event.RenderGuiOverlayEvent;
-import net.minecraftforge.client.event.RenderGuiEvent;
-import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import net.minecraftforge.eventbus.api.EventPriority;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
+import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
+import net.neoforged.neoforge.client.event.RenderGuiEvent;
+import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.bus.api.EventPriority;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
-@Mod.EventBusSubscriber(
+@EventBusSubscriber(
         modid = SuperficialTrauma.MOD_ID,
-        bus = Mod.EventBusSubscriber.Bus.FORGE,
         value = Dist.CLIENT
 )
 public final class ClientForgeEvents {
@@ -28,17 +27,15 @@ public final class ClientForgeEvents {
     }
 
     @SubscribeEvent
-    public static void onClientTick(TickEvent.ClientTickEvent event) {
-        if (event.phase == TickEvent.Phase.START) {
+    public static void onClientTickStart(ClientTickEvent.Pre event) {
             ClientGiveUpInput.tick();
             ClientBodyDragInput.tick();
             ClientBodyRotationInput.tick();
             ClientDownedInput.suppressKeyActions();
-            return;
-        }
-        if (event.phase != TickEvent.Phase.END) {
-            return;
-        }
+    }
+
+    @SubscribeEvent
+    public static void onClientTickEnd(ClientTickEvent.Post event) {
 
         Minecraft minecraft = Minecraft.getInstance();
         ClientHeartRateSounds.tick();
@@ -95,14 +92,14 @@ public final class ClientForgeEvents {
         if (minecraft.player == null) {
             return;
         }
-        int width = event.getWindow().getGuiScaledWidth();
-        int height = event.getWindow().getGuiScaledHeight();
+        int width = Minecraft.getInstance().getWindow().getGuiScaledWidth();
+        int height = Minecraft.getInstance().getWindow().getGuiScaledHeight();
         if (!minecraft.options.hideGui && !ClientDownedOverlay.isVisible()) {
             ClientBloodLossOverlay.render(
                     event.getGuiGraphics(),
                     width,
                     height,
-                    event.getPartialTick()
+                    event.getPartialTick().getGameTimeDeltaPartialTick(false)
             );
             ClientTreatmentOverlay.render(event.getGuiGraphics(), width, height);
         }
@@ -110,13 +107,13 @@ public final class ClientForgeEvents {
     }
 
     @SubscribeEvent
-    public static void onRenderGuiOverlay(RenderGuiOverlayEvent.Pre event) {
+    public static void onRenderGuiOverlay(RenderGuiLayerEvent.Pre event) {
         if (!ClientDownedOverlay.isVisible()) {
             return;
         }
-        if (event.getOverlay().id().equals(VanillaGuiOverlay.HOTBAR.id())
-                || event.getOverlay().id().equals(VanillaGuiOverlay.CHAT_PANEL.id())
-                || event.getOverlay().id().equals(VanillaGuiOverlay.ITEM_NAME.id())) {
+        if (event.getName().equals(VanillaGuiLayers.HOTBAR)
+                || event.getName().equals(VanillaGuiLayers.CHAT)
+                || event.getName().equals(VanillaGuiLayers.SELECTED_ITEM_NAME)) {
             event.setCanceled(true);
         }
     }

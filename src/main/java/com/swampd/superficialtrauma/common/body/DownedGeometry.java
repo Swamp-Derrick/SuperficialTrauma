@@ -15,7 +15,7 @@ public final class DownedGeometry {
     public static final EntityDimensions ENTITY_DIMENSIONS = EntityDimensions.scalable(
             BODY_WIDTH,
             BODY_HEIGHT
-    );
+    ).withEyeHeight(EYE_HEIGHT);
 
     private DownedGeometry() {
     }

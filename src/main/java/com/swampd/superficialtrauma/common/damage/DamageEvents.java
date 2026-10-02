@@ -19,22 +19,42 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.event.entity.living.LivingDamageEvent;
-import net.minecraftforge.eventbus.api.EventPriority;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.registries.ForgeRegistries;
+import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
+import net.neoforged.bus.api.EventPriority;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.minecraft.core.registries.BuiltInRegistries;
 
-@Mod.EventBusSubscriber(modid = SuperficialTrauma.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
+@EventBusSubscriber(modid = SuperficialTrauma.MOD_ID)
 public final class DamageEvents {
     private DamageEvents() {
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
-    public static void onLivingDamage(LivingDamageEvent event) {
-        if (!(event.getEntity() instanceof ServerPlayer player) || event.getAmount() <= 0.0F) {
+    public static void onLivingDamage(LivingDamageEvent.Pre event) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || ModDamageTypes.isInternal(event.getSource())) return;
+        // NeoForge fires Pre before absorption. Resolve trauma only after all preceding
+        // absorption modifiers, without counting shield hearts as actual tissue damage.
+        event.getContainer().addModifier(
+                net.neoforged.neoforge.common.damagesource.DamageContainer.Reduction.ABSORPTION,
+                (container, absorption) -> {
+                    float finalDamage = Math.max(0.0F, container.getNewDamage() - absorption);
+                    var resolved = new net.neoforged.neoforge.common.damagesource.DamageContainer(
+                            container.getSource(), finalDamage);
+                    onFinalDamage(new LivingDamageEvent.Pre(player, resolved));
+                    // DamageContainer subtracts absorption after this callback returns.
+                    container.setNewDamage(resolved.getNewDamage() + absorption);
+                    return absorption;
+                });
+    }
+
+    private static void onFinalDamage(LivingDamageEvent.Pre event) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || event.getNewDamage() <= 0.0F) {
             return;
         }
+        // A downed patient at one health can take medical damage while vanilla health
+        // loss is clamped to zero. Post will not report that hit; interrupt before clamping.
+        com.swampd.superficialtrauma.common.treatment.TreatmentEvents.cancelForDamage(player);
         if (event.getSource().is(DamageTypes.GENERIC_KILL)) {
             handleAdministrativeKill(player, event);
             return;
@@ -44,7 +64,7 @@ public final class DamageEvents {
         }
 
         long gameTime = player.serverLevel().getGameTime();
-        float finalDamage = event.getAmount();
+        float finalDamage = event.getNewDamage();
         String damageType = event.getSource().getMsgId();
         DamageClassification classification = withDirectWeapon(
                 DamageClassifier.classify(player, event.getSource()),
@@ -68,7 +88,7 @@ public final class DamageEvents {
                         >= BodyState.RESPIRATORY_DISTRESS_COLLAPSE_THRESHOLD
                         && bodyState.incapacitateFromLastDamage(CollapseReason.HYPOXIA, gameTime);
                 if (becameHypoxic) {
-                    event.setAmount(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
+                    event.setNewDamage(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
                     bodyState.captureDownedPose(
                             DownedPoseCapture.capture(player, event.getSource(), gameTime)
                     );
@@ -84,7 +104,7 @@ public final class DamageEvents {
                         DownedPoseCapture.capture(player, event.getSource(), gameTime)
                 );
                 DownedDamageResult downedResult = bodyState.applyDownedDamage(finalDamage, gameTime);
-                event.setAmount(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
+                event.setNewDamage(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
                 SuperficialTrauma.LOGGER.info(
                         "Downed final damage D={} type={} traumaSkipped=true shortened={}t remaining={}t state={}=>{}",
                         finalDamage,
@@ -168,7 +188,7 @@ public final class DamageEvents {
 
             boolean lethalHit = DamageDowning.wouldBeFatal(player.getHealth(), finalDamage);
             if (lethalHit) {
-                event.setAmount(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
+                event.setNewDamage(DamageDowning.clampToPreserveLife(player.getHealth(), finalDamage));
             }
             boolean becameDowned = lethalHit
                     && bodyState.incapacitateFromLastDamage(CollapseReason.HEMORRHAGIC_SHOCK, gameTime);
@@ -188,7 +208,7 @@ public final class DamageEvents {
         });
     }
 
-    private static void handleAdministrativeKill(ServerPlayer player, LivingDamageEvent event) {
+    private static void handleAdministrativeKill(ServerPlayer player, LivingDamageEvent.Pre event) {
         BodyState bodyState = BodyStateCapability.get(player).orElse(null);
         if (bodyState == null) {
             // Preserve vanilla /kill semantics if a third party prevented capability attachment.
@@ -202,7 +222,7 @@ public final class DamageEvents {
         );
 
         // BodyStateEvents performs the existing corpse snapshot and true-death sequence next tick.
-        event.setAmount(0.0F);
+        event.setNewDamage(0.0F);
         DownedHitbox.update(player, bodyState);
         ModNetworking.syncBodyState(player);
         if (poseCaptured) {
@@ -276,7 +296,7 @@ public final class DamageEvents {
         if (weapon.isEmpty()) {
             return classification;
         }
-        ResourceLocation weaponId = ForgeRegistries.ITEMS.getKey(weapon.getItem());
+        ResourceLocation weaponId = BuiltInRegistries.ITEM.getKey(weapon.getItem());
         if (weaponId == null) {
             return classification;
         }

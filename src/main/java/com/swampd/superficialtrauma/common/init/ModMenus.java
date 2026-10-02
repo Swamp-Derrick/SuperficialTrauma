@@ -5,28 +5,28 @@ import com.swampd.superficialtrauma.common.block.DefibrillatorStationMenu;
 import com.swampd.superficialtrauma.common.block.MedicalWorkbenchMenu;
 import com.swampd.superficialtrauma.common.loot.LootTargetMenu;
 import net.minecraft.world.inventory.MenuType;
-import net.minecraftforge.common.extensions.IForgeMenuType;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.registries.DeferredRegister;
-import net.minecraftforge.registries.ForgeRegistries;
-import net.minecraftforge.registries.RegistryObject;
+import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.registries.DeferredRegister;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.neoforged.neoforge.registries.DeferredHolder;
 
 public final class ModMenus {
     public static final DeferredRegister<MenuType<?>> MENUS = DeferredRegister.create(
-            ForgeRegistries.MENU_TYPES,
+            BuiltInRegistries.MENU,
             SuperficialTrauma.MOD_ID
     );
-    public static final RegistryObject<MenuType<LootTargetMenu>> LOOT_TARGET = MENUS.register(
+    public static final DeferredHolder<MenuType<?>, MenuType<LootTargetMenu>> LOOT_TARGET = MENUS.register(
             "loot_target",
-            () -> IForgeMenuType.create(LootTargetMenu::fromNetwork)
+            () -> IMenuTypeExtension.create(LootTargetMenu::fromNetwork)
     );
-    public static final RegistryObject<MenuType<DefibrillatorStationMenu>> DEFIBRILLATOR_STATION = MENUS.register(
+    public static final DeferredHolder<MenuType<?>, MenuType<DefibrillatorStationMenu>> DEFIBRILLATOR_STATION = MENUS.register(
             "defibrillator_station",
-            () -> IForgeMenuType.create(DefibrillatorStationMenu::fromNetwork)
+            () -> IMenuTypeExtension.create(DefibrillatorStationMenu::fromNetwork)
     );
-    public static final RegistryObject<MenuType<MedicalWorkbenchMenu>> MEDICAL_WORKBENCH = MENUS.register(
+    public static final DeferredHolder<MenuType<?>, MenuType<MedicalWorkbenchMenu>> MEDICAL_WORKBENCH = MENUS.register(
             "medical_workbench",
-            () -> IForgeMenuType.create(MedicalWorkbenchMenu::fromNetwork)
+            () -> IMenuTypeExtension.create(MedicalWorkbenchMenu::fromNetwork)
     );
 
     private ModMenus() {

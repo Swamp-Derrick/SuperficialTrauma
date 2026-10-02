@@ -56,8 +56,8 @@ public final class CorpseService {
         CorpseSnapshot snapshot = new CorpseSnapshot(
                 player.getUUID(),
                 player.getGameProfile().getName(),
-                skinTexture == null ? "" : skinTexture.getValue(),
-                skinTexture == null || !skinTexture.hasSignature() ? "" : skinTexture.getSignature(),
+                skinTexture == null ? "" : skinTexture.value(),
+                skinTexture == null || !skinTexture.hasSignature() ? "" : skinTexture.signature(),
                 player.serverLevel().getGameTime(),
                 pose,
                 bodyState == null ? java.util.List.of() : bodyState.woundHistory(),

@@ -6,15 +6,14 @@ import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.event.entity.EntityEvent;
-import net.minecraftforge.eventbus.api.EventPriority;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.event.entity.EntityEvent;
+import net.neoforged.bus.api.EventPriority;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
-@Mod.EventBusSubscriber(
+@EventBusSubscriber(
         modid = SuperficialTrauma.MOD_ID,
-        bus = Mod.EventBusSubscriber.Bus.FORGE,
         value = Dist.CLIENT
 )
 public final class ClientDownedHitbox {
@@ -28,7 +27,7 @@ public final class ClientDownedHitbox {
         if (event.getEntity() instanceof Player player
                 && ClientDownedPoses.get(player.getId()).isPresent()) {
             event.setNewSize(DownedGeometry.ENTITY_DIMENSIONS);
-            event.setNewEyeHeight(DownedGeometry.EYE_HEIGHT);
+
         }
     }
 

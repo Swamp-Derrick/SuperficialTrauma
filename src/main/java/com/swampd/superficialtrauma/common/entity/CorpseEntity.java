@@ -32,7 +32,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.network.NetworkHooks;
 
 import java.util.List;
 import java.util.Optional;
@@ -103,17 +102,17 @@ public final class CorpseEntity extends LivingEntity implements Container {
     }
 
     @Override
-    protected void defineSynchedData() {
-        super.defineSynchedData();
-        entityData.define(OWNER_ID, Optional.empty());
-        entityData.define(OWNER_NAME, "Unknown");
-        entityData.define(SKIN_TEXTURE_VALUE, "");
-        entityData.define(SKIN_TEXTURE_SIGNATURE, "");
-        entityData.define(DEATH_GAME_TIME, 0L);
-        entityData.define(DOWNED_GAME_TIME, 0L);
-        entityData.define(BODY_YAW, 0.0F);
-        entityData.define(POSTURE, DownedPosture.UNSAFE.serializedName());
-        entityData.define(FALL_DIRECTION, DownedFallDirection.FADE_ONLY.serializedName());
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {
+        super.defineSynchedData(builder);
+        builder.define(OWNER_ID, Optional.empty());
+        builder.define(OWNER_NAME, "Unknown");
+        builder.define(SKIN_TEXTURE_VALUE, "");
+        builder.define(SKIN_TEXTURE_SIGNATURE, "");
+        builder.define(DEATH_GAME_TIME, 0L);
+        builder.define(DOWNED_GAME_TIME, 0L);
+        builder.define(BODY_YAW, 0.0F);
+        builder.define(POSTURE, DownedPosture.UNSAFE.serializedName());
+        builder.define(FALL_DIRECTION, DownedFallDirection.FADE_ONLY.serializedName());
     }
 
     public void initialize(CorpseSnapshot snapshot, double x, double y, double z) {
@@ -446,7 +445,7 @@ public final class CorpseEntity extends LivingEntity implements Container {
         super.addAdditionalSaveData(tag);
         tag.put("CorpseSnapshot", snapshot().save());
         CompoundTag inventoryTag = new CompoundTag();
-        ContainerHelper.saveAllItems(inventoryTag, inventory);
+        ContainerHelper.saveAllItems(inventoryTag, inventory, registryAccess());
         tag.put(TAG_INVENTORY, inventoryTag);
         if (emptySinceGameTime >= 0L) {
             tag.putLong(TAG_EMPTY_SINCE_GAME_TIME, emptySinceGameTime);
@@ -470,7 +469,7 @@ public final class CorpseEntity extends LivingEntity implements Container {
         }
         inventory.clear();
         if (tag.contains(TAG_INVENTORY, CompoundTag.TAG_COMPOUND)) {
-            ContainerHelper.loadAllItems(tag.getCompound(TAG_INVENTORY), inventory);
+            ContainerHelper.loadAllItems(tag.getCompound(TAG_INVENTORY), inventory, registryAccess());
         }
         emptySinceGameTime = tag.contains(TAG_EMPTY_SINCE_GAME_TIME, Tag.TAG_ANY_NUMERIC)
                 ? Math.max(0L, tag.getLong(TAG_EMPTY_SINCE_GAME_TIME))
@@ -485,10 +484,6 @@ public final class CorpseEntity extends LivingEntity implements Container {
         detailedAutopsyRevealed = tag.getBoolean(TAG_DETAILED_AUTOPSY_REVEALED);
     }
 
-    @Override
-    public Packet<ClientGamePacketListener> getAddEntityPacket() {
-        return NetworkHooks.getEntitySpawningPacket(this);
-    }
 
     private void updateCorpseBoundingBox() {
         setBoundingBox(DownedGeometry.boundingBox(this, downedPose()));
@@ -516,7 +511,7 @@ public final class CorpseEntity extends LivingEntity implements Container {
     }
 
     private static int inventorySlot(EquipmentSlot slot) {
-        if (slot.getType() == EquipmentSlot.Type.ARMOR) {
+        if (slot.getType() == EquipmentSlot.Type.HUMANOID_ARMOR) {
             return 36 + slot.getIndex();
         }
         return switch (slot) {

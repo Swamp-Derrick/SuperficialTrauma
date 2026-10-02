@@ -88,23 +88,23 @@ public final class DefibrillatorStationBlockEntity extends BlockEntity implement
     }
 
     @Override
-    protected void saveAdditional(CompoundTag tag) {
-        super.saveAdditional(tag);
-        ContainerHelper.saveAllItems(tag, items);
+    protected void saveAdditional(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+        super.saveAdditional(tag, registries);
+        ContainerHelper.saveAllItems(tag, items, registries);
         tag.putInt("ChargeTicks", chargeTicks);
         if (customName != null) {
-            tag.putString("CustomName", Component.Serializer.toJson(customName));
+            tag.putString("CustomName", Component.Serializer.toJson(customName, registries));
         }
     }
 
     @Override
-    public void load(CompoundTag tag) {
-        super.load(tag);
+    public void loadAdditional(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+        super.loadAdditional(tag, registries);
         items = NonNullList.withSize(SLOT_COUNT, ItemStack.EMPTY);
-        ContainerHelper.loadAllItems(tag, items);
+        ContainerHelper.loadAllItems(tag, items, registries);
         chargeTicks = Math.max(0, Math.min(CHARGE_INTERVAL_TICKS - 1, tag.getInt("ChargeTicks")));
         if (tag.contains("CustomName", Tag.TAG_STRING)) {
-            customName = Component.Serializer.fromJson(tag.getString("CustomName"));
+            customName = Component.Serializer.fromJson(tag.getString("CustomName"), registries);
         } else {
             customName = null;
         }

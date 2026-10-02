@@ -3,24 +3,33 @@ package com.swampd.superficialtrauma.network.packet;
 import com.swampd.superficialtrauma.common.body.DefibrillationEnergy;
 import com.swampd.superficialtrauma.common.treatment.DefibrillationAction;
 import com.swampd.superficialtrauma.common.treatment.DefibrillationService;
-import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.network.chat.ComponentSerialization;
+import com.swampd.superficialtrauma.SuperficialTrauma;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.network.NetworkEvent;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
 
-import java.util.function.Supplier;
 
 public record StartDefibrillationC2SPacket(
         int patientEntityId,
         int joules,
         DefibrillationAction action
-) {
-    public static void encode(StartDefibrillationC2SPacket packet, FriendlyByteBuf buffer) {
+) implements CustomPacketPayload {
+    public static final Type<StartDefibrillationC2SPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "start_defibrillation_c2_spacket"));
+    public static final StreamCodec<RegistryFriendlyByteBuf, StartDefibrillationC2SPacket> STREAM_CODEC = StreamCodec.ofMember(StartDefibrillationC2SPacket::write, StartDefibrillationC2SPacket::decode);
+    private void write(RegistryFriendlyByteBuf buffer) { encode(this, buffer); }
+    @Override public Type<StartDefibrillationC2SPacket> type() { return TYPE; }
+
+    public static void encode(StartDefibrillationC2SPacket packet, RegistryFriendlyByteBuf buffer) {
         buffer.writeVarInt(packet.patientEntityId);
         buffer.writeVarInt(packet.joules);
         buffer.writeEnum(packet.action);
     }
 
-    public static StartDefibrillationC2SPacket decode(FriendlyByteBuf buffer) {
+    public static StartDefibrillationC2SPacket decode(RegistryFriendlyByteBuf buffer) {
         return new StartDefibrillationC2SPacket(
                 buffer.readVarInt(),
                 buffer.readVarInt(),
@@ -30,10 +39,9 @@ public record StartDefibrillationC2SPacket(
 
     public static void handle(
             StartDefibrillationC2SPacket packet,
-            Supplier<NetworkEvent.Context> contextSupplier
+            IPayloadContext context
     ) {
-        NetworkEvent.Context context = contextSupplier.get();
-        ServerPlayer sender = context.getSender();
+        ServerPlayer sender = (context.player() instanceof ServerPlayer player ? player : null);
         if (sender != null) {
             context.enqueueWork(() -> {
                 DefibrillationEnergy energy = DefibrillationEnergy.fromJoules(packet.joules);
@@ -44,6 +52,5 @@ public record StartDefibrillationC2SPacket(
                 }
             });
         }
-        context.setPacketHandled(true);
     }
 }

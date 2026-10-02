@@ -3,15 +3,15 @@ package com.swampd.superficialtrauma.common.init;
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.FatigueEffect;
 import net.minecraft.world.effect.MobEffect;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.registries.DeferredRegister;
-import net.minecraftforge.registries.ForgeRegistries;
-import net.minecraftforge.registries.RegistryObject;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.registries.DeferredRegister;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.neoforged.neoforge.registries.DeferredHolder;
 
 public final class ModEffects {
     private static final DeferredRegister<MobEffect> EFFECTS = DeferredRegister.create(
-            ForgeRegistries.MOB_EFFECTS, SuperficialTrauma.MOD_ID);
-    public static final RegistryObject<MobEffect> FATIGUE = EFFECTS.register("fatigue", FatigueEffect::new);
+            BuiltInRegistries.MOB_EFFECT, SuperficialTrauma.MOD_ID);
+    public static final DeferredHolder<MobEffect, MobEffect> FATIGUE = EFFECTS.register("fatigue", FatigueEffect::new);
 
     private ModEffects() { }
 

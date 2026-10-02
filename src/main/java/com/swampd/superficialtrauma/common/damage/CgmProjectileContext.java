@@ -4,7 +4,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
-import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraft.core.registries.BuiltInRegistries;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -30,7 +30,7 @@ public record CgmProjectileContext(
             return Optional.empty();
         }
 
-        ResourceLocation entityId = ForgeRegistries.ENTITY_TYPES.getKey(directEntity.getType());
+        ResourceLocation entityId = BuiltInRegistries.ENTITY_TYPE.getKey(directEntity.getType());
         return Optional.of(new CgmProjectileContext(
                 entityId == null ? "unknown" : entityId.toString(),
                 invokeItemStack(directEntity, "getItem"),
@@ -47,7 +47,7 @@ public record CgmProjectileContext(
     }
 
     private static boolean isCgmProjectile(Entity entity) {
-        ResourceLocation entityId = ForgeRegistries.ENTITY_TYPES.getKey(entity.getType());
+        ResourceLocation entityId = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
         if (CGM_PROJECTILE_ID.equals(entityId)) {
             return true;
         }
@@ -76,7 +76,7 @@ public record CgmProjectileContext(
         if (stack.isEmpty()) {
             return "none";
         }
-        ResourceLocation itemId = ForgeRegistries.ITEMS.getKey(stack.getItem());
+        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(stack.getItem());
         return itemId == null ? "unknown" : itemId.toString();
     }
 

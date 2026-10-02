@@ -6,6 +6,8 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.component.CustomData;
 
 import javax.annotation.Nullable;
 import java.util.List;
@@ -22,10 +24,11 @@ public final class DefibrillatorItem extends Item {
         if (stack.isEmpty()) {
             return 0;
         }
-        if (!stack.hasTag() || !stack.getTag().contains(TAG_ENERGY)) {
+        var data = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag();
+        if (!data.contains(TAG_ENERGY)) {
             return MAX_ENERGY;
         }
-        return Math.max(0, Math.min(MAX_ENERGY, stack.getTag().getInt(TAG_ENERGY)));
+        return Math.max(0, Math.min(MAX_ENERGY, data.getInt(TAG_ENERGY)));
     }
 
     public static boolean consumeEnergy(ItemStack stack, int amount) {
@@ -34,12 +37,13 @@ public final class DefibrillatorItem extends Item {
         if (current < required) {
             return false;
         }
-        stack.getOrCreateTag().putInt(TAG_ENERGY, current - required);
+        setEnergy(stack, current - required);
         return true;
     }
 
     public static void setEnergy(ItemStack stack, int energy) {
-        stack.getOrCreateTag().putInt(TAG_ENERGY, Math.max(0, Math.min(MAX_ENERGY, energy)));
+        CustomData.update(DataComponents.CUSTOM_DATA, stack,
+                data -> data.putInt(TAG_ENERGY, Math.max(0, Math.min(MAX_ENERGY, energy))));
     }
 
     @Override
@@ -61,7 +65,7 @@ public final class DefibrillatorItem extends Item {
     @Override
     public void appendHoverText(
             ItemStack stack,
-            @Nullable Level level,
+            TooltipContext context,
             List<Component> tooltip,
             TooltipFlag flag
     ) {
@@ -70,6 +74,6 @@ public final class DefibrillatorItem extends Item {
                 getEnergy(stack),
                 MAX_ENERGY
         ).withStyle(ChatFormatting.GRAY));
-        super.appendHoverText(stack, level, tooltip, flag);
+        super.appendHoverText(stack, context, tooltip, flag);
     }
 }

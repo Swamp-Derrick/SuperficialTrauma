@@ -16,7 +16,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraft.core.registries.BuiltInRegistries;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
@@ -93,9 +93,17 @@ public final class AutopsyScreen extends Screen {
         refreshButtons();
     }
 
+    // Screen.render in 1.21 also blurs the background. Our panels are already drawn,
+    // so render only the widgets here; a second background pass would blur the text.
+    private void renderWidgets(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        for (var renderable : renderables) {
+            renderable.render(graphics, mouseX, mouseY, partialTick);
+        }
+    }
+
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics);
+        renderBackground(graphics, mouseX, mouseY, partialTick);
         graphics.fill(0, 0, width, height, BACKGROUND_COLOR);
         drawPanel(graphics, panelLeft, panelTop, informationWidth, panelHeight);
         drawPanel(graphics, operationsLeft, panelTop, operationsWidth, panelHeight);
@@ -109,7 +117,7 @@ public final class AutopsyScreen extends Screen {
         );
         renderInformation(graphics);
         renderOperations(graphics);
-        super.render(graphics, mouseX, mouseY, partialTick);
+        renderWidgets(graphics, mouseX, mouseY, partialTick);
 
         graphics.renderItem(new ItemStack(ModItems.PUPIL_PENLIGHT.get()), operationsLeft + 20, panelTop + 98);
         graphics.renderItem(new ItemStack(ModItems.CHECKLIST.get()), operationsLeft + 20, panelTop + 140);
@@ -389,7 +397,7 @@ public final class AutopsyScreen extends Screen {
     private Component weaponComponent(DowningHitRecord hit) {
         if (!"none".equals(hit.weaponId())) {
             ResourceLocation id = ResourceLocation.tryParse(hit.weaponId());
-            Item item = id == null ? null : ForgeRegistries.ITEMS.getValue(id);
+            Item item = id == null ? null : BuiltInRegistries.ITEM.get(id);
             if (item != null && item != Items.AIR) {
                 return new ItemStack(item).getHoverName();
             }

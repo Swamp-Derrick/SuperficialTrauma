@@ -2,12 +2,12 @@ package com.swampd.superficialtrauma.common.body;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.event.entity.EntityEvent;
-import net.minecraftforge.eventbus.api.EventPriority;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.entity.EntityEvent;
+import net.neoforged.bus.api.EventPriority;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
-@Mod.EventBusSubscriber(modid = SuperficialTrauma.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
+@EventBusSubscriber(modid = SuperficialTrauma.MOD_ID)
 public final class DownedHitbox {
     private static final float DIMENSION_EPSILON = 0.001F;
 
@@ -20,7 +20,7 @@ public final class DownedHitbox {
             return;
         }
         event.setNewSize(DownedGeometry.ENTITY_DIMENSIONS);
-        event.setNewEyeHeight(DownedGeometry.EYE_HEIGHT);
+
     }
 
     public static void update(ServerPlayer player, BodyState bodyState) {

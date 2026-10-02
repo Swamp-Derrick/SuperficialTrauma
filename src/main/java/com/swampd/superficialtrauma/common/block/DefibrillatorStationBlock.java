@@ -23,11 +23,13 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.phys.BlockHitResult;
-import net.minecraftforge.network.NetworkHooks;
 
 import javax.annotation.Nullable;
 
 public final class DefibrillatorStationBlock extends BaseEntityBlock {
+    public static final com.mojang.serialization.MapCodec<DefibrillatorStationBlock> CODEC = simpleCodec(DefibrillatorStationBlock::new);
+    @Override
+    protected com.mojang.serialization.MapCodec<DefibrillatorStationBlock> codec() { return CODEC; }
     public static final DirectionProperty FACING = HorizontalDirectionalBlock.FACING;
 
     public DefibrillatorStationBlock(Properties properties) {
@@ -86,18 +88,17 @@ public final class DefibrillatorStationBlock extends BaseEntityBlock {
     }
 
     @Override
-    public InteractionResult use(
+    public InteractionResult useWithoutItem(
             BlockState state,
             Level level,
             BlockPos pos,
             Player player,
-            InteractionHand hand,
             BlockHitResult hit
     ) {
         if (!level.isClientSide && player instanceof ServerPlayer serverPlayer) {
             BlockEntity blockEntity = level.getBlockEntity(pos);
             if (blockEntity instanceof DefibrillatorStationBlockEntity station) {
-                NetworkHooks.openScreen(serverPlayer, station, pos);
+                serverPlayer.openMenu(station, pos);
             }
         }
         return InteractionResult.sidedSuccess(level.isClientSide);
@@ -112,7 +113,7 @@ public final class DefibrillatorStationBlock extends BaseEntityBlock {
             ItemStack stack
     ) {
         super.setPlacedBy(level, pos, state, placer, stack);
-        if (stack.hasCustomHoverName()) {
+        if (stack.has(net.minecraft.core.component.DataComponents.CUSTOM_NAME)) {
             BlockEntity blockEntity = level.getBlockEntity(pos);
             if (blockEntity instanceof DefibrillatorStationBlockEntity station) {
                 station.setCustomName(stack.getHoverName());

@@ -5,9 +5,9 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.ItemStack;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.registries.DeferredRegister;
-import net.minecraftforge.registries.RegistryObject;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.registries.DeferredRegister;
+import net.neoforged.neoforge.registries.DeferredHolder;
 
 public final class ModCreativeTabs {
     public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS = DeferredRegister.create(
@@ -15,7 +15,7 @@ public final class ModCreativeTabs {
             SuperficialTrauma.MOD_ID
     );
 
-    public static final RegistryObject<CreativeModeTab> SUPERFICIAL_TRAUMA = CREATIVE_MODE_TABS.register(
+    public static final DeferredHolder<CreativeModeTab, CreativeModeTab> SUPERFICIAL_TRAUMA = CREATIVE_MODE_TABS.register(
             "superficial_trauma",
             () -> CreativeModeTab.builder()
                     .title(Component.translatable("creativetab.superficialtrauma"))
