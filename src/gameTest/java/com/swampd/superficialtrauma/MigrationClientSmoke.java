@@ -62,6 +62,14 @@ public final class MigrationClientSmoke {
                             .value().createWorldDimensions(), new TitleScreen());
         }
         if (mc.player == null || mc.level == null || !ClientBodyState.hasReceivedSnapshot()) return;
+        if (Boolean.getBoolean("superficialtrauma.worldAudioSmoke")) {
+            WorldAudioClientSmoke.tick();
+            return;
+        }
+        if (Boolean.getBoolean("superficialtrauma.voicechatSmoke")) {
+            VoicechatClientSmoke.tick();
+            return;
+        }
         if (++ticks % 80 != 1) return;
         if (expected != null && !expected.isInstance(mc.screen)) {
             throw new AssertionError("Migration UI expected " + expected + ", got " + mc.screen);

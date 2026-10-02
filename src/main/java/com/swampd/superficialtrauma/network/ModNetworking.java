@@ -116,6 +116,7 @@ public final class ModNetworking {
     }
 
     public static void syncBodyState(ServerPlayer player) {
+        com.swampd.superficialtrauma.common.voice.ServerVoicechatState.refresh(player);
         BodyStateCapability.get(player).ifPresent(bodyState -> PacketDistributor.sendToPlayer(player,
                 new BodyStateSyncS2CPacket(bodyState.serializeNBT())
         ));

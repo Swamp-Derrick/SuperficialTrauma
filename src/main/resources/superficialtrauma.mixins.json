@@ -9,7 +9,10 @@
   ],
   "client": [
     "client.ClientEntityCollisionMixin",
-    "client.ClientLivingEntityPushingMixin"
+    "client.ClientLivingEntityPushingMixin",
+    "client.WorldAudioChannelMixin",
+    "client.WorldAudioEngineMixin",
+    "client.WorldAudioLibraryMixin"
   ],
   "injectors": {
     "defaultRequire": 1

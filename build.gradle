@@ -13,6 +13,8 @@ java {
 }
 def compatibilityModsDirectory = file(findProperty('compatibility_mods_dir') ?: '../Compatiblemods-1.21.1')
 def compatibilityModsEnabled = (findProperty('enable_compatibility_mods') ?: 'false').toBoolean()
+def voicechatEnabled = (findProperty('enable_voicechat_mod') ?: 'false').toBoolean()
+def voicechatJar = file(findProperty('voicechat_mod_jar') ?: '../Compatiblemods-1.21.1/voicechat-neoforge-1.21.1-2.6.24.jar')
 def compatibilityArtifacts = [
         'framework-neoforge-1.21.1-0.13.11.jar',
         'cgm-1.4.4.jar',
@@ -36,6 +38,14 @@ neoForge {
             client()
             if ((findProperty('enable_migration_client_smoke') ?: 'false').toBoolean()) {
                 systemProperty 'superficialtrauma.clientSmoke', 'true'
+            }
+            if ((findProperty('enable_voicechat_client_smoke') ?: 'false').toBoolean()) {
+                systemProperty 'superficialtrauma.clientSmoke', 'true'
+                systemProperty 'superficialtrauma.voicechatSmoke', 'true'
+            }
+            if ((findProperty('enable_world_audio_client_smoke') ?: 'false').toBoolean()) {
+                systemProperty 'superficialtrauma.clientSmoke', 'true'
+                systemProperty 'superficialtrauma.worldAudioSmoke', 'true'
             }
         }
         server { server(); programArgument '--nogui' }
@@ -64,11 +74,25 @@ neoForge {
 }
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 configurations { runtimeClasspath.extendsFrom localRuntime }
+repositories {
+    maven {
+        url = 'https://maven.maxhenkel.de/repository/public'
+        content { includeGroup 'de.maxhenkel.voicechat' }
+    }
+}
 dependencies {
+    // Compile against the API, but never embed it or the optional voice mod in our JAR.
+    compileOnly 'de.maxhenkel.voicechat:voicechat-api:2.6.24'
+    gameTestCompileOnly 'de.maxhenkel.voicechat:voicechat-api:2.6.24'
+    testImplementation 'de.maxhenkel.voicechat:voicechat-api:2.6.24'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     if (compatibilityModsEnabled) {
         localRuntime files(compatibilityArtifacts.collect { new File(compatibilityModsDirectory, it) })
+    }
+    if (voicechatEnabled) {
+        if (!voicechatJar.isFile()) throw new GradleException('Missing optional Simple Voice Chat JAR: ' + voicechatJar)
+        localRuntime files(voicechatJar)
     }
 }
 tasks.register('verifyCompatibilityMods') {

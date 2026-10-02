@@ -263,4 +263,17 @@ public class MigrationGameTests {
                 "Forensic record must retain the real CGM weapon");
         helper.succeed();
     }
+
+    @GameTest(template = "migration_empty", timeoutTicks = 300)
+    public static void optionalVoicechat(GameTestHelper helper) {
+        if (!ModList.get().isLoaded("voicechat")) { helper.succeed(); return; }
+        // Let world time advance so a persisted ten-second-old pose has a nonnegative timestamp.
+        helper.runAtTickTime(210, () -> {
+            try {
+                Class.forName("com.swampd.superficialtrauma.VoicechatSmokeChecks")
+                        .getMethod("server", ServerPlayer.class).invoke(null, player(helper));
+                helper.succeed();
+            } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+        });
+    }
 }
