@@ -14,11 +14,16 @@ import net.neoforged.neoforge.client.event.sound.SoundEvent;
 @EventBusSubscriber(modid = SuperficialTrauma.MOD_ID, value = Dist.CLIENT)
 public final class ClientWorldHearing {
     private static volatile WorldHearingProfile profile = WorldHearingProfile.CLEAR;
+    private static WorldHearingProfile downedProfile = WorldHearingProfile.CLEAR;
 
     private ClientWorldHearing() {}
     public static WorldHearingProfile profile() { return profile; }
-    public static void update(DownedVoiceState state, long gameTime) { profile = profile.approach(WorldHearingProfile.target(state, gameTime)); }
-    public static void reset() { profile = WorldHearingProfile.CLEAR; }
+    public static void update(DownedVoiceState state, long gameTime) { update(state, gameTime, 0); }
+    public static void update(DownedVoiceState state, long gameTime, float concussion) {
+        downedProfile = downedProfile.approach(WorldHearingProfile.target(state, gameTime));
+        profile = downedProfile.withConcussion(concussion);
+    }
+    public static void reset() { profile = downedProfile = WorldHearingProfile.CLEAR; }
 
     @SubscribeEvent public static void staticSound(PlaySoundSourceEvent event) { classify(event); }
     @SubscribeEvent public static void streamingSound(PlayStreamingSourceEvent event) { classify(event); }

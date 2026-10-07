@@ -110,6 +110,8 @@ public final class MedicalWorkbenchRecipes {
         add(recipes, "artificial_dermis", ModItems.ARTIFICIAL_DERMIS, 1, 120,
                 ingredient(Items.LEATHER, 2), ingredient(Items.SLIME_BALL, 2),
                 ingredient(Items.WHITE_WOOL, 1), ingredient(Items.HONEYCOMB, 1));
+        add(recipes, "chest_seal", ModItems.CHEST_SEAL, 1, 30,
+                ingredient(Items.PAPER, 2), ingredient(Items.SLIME_BALL, 1));
         return Collections.unmodifiableList(recipes);
     }
 

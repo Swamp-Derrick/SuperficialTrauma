@@ -13,7 +13,8 @@ public record TimingQteSnapshot(
         if (sessionId <= 0 || sweepDurationTicks <= 0) {
             throw new IllegalArgumentException("Invalid QTE session metadata");
         }
-        if (perfectStart < 0.0F
+        if (!Float.isFinite(perfectStart) || !Float.isFinite(normalStart) || !Float.isFinite(successEnd)
+                || perfectStart < 0.0F
                 || normalStart <= perfectStart
                 || successEnd <= normalStart
                 || successEnd >= 1.0F) {
@@ -22,7 +23,7 @@ public record TimingQteSnapshot(
     }
 
     public float elapsedTicksAt(long gameTime, float partialTick) {
-        return gameTime + partialTick - cursorStartGameTime;
+        return (gameTime - cursorStartGameTime) + partialTick;
     }
 
     public float progressAt(long gameTime, float partialTick) {
@@ -42,6 +43,7 @@ public record TimingQteSnapshot(
     }
 
     public TimingQteResult classifyPress(float elapsedTicks) {
+        if (!Float.isFinite(elapsedTicks)) return TimingQteResult.MISSED_FAILURE;
         float progress = elapsedTicks / sweepDurationTicks;
         if (progress < perfectStart) {
             return TimingQteResult.EARLY_FAILURE;

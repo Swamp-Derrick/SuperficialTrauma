@@ -47,6 +47,12 @@ public final class ClientModEvents {
     }
 
     @SubscribeEvent
+    public static void onReloadListeners(net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent event) {
+        event.registerReloadListener((net.minecraft.server.packs.resources.ResourceManagerReloadListener)
+                resources -> ClientConcussionEffects.reload());
+    }
+
+    @SubscribeEvent
     public static void onRegisterScreens(RegisterMenuScreensEvent event) {
         event.register(ModMenus.LOOT_TARGET.get(), LootTargetScreen::new);
         event.register(ModMenus.DEFIBRILLATOR_STATION.get(), DefibrillatorStationScreen::new);

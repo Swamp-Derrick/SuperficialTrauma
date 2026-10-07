@@ -2,8 +2,10 @@ package com.swampd.superficialtrauma.common.body;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.damage.DamageClassification;
+import com.swampd.superficialtrauma.common.damage.BulletHitLocation;
 import com.swampd.superficialtrauma.common.damage.DamageKind;
 import com.swampd.superficialtrauma.common.damage.DamageWindow;
+import com.swampd.superficialtrauma.common.damage.GunshotRegion;
 import com.swampd.superficialtrauma.common.medication.DrugDose;
 import com.swampd.superficialtrauma.common.medication.MedicationType;
 import com.swampd.superficialtrauma.common.wound.WoundDisinfectant;
@@ -28,9 +30,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.DoubleSupplier;
 
 public final class BodyState implements INBTSerializable<CompoundTag> {
-    public static final int CURRENT_DATA_VERSION = 32;
+    public static final int CURRENT_DATA_VERSION = 37;
     public static final int MAX_WOUNDS = 8;
     public static final int MAX_WOUND_HISTORY = 6;
     public static final long DAMAGE_WINDOW_TICKS = 20L * 20L;
@@ -212,6 +215,81 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private DownedPosture downedPosture;
     private DownedFallDirection downedFallDirection;
     private final List<WoundInstance> wounds = new ArrayList<>();
+    private final SeriousTraumaState seriousTrauma = new SeriousTraumaState();
+    private final PackingInstability packingInstability = new PackingInstability();
+    private boolean packingDropNotice;
+    public PackingInstability packingInstability() { return packingInstability; }
+
+    public boolean consumePackingDropNotice() {
+        boolean notice = packingDropNotice;
+        packingDropNotice = false;
+        return notice;
+    }
+
+    public boolean advanceInstability(long now, boolean strenuous) {
+        if (lifeState == BodyLifeState.BRAIN_DEAD) return false;
+        if (packingInstability.tick(now, strenuous)) return dropUnsecuredPacking(now);
+        return false;
+    }
+
+    public void recordExternalInjury(float damage, long now, boolean penetratingChestHit) {
+        if (!Float.isFinite(damage) || damage <= 0) return;
+        seriousTrauma.externalInjury(now);
+        if (packingInstability.externalDamage(damage, now)) dropUnsecuredPacking(now);
+        // Downed players intentionally do not create new wound instances, but their
+        // existing chest seal can still be damaged by a confirmed penetrating chest hit.
+        if (!canAct() && penetratingChestHit) {
+            wounds.stream().filter(WoundInstance::pneumothoraxWound).forEach(w -> w.reopenChest(now));
+            refreshPneumothoraxSeal();
+        }
+        markChanged();
+    }
+
+    private boolean dropUnsecuredPacking(long now) {
+        boolean dropped = false;
+        for (var wound : wounds) {
+            if (wound.woundPackingApplied() && !wound.packingSecured()) dropped |= wound.removeWoundPacking(now);
+        }
+        if (dropped) {
+            packingDropNotice = true;
+            refreshPneumothoraxSeal();
+            markChanged();
+        }
+        return dropped;
+    }
+
+    public boolean hasOpenPneumothorax() { return seriousTrauma.openPneumothorax(); }
+
+    private void preserveRespiratoryBurden() {
+        baseRespiratoryDistress = clamp(Math.max(baseRespiratoryDistress,
+                respiratoryDistress() - dynamicRespiratoryDistressContribution()), 0, MAX_RESPIRATORY_DISTRESS);
+    }
+
+    private boolean refreshPneumothoraxSeal() {
+        boolean closed = wounds.stream().anyMatch(WoundInstance::chestClosed);
+        if (seriousTrauma.sealed() && !closed) preserveRespiratoryBurden();
+        boolean changed = seriousTrauma.updateSeal(closed, respiratoryDistress());
+        if (changed) markChanged();
+        return changed;
+    }
+
+    public boolean applyChestSeal(UUID woundId, long now) {
+        var wound = wound(woundId).orElse(null);
+        if (!seriousTrauma.hasPneumothorax() || wound == null || !wound.applyChestSeal()) return false;
+        refreshPneumothoraxSeal();
+        markChanged();
+        return true;
+    }
+
+    public boolean repairPneumothorax(UUID woundId, long now) {
+        var wound = wound(woundId).orElse(null);
+        if (!seriousTrauma.hasPneumothorax() || wound == null || !wound.pneumothoraxWound()) return false;
+        preserveRespiratoryBurden();
+        seriousTrauma.curePneumothorax();
+        wounds.forEach(WoundInstance::clearPneumothoraxWound);
+        markChanged();
+        return true;
+    }
     private final List<WoundHistoryEntry> woundHistory = new ArrayList<>();
     private DowningHitRecord downingHitRecord;
     private boolean voluntaryDeath;
@@ -234,6 +312,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     private String lastProjectileEntityId;
     private String lastAmmoId;
     private String lastWeaponId;
+    private String lastWeaponDisplayNameJson;
     private double lastAttackerDistance;
     private long lastDamageGameTime;
 
@@ -326,7 +405,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                     lastWeaponId,
                     lastAttackerDistance,
                     lastDamageGameTime
-            );
+            ).withWeaponDisplayName(lastWeaponDisplayNameJson);
         }
         enterIncapacitated(reason, gameTime);
         downingHitRecord = capturedHit;
@@ -335,7 +414,35 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     }
 
     public float pain() {
-        return clamp(basePain + woundPainContribution() - medicationPainReduction(), 0.0F, 30.0F);
+        return clamp(basePain + woundPainContribution() + (seriousTrauma.hasConcussion() ? 2 : 0)
+                - medicationPainReduction(), 0.0F, 30.0F);
+    }
+
+    /** Finalizes only the original downing bullet/volley, once. Never re-roll on later hits or reload. */
+    public boolean completeDowningBulletHit(DowningHitRecord expected,
+            BulletHitLocation location, float headDamage, DoubleSupplier random) {
+        return completeDowningBulletHit(expected, location, headDamage, headDamage, random);
+    }
+
+    public boolean completeDowningBulletHit(DowningHitRecord expected,
+            BulletHitLocation location, float headDamage, float penetratingHeadDamage, DoubleSupplier random) {
+        if (expected == null || downingHitRecord != expected || canAct() || administrativeDeath
+                || expected.bulletLocation() != BulletHitLocation.UNKNOWN
+                || !expected.isBullet() || location == null
+                || location == BulletHitLocation.UNKNOWN) return false;
+        boolean eligible = seriousTrauma.enabled()
+                && location == BulletHitLocation.HEAD
+                && Float.isFinite(penetratingHeadDamage) && penetratingHeadDamage > 5.0F;
+        boolean fatal = eligible && !voluntaryDeath && lifeState != BodyLifeState.BRAIN_DEAD
+                && random.getAsDouble() < 0.5D;
+        if (eligible) seriousTrauma.addDowningConcussion(expected.gameTime());
+        downingHitRecord = expected.withBulletEvidence(location, headDamage, fatal);
+        if (fatal) {
+            voluntaryDeath = false;
+            enterBrainDeath();
+        }
+        markChanged();
+        return true;
     }
 
     public float basePain() {
@@ -595,7 +702,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     public float respiratoryDistress() {
         return clamp(
                 baseRespiratoryDistress + dynamicRespiratoryDistressContribution(),
-                MIN_RESPIRATORY_DISTRESS,
+                seriousTrauma.respiratoryFloor(),
                 MAX_RESPIRATORY_DISTRESS
         );
     }
@@ -1018,6 +1125,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             long gameTime,
             boolean publish
     ) {
+        if (hasOpenPneumothorax()) return false;
         boolean circulationStopped = lifeState == BodyLifeState.CARDIAC_ARREST
                 || lifeState == BodyLifeState.VENTRICULAR_FIBRILLATION;
         if ((lifeState != BodyLifeState.INCAPACITATED
@@ -1133,7 +1241,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 return AwakeningProgression.cancelledNow();
             }
             if (awakeningEndGameTime < 0L) {
-                awakeningEndGameTime = saturatingAdd(gameTime, AWAKENING_DURATION_TICKS);
+                awakeningEndGameTime = saturatingAdd(gameTime, awakeningDurationTicks());
                 markChanged();
                 return AwakeningProgression.startedNow();
             }
@@ -1151,10 +1259,14 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         }
 
         lifeState = BodyLifeState.AWAKENING;
-        awakeningEndGameTime = saturatingAdd(gameTime, AWAKENING_DURATION_TICKS);
+        awakeningEndGameTime = saturatingAdd(gameTime, awakeningDurationTicks());
         awakeningRetryGameTime = -1L;
         markChanged();
         return AwakeningProgression.startedNow();
+    }
+
+    public long awakeningDurationTicks() {
+        return seriousTrauma.hasConcussion() ? AWAKENING_DURATION_TICKS * 5 / 4 : AWAKENING_DURATION_TICKS;
     }
 
     public Optional<UUID> cardiacArrestEventId() {
@@ -1398,6 +1510,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         if (wound.isEmpty() || !wound.get().applyWoundPacking(gameTime)) {
             return false;
         }
+        refreshPneumothoraxSeal();
         markChanged();
         return true;
     }
@@ -1407,6 +1520,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         if (wound.isEmpty() || !wound.get().removeWoundPacking(gameTime)) {
             return false;
         }
+        refreshPneumothoraxSeal();
         markChanged();
         return true;
     }
@@ -1589,6 +1703,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             double attackerDistance,
             long gameTime
     ) {
+        recordFinalDamage(finalDamage, damageType, classification, attackerDistance, gameTime, "");
+    }
+
+    public void recordFinalDamage(float finalDamage, String damageType, DamageClassification classification,
+                                  double attackerDistance, long gameTime, String weaponDisplayNameJson) {
         lastFinalDamage = Math.max(0.0F, finalDamage);
         lastDamageType = damageType == null ? "unknown" : damageType;
         lastDamageKind = classification.kind();
@@ -1596,6 +1715,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         lastProjectileEntityId = classification.projectileEntityId();
         lastAmmoId = classification.ammoId();
         lastWeaponId = classification.weaponId();
+        lastWeaponDisplayNameJson = com.swampd.superficialtrauma.common.forensics.WeaponNameSnapshot.normalize(weaponDisplayNameJson);
         lastAttackerDistance = DowningHitRecord.normalizeDistance(attackerDistance);
         lastDamageGameTime = gameTime;
         markChanged();
@@ -1733,30 +1853,96 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         return new WoundUpdateResult(WoundUpdateResult.Status.CREATED, wound, shockDamage);
     }
 
+    public SeriousTraumaState seriousTrauma() { return seriousTrauma; }
+
+    /** Server configuration is carried in the snapshot, never decided by the inspecting client. */
+    public boolean configureSeriousTrauma(boolean enabled, long gameTime) {
+        boolean changed = seriousTrauma.configure(enabled);
+        if (!enabled) wounds.forEach(WoundInstance::clearPneumothoraxWound);
+        changed |= seriousTrauma.expire(gameTime);
+        // Attach legacy metadata to a surviving chest wound, without changing its ammunition grouping.
+        if (seriousTrauma.hasPneumothorax() && wounds.stream().noneMatch(WoundInstance::pneumothoraxWound)) {
+            var host = wounds.stream().filter(w -> w.gunshotRegions().contains(GunshotRegion.CHEST)).findFirst();
+            if (host.isPresent()) host.get().markPneumothoraxWound();
+            else {
+                // Old metadata-only pneumothorax could outlive every healed chest wound.
+                // It has no recoverable treatment target; do not turn that obsolete flag
+                // into an untreatable lethal condition when upgrading to functional effects.
+                seriousTrauma.curePneumothorax();
+            }
+            changed = true;
+        }
+        changed |= refreshPneumothoraxSeal();
+        if (changed) markChanged();
+        return changed;
+    }
+
+    public void recordGunshotLocations(WoundUpdateResult result, float gunshotDamage,
+                                       float headDamage, float chestDamage, long gameTime) {
+        if (result == null || !Float.isFinite(gunshotDamage)
+                || gunshotDamage <= 0.0F
+                || result.status() == WoundUpdateResult.Status.PENDING
+                || (result.wound() != null && !result.wound().type().isGunshot())) return;
+        boolean changed = recordGunshotLocation(result.wound(), GunshotRegion.HEAD, headDamage, gameTime);
+        changed |= recordGunshotLocation(result.wound(), GunshotRegion.CHEST, chestDamage, gameTime);
+        if (changed) markChanged();
+    }
+
+    private boolean recordGunshotLocation(WoundInstance wound, GunshotRegion region, float damage, long gameTime) {
+        if (!Float.isFinite(damage) || damage <= 0) return false;
+        // At the wound-instance cap there is no operable chest wound to own a new condition.
+        if (region == GunshotRegion.CHEST && wound == null) return false;
+        boolean hadPneumothorax = seriousTrauma.hasPneumothorax();
+        boolean changed = seriousTrauma.record(region, damage, gameTime);
+        if (wound != null && region == GunshotRegion.CHEST && seriousTrauma.hasPneumothorax()) {
+            if (!hadPneumothorax) wound.markPneumothoraxWound();
+            wound.reopenChest(gameTime);
+            changed |= refreshPneumothoraxSeal();
+        }
+        if (wound != null && !wound.gunshotRegions().contains(region)) {
+            wound.addGunshotRegion(region);
+            changed = true;
+        }
+        return changed;
+    }
+
     public WoundUpdateResult applyGunshotDamage(
             WoundType type,
             float finalDamage,
-            int armorValue,
+            double armorRating,
             double attackerDistance,
             boolean needsDebridement,
             long gameTime
     ) {
+        if (!Float.isFinite(finalDamage) || finalDamage <= 0) {
+            return new WoundUpdateResult(WoundUpdateResult.Status.PENDING, null, 0);
+        }
+        boolean penetrated = com.swampd.superficialtrauma.common.damage.ArmorPenetration.penetrates(
+                com.swampd.superficialtrauma.common.damage.ArmorPenetration.bulletPower(type, attackerDistance), armorRating);
+        if (!penetrated) return applyDamage(WoundType.BLUNT, finalDamage, gameTime);
+        return applyPenetratingGunshotDamage(type, finalDamage,
+                armorRating >= com.swampd.superficialtrauma.common.damage.ArmorPenetration.STRONG_ARMOR_RATING,
+                attackerDistance <= 3.0D, needsDebridement, "none", gameTime);
+    }
+
+    /** Receives ONLY damage from penetrating hits; stopped bullets are a separate blunt instance. */
+    public WoundUpdateResult applyPenetratingGunshotDamage(WoundType type, float finalDamage,
+            boolean penetratedStrongArmor, boolean hitAtCloseRange, boolean needsDebridement,
+            String ammoId, long gameTime) {
         if (!type.isGunshot()) {
             throw new IllegalArgumentException("Not a gunshot wound type: " + type);
         }
-        if (finalDamage <= 0.0F) {
+        if (!Float.isFinite(finalDamage) || finalDamage <= 0.0F) {
             return new WoundUpdateResult(WoundUpdateResult.Status.PENDING, null, 0.0F);
         }
-        if (finalDamage < 4.0F) {
-            return applyDamage(WoundType.BLUNT, finalDamage, gameTime);
-        }
-
         addTraumaticPain(finalDamage, gameTime);
-        boolean fragmentationEligible = type != WoundType.GUNSHOT_SHOTGUN && armorValue > 10;
-        boolean closeRangeShot = type == WoundType.GUNSHOT_SHOTGUN && attackerDistance <= 3.0D;
+        boolean fragmentationEligible = type != WoundType.GUNSHOT_SHOTGUN && penetratedStrongArmor;
+        boolean closeRangeShot = type == WoundType.GUNSHOT_SHOTGUN && hitAtCloseRange;
+        String mergeAmmo = ammoId == null || ammoId.isBlank() ? "none" : ammoId;
 
         Optional<WoundInstance> activeWound = wounds.stream()
                 .filter(wound -> wound.type() == type)
+                .filter(wound -> wound.gunshotAmmoId().equals(mergeAmmo))
                 .filter(wound -> wound.isAccumulationWindowOpen(gameTime))
                 .max((first, second) -> Long.compare(first.createdGameTime(), second.createdGameTime()));
 
@@ -1793,6 +1979,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 gameTime,
                 gameTime + DAMAGE_WINDOW_TICKS
         );
+        wound.setGunshotAmmoId(mergeAmmo);
         wounds.add(wound);
         applyHeartRateImpulse(WoundInstance.heartRateImpactFor(type, wound.severity()), gameTime);
         upsertWoundHistory(wound, gameTime, false);
@@ -1890,6 +2077,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
     public void resumeBodyProgression(long gameTime) {
         if (progressionPausedAtGameTime >= 0L && gameTime >= progressionPausedAtGameTime) {
             long pausedTicks = gameTime - progressionPausedAtGameTime;
+            seriousTrauma.shiftTimers(pausedTicks);
+            packingInstability.resume(gameTime, pausedTicks);
             stressEndGameTime = shiftDeadline(stressEndGameTime, pausedTicks);
             lastTraumaticDamageGameTime = shiftDeadline(lastTraumaticDamageGameTime, pausedTicks);
             traumaticShockProtectionEndGameTime = shiftDeadline(
@@ -1923,6 +2112,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             }
         }
         progressionPausedAtGameTime = -1L;
+        packingInstability.resume(gameTime, 0);
         lastWoundProgressionGameTime = Math.max(0L, gameTime);
         lastRespiratoryDistressProgressionGameTime = Math.max(0L, gameTime);
         lastEpinephrineCountdownGameTime = Math.max(0L, gameTime);
@@ -1966,6 +2156,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         }
 
         boolean movementBleedingStateChanged = updateMovementBleedingState(gameTime, traumaticMovement);
+        boolean seriousStateChanged = seriousTrauma.expire(gameTime);
         boolean drugStateChanged = expireDrugDoses(gameTime);
         OrganophosphateProgression organophosphateProgression = advanceOrganophosphatePoisoning(gameTime);
         drugStateChanged |= organophosphateProgression.changed();
@@ -2072,7 +2263,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
                 infectionTimerChanged,
                 drugStateChanged,
                 respiratoryDistressChanged,
-                heartRateStateChanged,
+                heartRateStateChanged || seriousStateChanged,
                 becameOverdosed || becameHypoxic || organophosphateProgression.becameIncapacitated(),
                 bleedingTimerChanged,
                 movementBleedingStateChanged,
@@ -2383,6 +2574,9 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public boolean forceRecoverForDebug() {
         boolean changed = lifeState != BodyLifeState.ACTIVE
+                || !seriousTrauma.conditions().isEmpty()
+                || seriousTrauma.damage(GunshotRegion.HEAD) > 0
+                || seriousTrauma.damage(GunshotRegion.CHEST) > 0
                 || collapseReason != CollapseReason.NONE
                 || shockWarningEndGameTime >= 0L
                 || basePain > 0.0F
@@ -2416,6 +2610,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
             return false;
         }
 
+        seriousTrauma.clear();
+        packingInstability.clear();
+        packingDropNotice = false;
+        wounds.forEach(WoundInstance::clearPneumothoraxWound);
+        wounds.forEach(WoundInstance::clearGunshotRegions);
         lifeState = BodyLifeState.ACTIVE;
         collapseReason = CollapseReason.NONE;
         shockWarningEndGameTime = -1L;
@@ -2876,6 +3075,11 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
         float previous = baseRespiratoryDistress;
         int epinephrineLayers = activeEpinephrineDoseCount();
+        if (hasOpenPneumothorax()) {
+            baseRespiratoryDistress = Math.min(MAX_RESPIRATORY_DISTRESS,
+                    baseRespiratoryDistress + elapsedWholeSeconds * .20F);
+            return Float.compare(previous, baseRespiratoryDistress) != 0;
+        }
         float recoveryPerSecond = RESPIRATORY_DISTRESS_NATURAL_RECOVERY_PER_SECOND
                 + epinephrineLayers
                 * RESPIRATORY_DISTRESS_EPINEPHRINE_RECOVERY_PER_LAYER_PER_SECOND;
@@ -2948,6 +3152,10 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     private void resetToDefaults() {
         revision = 0L;
+        seriousTrauma.configure(false);
+        packingInstability.clear();
+        packingDropNotice = false;
+        seriousTrauma.clear();
         lifeState = BodyLifeState.ACTIVE;
         collapseReason = CollapseReason.NONE;
         basePain = 0.0F;
@@ -3006,6 +3214,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         lastProjectileEntityId = "none";
         lastAmmoId = "none";
         lastWeaponId = "none";
+        lastWeaponDisplayNameJson = "";
         lastAttackerDistance = DowningHitRecord.UNKNOWN_DISTANCE;
         lastDamageGameTime = -1L;
     }
@@ -3029,6 +3238,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public CompoundTag serializeNBT() {
         CompoundTag tag = new CompoundTag();
+        tag.put("SeriousTrauma", seriousTrauma.save());
+        tag.put("PackingInstability", packingInstability.save());
         tag.putInt(TAG_DATA_VERSION, CURRENT_DATA_VERSION);
         tag.putLong(TAG_REVISION, revision);
         tag.putString(TAG_LIFE_STATE, lifeState.serializedName());
@@ -3137,6 +3348,7 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         tag.putString(TAG_LAST_PROJECTILE_ENTITY_ID, lastProjectileEntityId);
         tag.putString(TAG_LAST_AMMO_ID, lastAmmoId);
         tag.putString(TAG_LAST_WEAPON_ID, lastWeaponId);
+        if (!lastWeaponDisplayNameJson.isEmpty()) tag.putString("LastWeaponDisplayNameJson", lastWeaponDisplayNameJson);
         tag.putDouble(TAG_LAST_ATTACKER_DISTANCE, lastAttackerDistance);
         tag.putLong(TAG_LAST_DAMAGE_GAME_TIME, lastDamageGameTime);
         return tag;
@@ -3144,6 +3356,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
 
     public void deserializeNBT(CompoundTag tag) {
         resetToDefaults();
+        seriousTrauma.load(tag.getCompound("SeriousTrauma"));
+        packingInstability.load(tag.getCompound("PackingInstability"));
         int storedVersion = tag.contains(TAG_DATA_VERSION, Tag.TAG_INT) ? tag.getInt(TAG_DATA_VERSION) : 0;
         if (storedVersion > CURRENT_DATA_VERSION) {
             SuperficialTrauma.LOGGER.warn(
@@ -3437,6 +3651,8 @@ public final class BodyState implements INBTSerializable<CompoundTag> {
         lastProjectileEntityId = getStringOrDefault(tag, TAG_LAST_PROJECTILE_ENTITY_ID, "none");
         lastAmmoId = getStringOrDefault(tag, TAG_LAST_AMMO_ID, "none");
         lastWeaponId = getStringOrDefault(tag, TAG_LAST_WEAPON_ID, "none");
+        lastWeaponDisplayNameJson = com.swampd.superficialtrauma.common.forensics.WeaponNameSnapshot.normalize(
+                tag.getString("LastWeaponDisplayNameJson"));
         lastAttackerDistance = tag.contains(TAG_LAST_ATTACKER_DISTANCE, Tag.TAG_ANY_NUMERIC)
                 ? DowningHitRecord.normalizeDistance(tag.getDouble(TAG_LAST_ATTACKER_DISTANCE))
                 : DowningHitRecord.UNKNOWN_DISTANCE;

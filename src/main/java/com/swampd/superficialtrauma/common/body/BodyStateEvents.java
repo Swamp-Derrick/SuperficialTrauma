@@ -75,6 +75,7 @@ public final class BodyStateEvents {
 
     @SubscribeEvent
     public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) ShotgunVolleyAggregator.finishDowningVolley(player);
         LAST_WOUND_POSITIONS.remove(event.getEntity().getUUID());
         ShotgunVolleyAggregator.clearPlayer(event.getEntity().getUUID());
         LootingService.forgetPlayer(event.getEntity().getUUID());
@@ -103,6 +104,7 @@ public final class BodyStateEvents {
 
     @SubscribeEvent
     public static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) ShotgunVolleyAggregator.finishDowningVolley(player);
         LAST_WOUND_POSITIONS.remove(event.getEntity().getUUID());
         ShotgunVolleyAggregator.clearPlayer(event.getEntity().getUUID());
         BodyDragService.forgetPlayer(event.getEntity().getUUID());
@@ -153,6 +155,8 @@ public final class BodyStateEvents {
         Vec3 previousPosition = LAST_WOUND_POSITIONS.put(serverPlayer.getUUID(), serverPlayer.position());
         Vec3 woundDisplacement = previousPosition == null ? Vec3.ZERO : serverPlayer.position().subtract(previousPosition);
         BodyStateCapability.get(serverPlayer).ifPresent(bodyState -> {
+            boolean seriousTraumaChanged = bodyState.configureSeriousTrauma(
+                    com.swampd.superficialtrauma.common.config.SeriousTraumaConfig.enabled(), gameTime);
             boolean shotgunVolleyResolved = ShotgunVolleyAggregator.resolveReady(
                     serverPlayer,
                     bodyState,
@@ -166,6 +170,14 @@ public final class BodyStateEvents {
                     serverPlayer.getDeltaMovement().y,
                     serverPlayer.isSprinting()
             );
+            boolean strenuous = serverPlayer.isFallFlying()
+                    || ((serverPlayer.isSprinting() || serverPlayer.isSwimming())
+                    && woundDisplacement.lengthSqr() > .000001D);
+            seriousTraumaChanged |= bodyState.advanceInstability(gameTime, strenuous);
+            if (bodyState.consumePackingDropNotice()) {
+                serverPlayer.displayClientMessage(Component.translatable(
+                        "message.superficialtrauma.packing_fell_out"), true);
+            }
             BodyProgressionResult result = bodyState.advanceBodyProgression(
                     gameTime,
                     traumaticMovement,
@@ -197,7 +209,7 @@ public final class BodyStateEvents {
             }
             notifyShockState(serverPlayer, bodyState, result, gameTime);
             if (bodyState.lifeState() == BodyLifeState.BRAIN_DEAD) {
-                if (result.changed() || infusion.changed() || awakening.changed() || poseCaptured || shotgunVolleyResolved) {
+                if (result.changed() || infusion.changed() || awakening.changed() || poseCaptured || shotgunVolleyResolved || seriousTraumaChanged) {
                     ModNetworking.syncBodyState(serverPlayer);
                 }
                 if (poseCaptured) {
@@ -207,7 +219,7 @@ public final class BodyStateEvents {
                 return;
             }
             enforceIncapacitation(serverPlayer, bodyState);
-            if (result.changed() || infusion.changed() || awakening.changed() || poseCaptured || shotgunVolleyResolved) {
+            if (result.changed() || infusion.changed() || awakening.changed() || poseCaptured || shotgunVolleyResolved || seriousTraumaChanged) {
                 ModNetworking.syncBodyState(serverPlayer);
             }
             if (poseCaptured || awakening.completed()) {
@@ -435,6 +447,9 @@ public final class BodyStateEvents {
     private static void syncIfServerPlayer(Player player) {
         if (player instanceof ServerPlayer serverPlayer) {
             ensureDownedPoseSnapshot(serverPlayer);
+            BodyStateCapability.get(serverPlayer).ifPresent(state -> state.configureSeriousTrauma(
+                    com.swampd.superficialtrauma.common.config.SeriousTraumaConfig.enabled(),
+                    serverPlayer.serverLevel().getGameTime()));
             ModNetworking.syncBodyState(serverPlayer);
             ModNetworking.syncDownedPose(serverPlayer);
         }

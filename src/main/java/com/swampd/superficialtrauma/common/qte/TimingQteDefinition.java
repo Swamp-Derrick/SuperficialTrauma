@@ -14,7 +14,9 @@ public record TimingQteDefinition(
         if (leadInTicks < 0 || sweepDurationTicks <= 0 || serverResponseGraceTicks < 0) {
             throw new IllegalArgumentException("QTE tick durations must be non-negative");
         }
-        if (earliestPerfectStart < 0.0F
+        if (!Float.isFinite(earliestPerfectStart) || !Float.isFinite(latestPerfectStart)
+                || !Float.isFinite(perfectArcWidth) || !Float.isFinite(successArcWidth)
+                || earliestPerfectStart < 0.0F
                 || latestPerfectStart < earliestPerfectStart
                 || perfectArcWidth <= 0.0F
                 || successArcWidth <= 0.0F

@@ -64,6 +64,11 @@ public enum TreatmentProcedure {
             new TreatmentIngredient(TreatmentType.SALINE_SOLUTION, 1),
             new TreatmentIngredient(TreatmentType.SURGICAL_KIT, 1)
     ),
+    CHEST_SEAL(null, TreatmentType.CHEST_SEAL, 3L * 20L,
+            new TreatmentIngredient(TreatmentType.CHEST_SEAL, 1)),
+    PNEUMOTHORAX_REPAIR(null, TreatmentType.MEDICAL_GAUZE, 45L * 20L,
+            new TreatmentIngredient(TreatmentType.SURGICAL_KIT, 1),
+            new TreatmentIngredient(TreatmentType.MEDICAL_GAUZE, 1)),
     SKIN_GRAFT(
             null,
             TreatmentType.ARTIFICIAL_DERMIS,
@@ -119,6 +124,7 @@ public enum TreatmentProcedure {
         if (wound == null || wound.isHealed()) {
             return false;
         }
+        if (this == CHEST_SEAL || this == PNEUMOTHORAX_REPAIR) return wound.pneumothoraxWound();
         if (isDebridement()) {
             return wound.woundTags().contains(com.swampd.superficialtrauma.common.wound.WoundTag.NEEDS_DEBRIDEMENT_1)
                     || wound.isInfected();
@@ -136,9 +142,9 @@ public enum TreatmentProcedure {
             return wound.tourniquetApplied() || wound.canApplyTourniquet();
         }
         if (isWoundPacking()) {
-            return wound.untreatedBleedingLevel(true) > 0;
+            return wound.pneumothoraxWound() || wound.untreatedBleedingLevel(true) > 0;
         }
-        return wound.covering().isApplied()
+        return wound.pneumothoraxWound() || wound.covering().isApplied()
                 || untreatedBleedingLevel(wound) > 0
                 || wound.type() == WoundType.EXPLOSION
                 || (wound.type() == WoundType.BLUNT && wound.severity() >= 3);
@@ -148,6 +154,8 @@ public enum TreatmentProcedure {
         if (!supports(wound) || action == null) {
             return false;
         }
+        if (this == CHEST_SEAL) return action == TreatmentAction.APPLY && !wound.chestSealApplied();
+        if (this == PNEUMOTHORAX_REPAIR) return action == TreatmentAction.APPLY;
         if (isDebridement()) {
             return action == TreatmentAction.APPLY && wound.canDebride();
         }
@@ -187,6 +195,8 @@ public enum TreatmentProcedure {
         return this == SKIN_GRAFT;
     }
 
+    public boolean usesQte() { return isSkinGraft() || this == PNEUMOTHORAX_REPAIR; }
+
     public boolean isIcePack() {
         return this == ICE_PACK;
     }
@@ -208,7 +218,7 @@ public enum TreatmentProcedure {
     }
 
     public boolean requiresSurgerySkill() {
-        return isDebridement() || isSkinGraft();
+        return isDebridement() || usesQte();
     }
 
     public boolean requiresFirstAidSkill() {
@@ -242,6 +252,7 @@ public enum TreatmentProcedure {
             case POVIDONE_IODINE -> POVIDONE_IODINE;
             case MEDICAL_ALCOHOL -> MEDICAL_ALCOHOL;
             case SURGICAL_KIT -> DEBRIDEMENT;
+            case CHEST_SEAL -> CHEST_SEAL;
             default -> null;
         };
     }
@@ -265,14 +276,15 @@ public enum TreatmentProcedure {
             case MEDICAL_TAPE -> BANDAGE_WITH_MEDICAL_TAPE.supports(wound);
             case SELF_ADHESIVE_BANDAGE -> SELF_ADHESIVE_BANDAGE.supports(wound)
                     || BANDAGE_WITH_SELF_ADHESIVE_BANDAGE.supports(wound);
-            case MEDICAL_GAUZE -> WOUND_PACKING.supports(wound);
+            case MEDICAL_GAUZE -> WOUND_PACKING.supports(wound) || PNEUMOTHORAX_REPAIR.supports(wound);
             case ICE_PACK -> ICE_PACK.supports(wound);
             case TOURNIQUET -> TOURNIQUET.supports(wound);
             case POVIDONE_IODINE -> POVIDONE_IODINE.supports(wound);
             case MEDICAL_ALCOHOL -> MEDICAL_ALCOHOL.supports(wound);
             case SALINE_SOLUTION -> DEBRIDEMENT.supports(wound);
-            case SURGICAL_KIT -> DEBRIDEMENT.supports(wound) || SKIN_GRAFT.supports(wound);
+            case SURGICAL_KIT -> DEBRIDEMENT.supports(wound) || SKIN_GRAFT.supports(wound) || PNEUMOTHORAX_REPAIR.supports(wound);
             case ARTIFICIAL_DERMIS -> SKIN_GRAFT.supports(wound);
+            case CHEST_SEAL -> CHEST_SEAL.supports(wound);
         };
     }
 

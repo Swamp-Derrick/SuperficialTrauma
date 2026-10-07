@@ -2,6 +2,7 @@ package com.swampd.superficialtrauma.common.loot;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
+import com.swampd.superficialtrauma.common.drag.BodyDragService;
 import com.swampd.superficialtrauma.common.entity.CorpseEntity;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -110,6 +111,20 @@ public final class LootingService {
         }
     }
 
+    /** Close every viewer before dragging or removing the target, including its carried-slot cleanup. */
+    public static void closeForTarget(Entity target) {
+        if (target.getServer() == null) {
+            return;
+        }
+        for (ServerPlayer viewer : target.getServer().getPlayerList().getPlayers()) {
+            if (viewer.containerMenu instanceof LootTargetMenu menu
+                    && target.getUUID().equals(menu.targetId())) {
+                viewer.closeContainer();
+            }
+        }
+        LOOTER_BY_TARGET.remove(target.getUUID());
+    }
+
     public static void release(UUID targetId, UUID looterId) {
         LOOTER_BY_TARGET.computeIfPresent(
                 targetId,
@@ -141,6 +156,7 @@ public final class LootingService {
                 || looter.isRemoved()
                 || looter.isSpectator()
                 || !isLootable(target)
+                || BodyDragService.isBeingDragged(target)
                 || looter.serverLevel() != target.level()
                 || looter.distanceToSqr(target) > maximumDistanceSquared
                 || (requireLineOfSight && !looter.hasLineOfSight(target))) {

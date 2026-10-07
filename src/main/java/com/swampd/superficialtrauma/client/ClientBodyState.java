@@ -21,6 +21,7 @@ public final class ClientBodyState {
     public static void update(CompoundTag tag) {
         BodyState updated = new BodyState();
         updated.deserializeNBT(tag);
+        ClientConcussionEffects.synchronize(snapshot, updated, received);
         snapshot = updated;
         received = true;
         ClientAwakeningRecovery.synchronize(updated);
@@ -30,5 +31,6 @@ public final class ClientBodyState {
         snapshot = new BodyState();
         received = false;
         ClientAwakeningRecovery.clear();
+        ClientConcussionEffects.clear();
     }
 }

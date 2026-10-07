@@ -1,6 +1,8 @@
 package com.swampd.superficialtrauma.common.body;
 
 import com.swampd.superficialtrauma.common.damage.DamageKind;
+import com.swampd.superficialtrauma.common.damage.BulletHitLocation;
+import com.swampd.superficialtrauma.common.forensics.WeaponNameSnapshot;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 
@@ -16,7 +18,11 @@ public record DowningHitRecord(
         String ammoId,
         String weaponId,
         double attackerDistance,
-        long gameTime
+        long gameTime,
+        BulletHitLocation bulletLocation,
+        float headFinalDamage,
+        boolean fatalBrainInjury,
+        String weaponDisplayNameJson
 ) {
     public static final double UNKNOWN_DISTANCE = -1.0D;
 
@@ -30,6 +36,20 @@ public record DowningHitRecord(
     private static final String TAG_ATTACKER_DISTANCE = "AttackerDistance";
     private static final String TAG_GAME_TIME = "GameTime";
 
+    public DowningHitRecord(float finalDamage, String damageType, DamageKind damageKind, String damageReason,
+                            String projectileEntityId, String ammoId, String weaponId,
+                            double attackerDistance, long gameTime) {
+        this(finalDamage, damageType, damageKind, damageReason, projectileEntityId, ammoId, weaponId,
+                attackerDistance, gameTime, BulletHitLocation.UNKNOWN, 0, false);
+    }
+
+    public DowningHitRecord(float finalDamage, String damageType, DamageKind damageKind, String damageReason,
+                            String projectileEntityId, String ammoId, String weaponId, double attackerDistance,
+                            long gameTime, BulletHitLocation bulletLocation, float headFinalDamage, boolean fatalBrainInjury) {
+        this(finalDamage, damageType, damageKind, damageReason, projectileEntityId, ammoId, weaponId,
+                attackerDistance, gameTime, bulletLocation, headFinalDamage, fatalBrainInjury, "");
+    }
+
     public DowningHitRecord {
         finalDamage = Math.max(0.0F, finalDamage);
         damageType = normalize(damageType);
@@ -38,8 +58,28 @@ public record DowningHitRecord(
         projectileEntityId = normalize(projectileEntityId);
         ammoId = normalize(ammoId);
         weaponId = normalize(weaponId);
+        weaponDisplayNameJson = WeaponNameSnapshot.normalize(weaponDisplayNameJson);
         attackerDistance = normalizeDistance(attackerDistance);
         gameTime = Math.max(0L, gameTime);
+        bulletLocation = bulletLocation == null ? BulletHitLocation.UNKNOWN : bulletLocation;
+        headFinalDamage = bulletLocation == BulletHitLocation.HEAD && Float.isFinite(headFinalDamage)
+                ? Math.max(0, headFinalDamage) : 0;
+        fatalBrainInjury = fatalBrainInjury && bulletLocation == BulletHitLocation.HEAD && headFinalDamage > 5;
+    }
+
+    public boolean isBullet() {
+        return damageKind == DamageKind.CGM_LOW_VELOCITY || damageKind == DamageKind.CGM_HIGH_VELOCITY
+                || damageKind == DamageKind.CGM_SHOTGUN || damageKind == DamageKind.CGM_UNCLASSIFIED;
+    }
+
+    public DowningHitRecord withBulletEvidence(BulletHitLocation location, float headDamage, boolean brainInjury) {
+        return new DowningHitRecord(finalDamage, damageType, damageKind, damageReason, projectileEntityId,
+                ammoId, weaponId, attackerDistance, gameTime, location, headDamage, brainInjury, weaponDisplayNameJson);
+    }
+
+    public DowningHitRecord withWeaponDisplayName(String nameJson) {
+        return new DowningHitRecord(finalDamage, damageType, damageKind, damageReason, projectileEntityId,
+                ammoId, weaponId, attackerDistance, gameTime, bulletLocation, headFinalDamage, fatalBrainInjury, nameJson);
     }
 
     public boolean hasKnownDistance() {
@@ -63,8 +103,12 @@ public record DowningHitRecord(
         tag.putString(TAG_PROJECTILE_ENTITY_ID, projectileEntityId);
         tag.putString(TAG_AMMO_ID, ammoId);
         tag.putString(TAG_WEAPON_ID, weaponId);
+        if (!weaponDisplayNameJson.isEmpty()) tag.putString("WeaponDisplayNameJson", weaponDisplayNameJson);
         tag.putDouble(TAG_ATTACKER_DISTANCE, attackerDistance);
         tag.putLong(TAG_GAME_TIME, gameTime);
+        tag.putString("BulletLocation", bulletLocation.serializedName());
+        tag.putFloat("HeadFinalDamage", headFinalDamage);
+        tag.putBoolean("FatalBrainInjury", fatalBrainInjury);
         return tag;
     }
 
@@ -80,7 +124,11 @@ public record DowningHitRecord(
                 tag.contains(TAG_ATTACKER_DISTANCE, Tag.TAG_ANY_NUMERIC)
                         ? tag.getDouble(TAG_ATTACKER_DISTANCE)
                         : UNKNOWN_DISTANCE,
-                tag.getLong(TAG_GAME_TIME)
+                tag.getLong(TAG_GAME_TIME),
+                BulletHitLocation.fromSavedName(tag.getString("BulletLocation")),
+                tag.getFloat("HeadFinalDamage"),
+                tag.getBoolean("FatalBrainInjury"),
+                tag.getString("WeaponDisplayNameJson")
         );
     }
 

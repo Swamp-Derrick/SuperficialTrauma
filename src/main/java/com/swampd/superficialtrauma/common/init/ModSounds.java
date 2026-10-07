@@ -39,6 +39,8 @@ public final class ModSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> VIAL = registerMedicalAction("vial");
     public static final DeferredHolder<SoundEvent, SoundEvent> AMPOULE = registerMedicalAction("ampoule");
     public static final DeferredHolder<SoundEvent, SoundEvent> PLASTIC_CONTAINER = registerMedicalAction("plastic_container");
+    public static final DeferredHolder<SoundEvent, SoundEvent> CHEST_SEAL = registerMedicalAction("chest_seal");
+    public static final DeferredHolder<SoundEvent, SoundEvent> TINNITUS = registerMedicalAction("tinnitus");
     public static final DeferredHolder<SoundEvent, SoundEvent> SYRINGE_START = registerMedicalAction("syringe_start");
     public static final DeferredHolder<SoundEvent, SoundEvent> RESUSCITATION_1 = registerMedicalAction("resuscitation_1");
     public static final DeferredHolder<SoundEvent, SoundEvent> RESUSCITATION_2 = registerMedicalAction("resuscitation_2");

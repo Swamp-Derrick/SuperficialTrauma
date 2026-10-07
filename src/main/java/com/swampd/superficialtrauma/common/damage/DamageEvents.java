@@ -2,6 +2,7 @@ package com.swampd.superficialtrauma.common.damage;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.common.body.BodyState;
+import com.swampd.superficialtrauma.common.body.BodyLifeState;
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.body.CollapseReason;
 import com.swampd.superficialtrauma.common.body.DownedDamageResult;
@@ -24,15 +25,51 @@ import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.neoforged.neoforge.common.damagesource.DamageContainer;
+import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
+import java.util.IdentityHashMap;
+import java.util.Map;
 
 @EventBusSubscriber(modid = SuperficialTrauma.MOD_ID)
 public final class DamageEvents {
+    private static final Map<DamageContainer, HitContext> INCOMING = new IdentityHashMap<>();
+
+    private static final class HitContext {
+        final ArmorPenetration.Profile armor;
+        float preArmorDamage;
+        HitContext(ServerPlayer player, float damage) {
+            armor = ArmorPenetration.snapshot(player);
+            preArmorDamage = damage;
+        }
+    }
+
     private DamageEvents() {
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onIncomingDamage(LivingIncomingDamageEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || ModDamageTypes.isInternal(event.getSource())) return;
+        HitContext hit = new HitContext(player, event.getAmount());
+        INCOMING.put(event.getContainer(), hit);
+        event.getContainer().addModifier(DamageContainer.Reduction.ARMOR, (container, reduction) -> {
+            hit.preArmorDamage = container.getNewDamage();
+            return reduction;
+        });
+    }
+
+    @SubscribeEvent
+    public static void endTick(ServerTickEvent.Post event) { INCOMING.clear(); }
+
+    @SubscribeEvent
+    public static void stop(ServerStoppedEvent event) { INCOMING.clear(); }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onLivingDamage(LivingDamageEvent.Pre event) {
         if (!(event.getEntity() instanceof ServerPlayer player) || ModDamageTypes.isInternal(event.getSource())) return;
+        HitContext captured = INCOMING.remove(event.getContainer());
+        HitContext hit = captured != null ? captured : new HitContext(player, event.getOriginalDamage());
         // NeoForge fires Pre before absorption. Resolve trauma only after all preceding
         // absorption modifiers, without counting shield hearts as actual tissue damage.
         event.getContainer().addModifier(
@@ -41,14 +78,14 @@ public final class DamageEvents {
                     float finalDamage = Math.max(0.0F, container.getNewDamage() - absorption);
                     var resolved = new net.neoforged.neoforge.common.damagesource.DamageContainer(
                             container.getSource(), finalDamage);
-                    onFinalDamage(new LivingDamageEvent.Pre(player, resolved));
+                    onFinalDamage(new LivingDamageEvent.Pre(player, resolved), hit);
                     // DamageContainer subtracts absorption after this callback returns.
                     container.setNewDamage(resolved.getNewDamage() + absorption);
                     return absorption;
                 });
     }
 
-    private static void onFinalDamage(LivingDamageEvent.Pre event) {
+    private static void onFinalDamage(LivingDamageEvent.Pre event, HitContext hit) {
         if (!(event.getEntity() instanceof ServerPlayer player) || event.getNewDamage() <= 0.0F) {
             return;
         }
@@ -66,19 +103,32 @@ public final class DamageEvents {
         long gameTime = player.serverLevel().getGameTime();
         float finalDamage = event.getNewDamage();
         String damageType = event.getSource().getMsgId();
-        DamageClassification classification = withDirectWeapon(
+        DamageClassification original = withDirectWeapon(
                 DamageClassifier.classify(player, event.getSource()),
                 event.getSource()
         );
         double sourceDistance = attackerDistance(player, event.getSource());
+        BulletHitLocation hitLocation = GunshotHitLocations.consume(player, event.getSource());
+        GunshotRegion hitRegion = hitLocation.traumaRegion();
+        double armorRating = hit.armor.rating(hitLocation);
+        DamageClassification classification = ArmorPenetration.routeNonBullet(original,
+                event.getSource(), hit.armor, hitLocation, hit.preArmorDamage);
+        WoundType bulletType = ArmorPenetration.bulletWound(classification.kind());
+        boolean bulletPenetrated = bulletType != null
+                && ArmorPenetration.penetrates(ArmorPenetration.bulletPower(bulletType, sourceDistance), armorRating);
 
         BodyStateCapability.get(player).ifPresent(bodyState -> {
+            bodyState.configureSeriousTrauma(
+                    com.swampd.superficialtrauma.common.config.SeriousTraumaConfig.enabled(), gameTime);
+            bodyState.recordExternalInjury(finalDamage, gameTime,
+                    bulletPenetrated && hitRegion == GunshotRegion.CHEST);
             bodyState.recordFinalDamage(
                     finalDamage,
                     damageType,
                     classification,
                     sourceDistance,
-                    gameTime
+                    gameTime,
+                    com.swampd.superficialtrauma.common.forensics.WeaponNameSnapshot.capture(event.getSource())
             );
 
             if (event.getSource().is(DamageTypeTags.IS_DROWNING)) {
@@ -100,6 +150,10 @@ public final class DamageEvents {
             }
 
             if (!bodyState.canAct()) {
+                if (classification.kind() == DamageKind.CGM_SHOTGUN) {
+                    ShotgunVolleyAggregator.queueDowningRemainder(player, bodyState, event.getSource(),
+                            classification, finalDamage, gameTime, hitLocation, armorRating);
+                }
                 boolean poseCaptured = bodyState.captureDownedPose(
                         DownedPoseCapture.capture(player, event.getSource(), gameTime)
                 );
@@ -129,7 +183,9 @@ public final class DamageEvents {
                         event.getSource(),
                         classification,
                         finalDamage,
-                        gameTime
+                        gameTime,
+                        hitLocation,
+                        armorRating
                 );
             } else {
                 gunshotResult = applyGunshotDamage(
@@ -138,20 +194,29 @@ public final class DamageEvents {
                         event.getSource(),
                         classification,
                         finalDamage,
-                        gameTime
+                        gameTime,
+                        armorRating,
+                        bulletPenetrated
                 );
             }
             if (!shotgunPelletQueued && gunshotResult != null) {
+                if (bulletPenetrated) {
+                    bodyState.recordGunshotLocations(gunshotResult, finalDamage,
+                            hitRegion == GunshotRegion.HEAD ? finalDamage : 0,
+                            hitRegion == GunshotRegion.CHEST ? finalDamage : 0, gameTime);
+                }
                 SuperficialTrauma.LOGGER.info(
-                        "Final gunshot D={} type={} classified={} reason={} result={} A={} V={} L={}",
+                        "Final gunshot D={} type={} classified={} reason={} result={} A={} R={} L={} location={} penetrated={}",
                         finalDamage,
                         damageType,
                         classification.kind().serializedName(),
                         classification.reason(),
                         gunshotResult.status(),
                         gunshotResult.accumulatedDamage(),
-                        player.getArmorValue(),
-                        sourceDistance
+                        armorRating,
+                        sourceDistance,
+                        hitLocation,
+                        bulletPenetrated
                 );
             } else if (!shotgunPelletQueued && classification.woundType() != null) {
                 WoundType woundType = classification.woundType();
@@ -193,12 +258,20 @@ public final class DamageEvents {
             boolean becameDowned = lethalHit
                     && bodyState.incapacitateFromLastDamage(CollapseReason.HEMORRHAGIC_SHOCK, gameTime);
             if (becameDowned) {
+                if (shotgunPelletQueued) {
+                    ShotgunVolleyAggregator.markDowning(player, bodyState, event.getSource(), classification, gameTime);
+                } else {
+                    bodyState.completeDowningBulletHit(bodyState.downingHitRecord().orElse(null), hitLocation,
+                            hitLocation == BulletHitLocation.HEAD ? finalDamage : 0,
+                            hitLocation == BulletHitLocation.HEAD && bulletPenetrated ? finalDamage : 0,
+                            () -> player.getRandom().nextFloat());
+                }
                 bodyState.captureDownedPose(DownedPoseCapture.capture(player, event.getSource(), gameTime));
                 DownedHitbox.update(player, bodyState);
-                player.displayClientMessage(
-                        Component.translatable("message.superficialtrauma.hemorrhagic_shock_incapacitated"),
-                        true
-                );
+                if (bodyState.lifeState() != BodyLifeState.BRAIN_DEAD) {
+                    player.displayClientMessage(
+                            Component.translatable("message.superficialtrauma.hemorrhagic_shock_incapacitated"), true);
+                }
             }
 
             ModNetworking.syncBodyState(player);
@@ -242,17 +315,15 @@ public final class DamageEvents {
             DamageSource source,
             DamageClassification classification,
             float finalDamage,
-            long gameTime
+            long gameTime,
+            double armorRating,
+            boolean penetrated
     ) {
-        WoundType woundType = switch (classification.kind()) {
-            case CGM_LOW_VELOCITY -> WoundType.GUNSHOT_LOW_VELOCITY;
-            case CGM_HIGH_VELOCITY -> WoundType.GUNSHOT_HIGH_VELOCITY;
-            case CGM_SHOTGUN -> WoundType.GUNSHOT_SHOTGUN;
-            default -> null;
-        };
+        WoundType woundType = ArmorPenetration.bulletWound(classification.kind());
         if (woundType == null) {
             return null;
         }
+        if (!penetrated) return bodyState.applyDamage(WoundType.BLUNT, finalDamage, gameTime);
 
         float debridementChance = switch (woundType) {
             case GUNSHOT_LOW_VELOCITY -> 0.50F;
@@ -260,14 +331,14 @@ public final class DamageEvents {
             case GUNSHOT_SHOTGUN -> 0.60F;
             default -> 0.0F;
         };
-        boolean needsDebridement = finalDamage >= 4.0F
-                && player.getRandom().nextFloat() < debridementChance;
-        return bodyState.applyGunshotDamage(
+        boolean needsDebridement = player.getRandom().nextFloat() < debridementChance;
+        return bodyState.applyPenetratingGunshotDamage(
                 woundType,
                 finalDamage,
-                player.getArmorValue(),
-                attackerDistance(player, source),
+                armorRating >= ArmorPenetration.STRONG_ARMOR_RATING,
+                attackerDistance(player, source) <= ArmorPenetration.CLOSE_SHOTGUN_DISTANCE,
                 needsDebridement,
+                classification.ammoId(),
                 gameTime
         );
     }

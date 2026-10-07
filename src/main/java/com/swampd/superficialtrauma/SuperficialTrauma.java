@@ -26,6 +26,9 @@ public final class SuperficialTrauma {
 
     public SuperficialTrauma(IEventBus modEventBus, ModContainer container) {
         container.registerConfig(ModConfig.Type.SERVER, CorpseServerConfig.SPEC);
+        container.registerConfig(ModConfig.Type.SERVER,
+                com.swampd.superficialtrauma.common.config.SeriousTraumaConfig.SPEC,
+                "superficialtrauma-serious-server.toml");
         BodyStateCapability.register(modEventBus);
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
@@ -41,6 +44,7 @@ public final class SuperficialTrauma {
 
     private void onCommonSetup(FMLCommonSetupEvent event) {
         event.enqueueWork(com.swampd.superficialtrauma.common.treatment.TreatmentEvents::registerOptionalGunEvents);
+        event.enqueueWork(com.swampd.superficialtrauma.common.damage.GunshotHitLocations::registerOptionalGunEvents);
         LOGGER.info("Superficial Trauma common setup complete");
     }
 

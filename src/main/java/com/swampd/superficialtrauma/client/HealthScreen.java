@@ -53,6 +53,7 @@ public final class HealthScreen extends Screen {
     private static final int MINIMUM_WOUND_ROW_HEIGHT = 43;
     private static final int RESPIRATORY_DISTRESS_ROW_HEIGHT = 43;
     private static final int ORGANOPHOSPHATE_POISONING_ROW_HEIGHT = 43;
+    private static final int SERIOUS_TRAUMA_ROW_HEIGHT = 22;
     private static final int TREATMENT_BUTTON_SIZE = 22;
     private static final int TREATMENT_BUTTON_STEP = 25;
     private static final int TREATMENT_BUTTON_TOP = 9;
@@ -887,6 +888,7 @@ public final class HealthScreen extends Screen {
         graphics.enableScissor(x, viewportTop, x + contentWidth, viewportBottom);
         if (woundLayout.rows().isEmpty()
                 && !showsOrganophosphatePoisoning(state)
+                && state.seriousTrauma().conditions().isEmpty()
                 && !state.hasVisibleRespiratoryDistress()) {
             graphics.drawString(
                     font,
@@ -959,6 +961,29 @@ public final class HealthScreen extends Screen {
                 }
             }
             cardY += row.height();
+        }
+
+        for (var condition : state.seriousTrauma().conditions()) {
+            if (cardY < viewportBottom && cardY + SERIOUS_TRAUMA_ROW_HEIGHT > viewportTop) {
+                boolean sealed = condition == com.swampd.superficialtrauma.common.body.SeriousTraumaState.Condition.PNEUMOTHORAX
+                        && state.seriousTrauma().sealed();
+                int color = sealed ? 0xFFE5B95E : DANGER_COLOR;
+                graphics.fill(x, cardY, x + contentWidth, cardY + SERIOUS_TRAUMA_ROW_HEIGHT - 3, sealed ? 0xAA504323 : 0xAA5A1E24);
+                drawBorder(graphics, x, cardY, contentWidth, SERIOUS_TRAUMA_ROW_HEIGHT - 3, color);
+                graphics.drawString(font, font.plainSubstrByWidth(
+                        Component.translatable(sealed ? "serious_trauma.superficialtrauma.pneumothorax_sealed"
+                                : condition.translationKey()).getString(), contentWidth - 8),
+                        x + 4, cardY + 5, color, false);
+            }
+            cardY += SERIOUS_TRAUMA_ROW_HEIGHT;
+        }
+        if (adminDebugView && state.seriousTrauma().enabled()) {
+            for (var region : com.swampd.superficialtrauma.common.damage.GunshotRegion.values()) {
+                String label = Component.translatable("screen.superficialtrauma.health.regional_damage",
+                        Component.translatable(region.translationKey()), oneDecimal(state.seriousTrauma().damage(region))).getString();
+                graphics.drawString(font, font.plainSubstrByWidth(label, contentWidth), x, cardY + 3, MUTED_COLOR, false);
+                cardY += SERIOUS_TRAUMA_ROW_HEIGHT;
+            }
         }
 
         if (showsOrganophosphatePoisoning(state)) {
@@ -1097,6 +1122,11 @@ public final class HealthScreen extends Screen {
 
     private String woundTagSummary(WoundInstance wound, BodyState state) {
         List<String> labels = new ArrayList<>();
+        if (wound.pneumothoraxWound()) labels.add(Component.translatable("wound_tag.superficialtrauma.pneumothorax").getString());
+        if (wound.chestSealApplied()) labels.add(Component.translatable("wound_tag.superficialtrauma.chest_sealed").getString());
+        for (var region : wound.gunshotRegions()) {
+            labels.add(Component.translatable(region.translationKey()).getString());
+        }
         boolean hasBleedingTag = wound.woundTags().stream().anyMatch(tag -> tag.bleedingLevel() > 0);
         if (wound.covering().isApplied()) {
             labels.add(Component.translatable(wound.covering().translationKey()).getString());
@@ -1715,6 +1745,7 @@ public final class HealthScreen extends Screen {
 
     private boolean canAssistBreathingWithoutItem(BodyState state) {
         return inspectingOtherPlayer
+                && !state.hasOpenPneumothorax()
                 && actorCanAct()
                 && patientInAssistedBreathingRange()
                 && (state.lifeState() == BodyLifeState.INCAPACITATED
@@ -1971,9 +2002,11 @@ public final class HealthScreen extends Screen {
                 }
             } else if (preparation.matches(patientEntityId, wound.id())
                     && preparation.kind() == PreparationKind.DEBRIDEMENT
-                    && (type == TreatmentType.SALINE_SOLUTION || type == TreatmentType.ARTIFICIAL_DERMIS)) {
+                    && (type == TreatmentType.SALINE_SOLUTION || type == TreatmentType.ARTIFICIAL_DERMIS
+                    || type == TreatmentType.MEDICAL_GAUZE)) {
                 TreatmentProcedure procedure = type == TreatmentType.ARTIFICIAL_DERMIS
-                        ? TreatmentProcedure.SKIN_GRAFT : TreatmentProcedure.DEBRIDEMENT;
+                        ? TreatmentProcedure.SKIN_GRAFT : type == TreatmentType.MEDICAL_GAUZE
+                        ? TreatmentProcedure.PNEUMOTHORAX_REPAIR : TreatmentProcedure.DEBRIDEMENT;
                 active = actorHasSurgerySkill()
                         && procedure.isApplicable(wound, TreatmentAction.APPLY)
                         && hasRequiredItems(procedure);
@@ -1981,6 +2014,15 @@ public final class HealthScreen extends Screen {
                         && procedure.isApplicable(wound, TreatmentAction.APPLY)
                         && countItem(type) <= 0;
                 onPress = () -> submitPreparedTreatment(patientEntityId, wound.id(), procedure);
+            }
+        } else if (type == TreatmentType.CHEST_SEAL || (type == TreatmentType.SURGICAL_KIT && wound.pneumothoraxWound())) {
+            if (type == TreatmentType.CHEST_SEAL) {
+                var procedure = TreatmentProcedure.CHEST_SEAL;
+                active = procedure.isApplicable(wound, TreatmentAction.APPLY) && hasRequiredItems(procedure);
+                onPress = () -> ModNetworking.requestTreatment(patientEntityId, wound.id(), procedure, TreatmentAction.APPLY);
+            } else {
+                active = canPrepareSurgery(wound);
+                onPress = () -> beginPreparation(patientEntityId, wound.id(), PreparationKind.DEBRIDEMENT);
             }
         } else if (type == TreatmentType.MEDICAL_GAUZE) {
             TreatmentProcedure procedure = TreatmentProcedure.WOUND_PACKING;
@@ -2296,7 +2338,9 @@ public final class HealthScreen extends Screen {
                 && ((TreatmentProcedure.DEBRIDEMENT.isApplicable(wound, TreatmentAction.APPLY)
                 && hasRequiredItems(TreatmentProcedure.DEBRIDEMENT))
                 || (TreatmentProcedure.SKIN_GRAFT.isApplicable(wound, TreatmentAction.APPLY)
-                && hasRequiredItems(TreatmentProcedure.SKIN_GRAFT)));
+                && hasRequiredItems(TreatmentProcedure.SKIN_GRAFT))
+                || (TreatmentProcedure.PNEUMOTHORAX_REPAIR.isApplicable(wound, TreatmentAction.APPLY)
+                && hasRequiredItems(TreatmentProcedure.PNEUMOTHORAX_REPAIR)));
     }
 
     private boolean patientMovedSincePreparation() {
@@ -2386,6 +2430,7 @@ public final class HealthScreen extends Screen {
     private int woundListContentHeight(BodyState state, List<WoundRow> rows) {
         int contentHeight = rows.isEmpty()
                 && !showsOrganophosphatePoisoning(state)
+                && state.seriousTrauma().conditions().isEmpty()
                 && !state.hasVisibleRespiratoryDistress()
                 ? 18
                 : rows.stream().mapToInt(WoundRow::height).sum();
@@ -2395,6 +2440,8 @@ public final class HealthScreen extends Screen {
         if (state.hasVisibleRespiratoryDistress()) {
             contentHeight += RESPIRATORY_DISTRESS_ROW_HEIGHT;
         }
+        contentHeight += state.seriousTrauma().conditions().size() * SERIOUS_TRAUMA_ROW_HEIGHT;
+        if (adminDebugView && state.seriousTrauma().enabled()) contentHeight += 2 * SERIOUS_TRAUMA_ROW_HEIGHT;
         if (!state.damageWindows().isEmpty()) {
             contentHeight += 2 + state.damageWindows().size() * 13;
         }

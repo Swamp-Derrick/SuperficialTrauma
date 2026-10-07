@@ -8,11 +8,14 @@ import java.util.concurrent.ConcurrentMap;
 public final class VoicechatStates {
     private static final ConcurrentMap<UUID, DownedVoiceState> SERVER = new ConcurrentHashMap<>();
     private static volatile DownedVoiceState client = DownedVoiceState.NORMAL;
+    private static volatile float clientConcussionHearing;
 
     private VoicechatStates() {}
 
     public static DownedVoiceState server(UUID player) { return SERVER.getOrDefault(player, DownedVoiceState.NORMAL); }
     public static DownedVoiceState client() { return client; }
+    public static float clientConcussionHearing() { return clientConcussionHearing; }
+    public static void publishConcussionHearing(float value) { clientConcussionHearing = Math.clamp(value, 0, 1); }
     public static void publishServer(UUID player, DownedVoiceState state) {
         if (state.downed()) SERVER.put(player, state);
         else SERVER.remove(player);

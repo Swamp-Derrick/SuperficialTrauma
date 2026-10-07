@@ -19,7 +19,8 @@ public enum MedicalActionSound {
     SYRINGE_START(20),
     RESUSCITATION_1(20),
     RESUSCITATION_2(20),
-    CPR(6);
+    CPR(6),
+    CHEST_SEAL(20);
 
     private final int durationTicks;
 

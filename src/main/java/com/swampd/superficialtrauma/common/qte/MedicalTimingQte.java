@@ -1,6 +1,6 @@
 package com.swampd.superficialtrauma.common.qte;
 
-/** Shared rules for detailed autopsy and skin-graft surgery. */
+/** Shared rules for detailed autopsy, skin grafts and pneumothorax repair. */
 public final class MedicalTimingQte {
     public static final float CHANCE_PER_SECOND = 0.13F;
     public static final long ROLL_INTERVAL_TICKS = 20L;

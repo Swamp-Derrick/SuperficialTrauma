@@ -164,7 +164,8 @@ public final class BodyStateRoundTripTest {
     }
 
     private static void verifyGunshotRangesAndContext() {
-        assertGunshotSeverity(WoundType.GUNSHOT_LOW_VELOCITY, 3.9999F, false, false, 0);
+        assertGunshotSeverity(WoundType.GUNSHOT_LOW_VELOCITY, 0, false, false, 0);
+        assertGunshotSeverity(WoundType.GUNSHOT_LOW_VELOCITY, 3.9999F, false, false, 1);
         assertGunshotSeverity(WoundType.GUNSHOT_LOW_VELOCITY, 4.0F, false, false, 1);
         assertGunshotSeverity(WoundType.GUNSHOT_LOW_VELOCITY, 5.9999F, false, false, 1);
         assertGunshotSeverity(WoundType.GUNSHOT_LOW_VELOCITY, 6.0F, false, false, 2);
@@ -193,7 +194,7 @@ public final class BodyStateRoundTripTest {
                 true,
                 0L
         );
-        assertEquals(WoundType.BLUNT, requireWound(converted).type(), "D below four must convert to blunt trauma");
+        assertEquals(WoundType.BLUNT, requireWound(converted).type(), "Stopped bullet must convert to blunt trauma");
 
         WoundUpdateResult lowVelocity = state.applyGunshotDamage(
                 WoundType.GUNSHOT_LOW_VELOCITY,
@@ -208,15 +209,16 @@ public final class BodyStateRoundTripTest {
         assertEquals(true, lowWound.woundTags().contains(WoundTag.NEEDS_DEBRIDEMENT_1), "creation roll must add debridement");
         assertFloatEquals(0.4F, lowWound.baseHealingPerSecond(), "low-velocity severity one must heal at 0.4 H/s");
 
-        state.applyGunshotDamage(
+        state.applyPenetratingGunshotDamage(
                 WoundType.GUNSHOT_LOW_VELOCITY,
                 11.0F,
-                11,
-                10.0D,
+                true,
                 false,
+                false,
+                "none",
                 2L
         );
-        assertEquals(3, lowWound.severity(), "A fifteen with V above ten must upgrade to severity three");
+        assertEquals(3, lowWound.severity(), "A fifteen with penetrating strong-armor context must upgrade to severity three");
         assertEquals(true, lowWound.fragmentationEligible(), "armor-qualified context must persist on the wound");
         assertEquals(false, lowWound.woundTags().contains(WoundTag.DISORIENTATION_2), "heart-rate state must not remain attached to a wound");
         assertEquals(2, state.heartRateLevel(), "severity-three low-velocity trauma must add two whole-body heart-rate levels");
@@ -366,7 +368,7 @@ public final class BodyStateRoundTripTest {
                 false,
                 202L
         );
-        assertEquals(WoundType.BLUNT, requireWound(singlePelletResult).type(), "one sub-four pellet must still become blunt trauma");
+        assertEquals(WoundType.GUNSHOT_SHOTGUN, requireWound(singlePelletResult).type(), "one penetrating sub-four pellet must create gunshot trauma");
 
         ShotgunVolleyAccumulator.VolleyKey firstShot = new ShotgunVolleyAccumulator.VolleyKey(
                 victimId,

@@ -1,0 +1,12 @@
+{
+  "targets": ["original", "horizontal", "blurred"],
+  "passes": [
+    {"name": "minecraft:blit", "intarget": "minecraft:main", "outtarget": "original"},
+    {"name": "superficialtrauma:concussion_blur", "intarget": "original", "outtarget": "horizontal", "use_linear_filter": true,
+      "uniforms": [{"name": "BlurDir", "values": [1.0, 0.0]}]},
+    {"name": "superficialtrauma:concussion_blur", "intarget": "horizontal", "outtarget": "blurred", "use_linear_filter": true,
+      "uniforms": [{"name": "BlurDir", "values": [0.0, 1.0]}]},
+    {"name": "superficialtrauma:concussion_mask", "intarget": "blurred", "outtarget": "minecraft:main",
+      "auxtargets": [{"name": "OriginalSampler", "id": "original"}]}
+  ]
+}

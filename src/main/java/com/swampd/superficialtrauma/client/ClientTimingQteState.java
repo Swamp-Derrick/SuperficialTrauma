@@ -2,6 +2,7 @@ package com.swampd.superficialtrauma.client;
 
 import com.swampd.superficialtrauma.common.qte.TimingQteResult;
 import com.swampd.superficialtrauma.common.qte.TimingQteSnapshot;
+import com.swampd.superficialtrauma.common.qte.TimingQteTimeline;
 import com.swampd.superficialtrauma.common.init.ModSounds;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.client.Minecraft;
@@ -9,18 +10,24 @@ import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.sounds.SoundEvent;
 
 public final class ClientTimingQteState {
-    private static final long FAILURE_FLASH_DURATION_MILLIS = 550L;
+    private static final long FAILURE_FLASH_DURATION_NANOS = 550_000_000L;
+    private static final float RESULT_VOLUME = 0.5F;
     private static TimingQteSnapshot active;
+    private static TimingQteTimeline timeline;
+    private static TimingQteResult predictedResult;
     private static boolean submitted;
-    private static long failureFlashStartedAtMillis;
+    private static long failureFlashStartedAtNanos;
 
     private ClientTimingQteState() {
     }
 
-    public static void start(TimingQteSnapshot snapshot) {
+    public static void start(TimingQteSnapshot snapshot, int leadInTicks) {
+        if (active != null && active.sessionId() == snapshot.sessionId()) return;
         active = snapshot;
+        timeline = new TimingQteTimeline(leadInTicks);
+        predictedResult = null;
         submitted = false;
-        failureFlashStartedAtMillis = 0L;
+        failureFlashStartedAtNanos = 0L;
     }
 
     public static void resolve(int sessionId, TimingQteResult result) {
@@ -28,14 +35,11 @@ public final class ClientTimingQteState {
             return;
         }
         active = null;
+        timeline = null;
         submitted = false;
-        if (result == TimingQteResult.CANCELLED) {
-            return;
-        }
-        playResultSound(result);
-        if (result.failed()) {
-            failureFlashStartedAtMillis = System.currentTimeMillis();
-        }
+        // Local feedback is immediate; the server acknowledgement must not play it twice.
+        if (result != TimingQteResult.CANCELLED && result != predictedResult) feedback(result);
+        predictedResult = null;
     }
 
     public static TimingQteSnapshot active() {
@@ -47,62 +51,69 @@ public final class ClientTimingQteState {
     }
 
     public static float failureFlashStrength() {
-        if (failureFlashStartedAtMillis <= 0L) {
+        if (failureFlashStartedAtNanos == 0L) {
             return 0.0F;
         }
-        long elapsedMillis = System.currentTimeMillis() - failureFlashStartedAtMillis;
-        if (elapsedMillis >= FAILURE_FLASH_DURATION_MILLIS) {
-            failureFlashStartedAtMillis = 0L;
+        long elapsedNanos = System.nanoTime() - failureFlashStartedAtNanos;
+        if (elapsedNanos >= FAILURE_FLASH_DURATION_NANOS) {
+            failureFlashStartedAtNanos = 0L;
             return 0.0F;
         }
-        float remaining = 1.0F - elapsedMillis / (float) FAILURE_FLASH_DURATION_MILLIS;
+        float remaining = 1.0F - elapsedNanos / (float) FAILURE_FLASH_DURATION_NANOS;
         return remaining * remaining;
     }
 
-    public static float progress(float partialTick) {
-        Minecraft minecraft = Minecraft.getInstance();
-        if (active == null || minecraft.level == null) {
+    public static float presentProgress() {
+        if (active == null || timeline == null || submitted) {
             return 0.0F;
         }
-        return active.progressAt(minecraft.level.getGameTime(), partialTick);
+        boolean firstFrame = !timeline.started();
+        float elapsed = timeline.present(System.nanoTime());
+        if (firstFrame) ModNetworking.timingQteReady(active.sessionId());
+        if (elapsed >= active.successEndTick()) submit(false, elapsed);
+        return active == null ? 0.0F : elapsed / active.sweepDurationTicks();
     }
 
     public static boolean press() {
-        if (active == null || submitted) {
+        if (active == null || timeline == null || submitted || !timeline.started()) {
             return false;
         }
-        submit(true);
+        submit(true, timeline.inputElapsed(System.nanoTime()));
         return true;
     }
 
     public static void tick() {
-        if (active == null || submitted) {
+        if (active == null || timeline == null || submitted) {
             return;
         }
-        Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.level == null) {
-            return;
-        }
-        float elapsedTicks = active.elapsedTicksAt(minecraft.level.getGameTime(), 0.0F);
-        if (elapsedTicks >= active.successEndTick()) {
-            submit(false);
+        long now = System.nanoTime();
+        if (timeline.shouldMiss(active.successEndTick(), now)) {
+            submit(false, timeline.elapsed(now));
         }
     }
 
     public static void clear() {
         active = null;
+        timeline = null;
+        predictedResult = null;
         submitted = false;
-        failureFlashStartedAtMillis = 0L;
+        failureFlashStartedAtNanos = 0L;
     }
 
-    private static void submit(boolean pressed) {
+    private static void submit(boolean pressed, float elapsedTicks) {
         Minecraft minecraft = Minecraft.getInstance();
         if (active == null || minecraft.level == null) {
             return;
         }
         submitted = true;
-        float elapsedTicks = active.elapsedTicksAt(minecraft.level.getGameTime(), 0.0F);
+        predictedResult = pressed ? active.classifyPress(elapsedTicks) : TimingQteResult.MISSED_FAILURE;
+        feedback(predictedResult);
         ModNetworking.submitTimingQte(active.sessionId(), elapsedTicks, pressed);
+    }
+
+    private static void feedback(TimingQteResult result) {
+        playResultSound(result);
+        if (result.failed()) failureFlashStartedAtNanos = System.nanoTime();
     }
 
     private static void playResultSound(TimingQteResult result) {
@@ -116,7 +127,7 @@ public final class ClientTimingQteState {
             Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(
                     sound,
                     1.0F,
-                    1.0F
+                    RESULT_VOLUME
             ));
         }
     }

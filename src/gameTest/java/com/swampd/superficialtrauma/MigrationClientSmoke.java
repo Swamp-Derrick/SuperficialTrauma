@@ -62,6 +62,18 @@ public final class MigrationClientSmoke {
                             .value().createWorldDimensions(), new TitleScreen());
         }
         if (mc.player == null || mc.level == null || !ClientBodyState.hasReceivedSnapshot()) return;
+        if (Boolean.getBoolean("superficialtrauma.concussionFeedbackSmoke")) {
+            ConcussionFeedbackClientSmoke.tick();
+            return;
+        }
+        if (Boolean.getBoolean("superficialtrauma.seriousTraumaSmoke")) {
+            SeriousTraumaClientSmoke.tick();
+            return;
+        }
+        if (Boolean.getBoolean("superficialtrauma.qteSmoke")) {
+            QteClientSmoke.tick();
+            return;
+        }
         if (Boolean.getBoolean("superficialtrauma.worldAudioSmoke")) {
             WorldAudioClientSmoke.tick();
             return;
@@ -81,6 +93,15 @@ public final class MigrationClientSmoke {
                 var state = BodyStateCapability.get(player).orElseThrow();
                 state.unlockFirstAidSkill(); state.unlockSurgerySkill(); state.unlockForensicSkill();
                 state.applyDamage(WoundType.BLUNT, 7, player.level().getGameTime());
+                if (com.swampd.superficialtrauma.common.config.SeriousTraumaConfig.enabled()) {
+                    long now = player.level().getGameTime();
+                    state.configureSeriousTrauma(true, now);
+                    var gunshot = state.applyGunshotDamage(WoundType.GUNSHOT_HIGH_VELOCITY, 28, 0, 10, false, now);
+                    // Keep the UI fixture awake for the entire smoke run; these metadata-only
+                    // conditions should not themselves cause pain, collapse or any other effect.
+                    state.forceRecoverForDebug();
+                    state.recordGunshotLocations(gunshot, 28, 12, 16, now);
+                }
                 for (var item : List.of(ModItems.STETHOSCOPE.get(), ModItems.BANDAGE.get(), ModItems.SYRINGE.get(),
                         ModItems.MORPHINE_VIAL.get(), ModItems.PUPIL_PENLIGHT.get(), ModItems.CHECKLIST.get())) {
                     player.getInventory().add(new ItemStack(item));
@@ -95,9 +116,16 @@ public final class MigrationClientSmoke {
                 }
                 level.setBlockAndUpdate(new BlockPos(2, -60, 1), ModBlocks.MEDICAL_WORKBENCH.get().defaultBlockState());
                 var corpse = ModEntities.CORPSE.get().create(level);
+                var forensicHit = new DowningHitRecord(9, "cgm.bullet", com.swampd.superficialtrauma.common.damage.DamageKind.CGM_LOW_VELOCITY,
+                        "test", "cgm:projectile", "cgm:basic_bullet", "minecraft:iron_sword", 12, level.getGameTime())
+                        .withBulletEvidence(com.swampd.superficialtrauma.common.damage.BulletHitLocation.HEAD, 9, true);
+                var forensicHistory = new java.util.ArrayList<WoundHistoryEntry>();
+                for (var type : List.of(WoundType.BLUNT, WoundType.BURN, WoundType.GUNSHOT_HIGH_VELOCITY, WoundType.GUNSHOT_LOW_VELOCITY)) {
+                    forensicHistory.add(new WoundHistoryEntry(UUID.randomUUID(), type, 3, 20, 0, 10, -1, false, false));
+                }
                 corpse.initialize(new CorpseSnapshot(UUID.randomUUID(), "Smoke corpse", "", "", level.getGameTime(),
                         new DownedPoseSnapshot(level.getGameTime(), 37, DownedPosture.UNSAFE, DownedFallDirection.FADE_ONLY),
-                        List.of(), null, CollapseReason.NONE, false, false), -1, -60, 1);
+                        forensicHistory, forensicHit, CollapseReason.HEMORRHAGIC_SHOCK, false, false), -1, -60, 1);
                 corpse.setItem(0, new ItemStack(Items.DIAMOND));
                 level.addFreshEntity(corpse);
                 corpseId = corpse.getId();
@@ -134,10 +162,27 @@ public final class MigrationClientSmoke {
                 expected = AutopsyScreen.class;
             }
             case 8 -> {
+                scale(2);
+                onServer(player -> {
+                    var corpse = (CorpseEntity) player.level().getEntity(corpseId);
+                    corpse.revealDeathTime(player.level().getGameTime());
+                    corpse.revealDetailedAutopsy();
+                    AutopsyService.open(player, corpseId);
+                });
+                expected = AutopsyScreen.class;
+            }
+            case 9 -> { scale(3); expected = AutopsyScreen.class; }
+            case 10 -> { scale(4); expected = AutopsyScreen.class; }
+            case 11 -> {
+                if (!(mc.screen instanceof AutopsyScreen autopsy)) throw new AssertionError("Expected autopsy for scroll check");
+                if (!autopsy.mouseScrolled(60, 100, 0, -100)) throw new AssertionError("Long autopsy report must scroll at 4x");
+                expected = AutopsyScreen.class;
+            }
+            case 12 -> {
                 mc.screen.onClose();
                 mc.player.setYRot(90); mc.player.setXRot(25);
             }
-            case 9 -> {
+            case 13 -> {
                 SuperficialTrauma.LOGGER.info("MIGRATION CLIENT SMOKE PASSED: health x2/x3/x4, station, workbench, corpse loot, autopsy, entity rendering, client/server payloads");
                 mc.stop();
             }

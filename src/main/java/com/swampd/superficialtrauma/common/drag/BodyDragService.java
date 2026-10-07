@@ -2,6 +2,7 @@ package com.swampd.superficialtrauma.common.drag;
 
 import com.swampd.superficialtrauma.common.body.BodyStateCapability;
 import com.swampd.superficialtrauma.common.entity.CorpseEntity;
+import com.swampd.superficialtrauma.common.loot.LootingService;
 import com.swampd.superficialtrauma.network.ModNetworking;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -85,6 +86,7 @@ public final class BodyDragService {
         );
         SESSIONS_BY_DRAGGER.put(dragger.getUUID(), session);
         DRAGGER_BY_TARGET.put(targetId, dragger.getUUID());
+        LootingService.closeForTarget(target);
         applyDraggerState(dragger);
         ModNetworking.syncBodyDragState(target, dragger, true);
     }
@@ -168,6 +170,13 @@ public final class BodyDragService {
 
     public static boolean isBeingDragged(Entity target) {
         return DRAGGER_BY_TARGET.containsKey(target.getUUID());
+    }
+
+    public static void stopDraggingTarget(Entity target) {
+        UUID draggerId = DRAGGER_BY_TARGET.get(target.getUUID());
+        if (draggerId != null) {
+            stop(draggerId);
+        }
     }
 
     public static void syncForTracking(Entity target, ServerPlayer receiver) {

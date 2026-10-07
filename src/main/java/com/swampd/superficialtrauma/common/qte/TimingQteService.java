@@ -10,8 +10,6 @@ import java.util.UUID;
 
 /** Server-authoritative owner of reusable single-player timing QTE sessions. */
 public final class TimingQteService {
-    private static final float MAX_REPORTED_FUTURE_TICKS = 2.0F;
-    private static final float MAX_REPORTED_AGE_TICKS = 20.0F;
     private static final Map<UUID, ActiveSession> ACTIVE = new HashMap<>();
     private static int nextSessionId = 1;
 
@@ -45,15 +43,21 @@ public final class TimingQteService {
         );
         ACTIVE.put(player.getUUID(), new ActiveSession(
                 snapshot,
-                definition.serverResponseGraceTicks(),
+                new TimingQteServerWindow(snapshot, definition.leadInTicks(),
+                        definition.serverResponseGraceTicks(), System.nanoTime()),
                 resultHandler
         ));
-        ModNetworking.sendTimingQteStarted(player, snapshot);
+        ModNetworking.sendTimingQteStarted(player, snapshot, definition.leadInTicks());
         return true;
     }
 
     public static boolean hasActive(ServerPlayer player) {
         return ACTIVE.containsKey(player.getUUID());
+    }
+
+    public static void ready(ServerPlayer player, int sessionId) {
+        ActiveSession active = ACTIVE.get(player.getUUID());
+        if (active != null && active.snapshot.sessionId() == sessionId) active.window.ready(System.nanoTime());
     }
 
     public static void submit(
@@ -66,21 +70,12 @@ public final class TimingQteService {
         if (active == null || active.snapshot.sessionId() != sessionId) {
             return;
         }
-        if (!pressed) {
+        if (!active.window.accepts(reportedElapsedTicks, System.nanoTime())) {
             resolve(player, active, TimingQteResult.MISSED_FAILURE);
             return;
         }
-
-        float serverElapsed = active.snapshot.elapsedTicksAt(
-                player.serverLevel().getGameTime(),
-                0.0F
-        );
-        float earliestPlausible = serverElapsed - MAX_REPORTED_AGE_TICKS;
-        float latestPlausible = serverElapsed + MAX_REPORTED_FUTURE_TICKS;
-        float judgedElapsed = Float.isFinite(reportedElapsedTicks)
-                ? Mth.clamp(reportedElapsedTicks, earliestPlausible, latestPlausible)
-                : serverElapsed;
-        resolve(player, active, active.snapshot.classifyPress(judgedElapsed));
+        resolve(player, active, pressed ? active.snapshot.classifyPress(reportedElapsedTicks)
+                : TimingQteResult.MISSED_FAILURE);
     }
 
     public static void tick(ServerPlayer player) {
@@ -88,10 +83,7 @@ public final class TimingQteService {
         if (active == null) {
             return;
         }
-        long automaticFailureTime = active.snapshot.cursorStartGameTime()
-                + (long) Math.ceil(active.snapshot.successEndTick())
-                + active.serverResponseGraceTicks;
-        if (player.serverLevel().getGameTime() >= automaticFailureTime) {
+        if (active.window.expired(System.nanoTime())) {
             resolve(player, active, TimingQteResult.MISSED_FAILURE);
         }
     }
@@ -137,7 +129,7 @@ public final class TimingQteService {
 
     private record ActiveSession(
             TimingQteSnapshot snapshot,
-            int serverResponseGraceTicks,
+            TimingQteServerWindow window,
             ResultHandler resultHandler
     ) {
     }

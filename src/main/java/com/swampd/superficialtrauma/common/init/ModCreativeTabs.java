@@ -50,6 +50,7 @@ public final class ModCreativeTabs {
                         output.accept(ModItems.MEDICAL_WORKBENCH.get());
                         output.accept(ModItems.SURGICAL_KIT.get());
                         output.accept(ModItems.ARTIFICIAL_DERMIS.get());
+                        output.accept(ModItems.CHEST_SEAL.get());
                         output.accept(ModItems.PUPIL_PENLIGHT.get());
                         output.accept(ModItems.CHECKLIST.get());
                         output.accept(ModItems.FIRST_AID_SKILL_BOOK.get());

@@ -11,6 +11,25 @@ import static org.junit.jupiter.api.Assertions.*;
 class DownedVoiceTest {
     private static final UUID SPEAKER = UUID.randomUUID();
 
+    @Test void concussionUsesSameMuffleAndEchoAsDownedAndDoesNotStackWithArrest() {
+        short[] input = sine(3000, 48000);
+        assertArrayEquals(new VoicechatAudioProcessor().process(SPEAKER, "entity", input, DownedVoiceState.Listening.MUFFLED),
+                new VoicechatAudioProcessor().process(SPEAKER, "entity", input, DownedVoiceState.Listening.CLEAR, 1));
+        assertArrayEquals(new VoicechatAudioProcessor().process(SPEAKER, "entity", input, DownedVoiceState.Listening.ARREST),
+                new VoicechatAudioProcessor().process(SPEAKER, "entity", input, DownedVoiceState.Listening.ARREST, 1));
+        double full = rms(new VoicechatAudioProcessor().process(SPEAKER, "entity", input, DownedVoiceState.Listening.CLEAR, 1), 24000);
+        double half = rms(new VoicechatAudioProcessor().process(SPEAKER, "entity", input, DownedVoiceState.Listening.CLEAR, .5F), 24000);
+        assertTrue(half > full * 10 && half < rms(input, 24000));
+    }
+
+    @Test void thirtySecondEndIsBitExactAndOldEchoDoesNotReturnInAnotherEpisode() {
+        var processor = new VoicechatAudioProcessor();
+        processor.process(SPEAKER, "entity", sine(220, 48000), DownedVoiceState.Listening.CLEAR, 1);
+        short[] clear = sine(440, 960);
+        assertSame(clear, processor.process(SPEAKER, "entity", clear, DownedVoiceState.Listening.CLEAR, 0));
+        assertEquals(0, max(processor.process(SPEAKER, "entity", new short[16000], DownedVoiceState.Listening.CLEAR, 1), 0, 16000));
+    }
+
     @Test void speechGraceAndHearingHaveIndependentExactBoundaries() {
         var start = DownedVoiceState.evaluate(BodyLifeState.INCAPACITATED, 100, 100);
         assertTrue(start.downed()); assertFalse(start.muted());

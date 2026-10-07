@@ -134,7 +134,8 @@ public final class WorldAudioClientSmoke {
         if (phase != previous) SuperficialTrauma.LOGGER.info("World audio smoke completed phase {} at tick {}", previous, ticks);
     }
 
-    private static void playProbes() {
+    static int probeCount() { return PROBES.size(); }
+    static void playProbes() {
         var sounds = new ProbeSound[]{
                 new ProbeSound("minecraft:block.grass.step", SoundSource.PLAYERS, false, true),
                 new ProbeSound("minecraft:music_disc.13", SoundSource.RECORDS, false, true),
@@ -143,7 +144,7 @@ public final class WorldAudioClientSmoke {
         for (var sound : sounds) Minecraft.getInstance().getSoundManager().play(sound);
     }
 
-    private static CompletableFuture<Void> checkAudio(WorldHearingProfile expected, boolean captureBase) throws Exception {
+    static CompletableFuture<Void> checkAudio(WorldHearingProfile expected, boolean captureBase) throws Exception {
         CompletableFuture<Void> result = new CompletableFuture<>();
         ChannelAccess access = (ChannelAccess) field(engine(), "channelAccess");
         access.executeOnChannels(channels -> {

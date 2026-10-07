@@ -3,6 +3,7 @@ package com.swampd.superficialtrauma.client;
 import com.swampd.superficialtrauma.SuperficialTrauma;
 import com.swampd.superficialtrauma.client.audio.ClientWorldHearing;
 import com.swampd.superficialtrauma.common.body.DownedPoseSnapshot;
+import com.swampd.superficialtrauma.common.audio.ConcussionHearingEnvelope;
 import com.swampd.superficialtrauma.common.voice.DownedVoiceState;
 import com.swampd.superficialtrauma.common.voice.VoicechatStates;
 import net.minecraft.client.Minecraft;
@@ -23,6 +24,7 @@ public final class ClientVoicechatState {
         var mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null || !ClientBodyState.hasReceivedSnapshot()) {
             VoicechatStates.publishClient(DownedVoiceState.NORMAL);
+            VoicechatStates.publishConcussionHearing(0);
             ClientWorldHearing.reset();
             return;
         }
@@ -33,7 +35,12 @@ public final class ClientVoicechatState {
                 .orElse(previous.downed() ? previous.downedSince() : now);
         var state = DownedVoiceState.update(body.lifeState(), since, now, previous);
         VoicechatStates.publishClient(state);
-        if (!mc.isPaused()) ClientWorldHearing.update(state, now);
+        if (!mc.isPaused()) {
+            var concussion = body.seriousTrauma();
+            float amount = ConcussionHearingEnvelope.strength(concussion.hasConcussion(), concussion.concussionStartedAt(), now);
+            VoicechatStates.publishConcussionHearing(amount);
+            ClientWorldHearing.update(state, now, amount);
+        }
         if (state.downed() && isVoicechatScreen(mc.screen)) mc.setScreen(null);
     }
 
@@ -56,6 +63,7 @@ public final class ClientVoicechatState {
     @SubscribeEvent
     public static void logout(ClientPlayerNetworkEvent.LoggingOut event) {
         VoicechatStates.publishClient(DownedVoiceState.NORMAL);
+        VoicechatStates.publishConcussionHearing(0);
         ClientWorldHearing.reset();
     }
 }

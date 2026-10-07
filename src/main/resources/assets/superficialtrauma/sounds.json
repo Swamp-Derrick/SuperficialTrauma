@@ -1,4 +1,6 @@
 {
+  "tinnitus": {"sounds": [{"name": "superficialtrauma:tinnitus", "stream": true}]},
+  "chest_seal": { "sounds": [ "superficialtrauma:chest_seal" ] },
   "defibrillator_charging": {
     "sounds": [
       "superficialtrauma:defibrillator_charging"

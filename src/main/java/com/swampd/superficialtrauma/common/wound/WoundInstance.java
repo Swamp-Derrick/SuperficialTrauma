@@ -1,5 +1,6 @@
 package com.swampd.superficialtrauma.common.wound;
 
+import com.swampd.superficialtrauma.common.damage.GunshotRegion;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
@@ -59,6 +60,8 @@ public final class WoundInstance {
     private final long createdGameTime;
     private final long windowEndGameTime;
     private final EnumSet<WoundTag> woundTags;
+    private final EnumSet<GunshotRegion> gunshotRegions = EnumSet.noneOf(GunshotRegion.class);
+    private String gunshotAmmoId = "none";
     private long transientPainEndGameTime;
     private long nextBleedingGameTime;
     private int bleedingTimerLevel;
@@ -68,6 +71,31 @@ public final class WoundInstance {
     private boolean skinGrafted;
     private WoundCovering covering;
     private boolean woundPackingApplied;
+    private boolean pneumothoraxWound;
+    private boolean chestSealApplied;
+
+    public boolean pneumothoraxWound() { return pneumothoraxWound; }
+    public boolean chestSealApplied() { return chestSealApplied; }
+    public boolean chestClosed() { return pneumothoraxWound && (chestSealApplied || woundPackingApplied); }
+    public boolean packingSecured() {
+        return chestSealApplied || (covering.isApplied() && covering != WoundCovering.TEMPORARY_DRESSING);
+    }
+    public void markPneumothoraxWound() {
+        pneumothoraxWound = true;
+        healingProgress = Math.max(1, healingProgress);
+    }
+    public void clearPneumothoraxWound() { pneumothoraxWound = chestSealApplied = false; }
+    public boolean applyChestSeal() {
+        if (!pneumothoraxWound || chestSealApplied) return false;
+        chestSealApplied = true;
+        return true;
+    }
+    public void reopenChest(long gameTime) {
+        if (!pneumothoraxWound) return;
+        chestSealApplied = woundPackingApplied = false;
+        covering = WoundCovering.NONE;
+        rescheduleBleeding(gameTime);
+    }
     private boolean tourniquetApplied;
     private long tourniquetAccumulatedTicks;
     private long tourniquetLastUpdateGameTime;
@@ -220,7 +248,7 @@ public final class WoundInstance {
         }
         int severity = severityFor(type, accumulatedDamage, fragmentationEligible, closeRangeShot);
         if (severity == 0) {
-            throw new IllegalArgumentException("Gunshot wounds require at least four final-damage points");
+            throw new IllegalArgumentException("Penetrating gunshot wounds require positive finite damage");
         }
         EnumSet<WoundTag> initialTags = tagsFor(type, severity);
         if (needsDebridement) {
@@ -626,7 +654,7 @@ public final class WoundInstance {
     }
 
     public boolean applyWoundPacking(long gameTime) {
-        if (woundPackingApplied || untreatedBleedingLevel(true) <= 0 || isHealed()) {
+        if (woundPackingApplied || (!pneumothoraxWound && untreatedBleedingLevel(true) <= 0) || isHealed()) {
             return false;
         }
         woundPackingApplied = true;
@@ -777,7 +805,7 @@ public final class WoundInstance {
     }
 
     public boolean isAccumulationWindowOpen(long gameTime) {
-        return gameTime < windowEndGameTime;
+        return gameTime >= createdGameTime && gameTime < windowEndGameTime;
     }
 
     public void addAccumulatedDamage(float amount, long gameTime) {
@@ -806,8 +834,12 @@ public final class WoundInstance {
         if (amount > 0.0F) {
             boolean wasDisinfected = disinfectionEndGameTime >= 0L;
             healingProgress = 100.0F;
-            covering = WoundCovering.NONE;
-            woundPackingApplied = false;
+            // A gunshot instance may combine chest and limb hits. The regional resolver
+            // reopens chest treatment only after it confirms another penetrating chest hit.
+            if (!pneumothoraxWound) {
+                covering = WoundCovering.NONE;
+                woundPackingApplied = false;
+            }
             icePackApplied = false;
             skinGrafted = false;
             boolean wasDebrided = woundTags.remove(WoundTag.DEBRIDED);
@@ -1025,7 +1057,7 @@ public final class WoundInstance {
     }
 
     private float minimumHealingProgress() {
-        float intrinsicFloor = minimumHealingProgressWithoutSkinGraft();
+        float intrinsicFloor = Math.max(pneumothoraxWound ? 1 : 0, minimumHealingProgressWithoutSkinGraft());
         return woundTags.contains(WoundTag.NEEDS_DEBRIDEMENT_1) || isInfected()
                 ? Math.max(intrinsicFloor, INFECTED_HEALING_PROGRESS_FLOOR)
                 : intrinsicFloor;
@@ -1147,7 +1179,7 @@ public final class WoundInstance {
     }
 
     private static int cappedGunshotSeverity(float damage, float levelTwo, float levelThree, boolean levelThreeEligible) {
-        if (damage < 4.0F) {
+        if (!Float.isFinite(damage) || damage <= 0.0F) {
             return 0;
         }
         if (damage < levelTwo) {
@@ -1294,6 +1326,10 @@ public final class WoundInstance {
 
     public CompoundTag serializeNBT() {
         CompoundTag tag = new CompoundTag();
+        if (type.isGunshot()) tag.putString("GunshotAmmoId", gunshotAmmoId);
+        for (GunshotRegion region : gunshotRegions) {
+            tag.putBoolean("GunshotRegion_" + region.serializedName(), true);
+        }
         tag.putUUID(TAG_ID, id);
         tag.putString(TAG_TYPE, type.serializedName());
         tag.putInt(TAG_SEVERITY, severity);
@@ -1311,6 +1347,8 @@ public final class WoundInstance {
         tag.putString(TAG_COVERING, covering.serializedName());
         tag.putBoolean(TAG_TEMPORARY_DRESSING, covering == WoundCovering.TEMPORARY_DRESSING);
         tag.putBoolean(TAG_WOUND_PACKING, woundPackingApplied);
+        tag.putBoolean("PneumothoraxWound", pneumothoraxWound);
+        tag.putBoolean("ChestSealApplied", chestSealApplied);
         tag.putBoolean(TAG_TOURNIQUET, tourniquetApplied);
         tag.putLong(TAG_TOURNIQUET_ACCUMULATED_TICKS, tourniquetAccumulatedTicks);
         tag.putLong(TAG_TOURNIQUET_LAST_UPDATE_GAME_TIME, tourniquetLastUpdateGameTime);
@@ -1364,7 +1402,7 @@ public final class WoundInstance {
         float infectionContribution = tag.contains(TAG_INFECTION_CONTRIBUTION, Tag.TAG_ANY_NUMERIC)
                 ? Math.max(0.0F, tag.getFloat(TAG_INFECTION_CONTRIBUTION))
                 : woundTags.contains(WoundTag.INFECTED_1) ? 1.5F : 0.0F;
-        return new WoundInstance(
+        WoundInstance restored = new WoundInstance(
                 id,
                 type,
                 severity,
@@ -1415,7 +1453,32 @@ public final class WoundInstance {
                         : -1L,
                 tag.getBoolean(TAG_SKIN_GRAFTED)
         );
+        if (type.isGunshot()) {
+            restored.setGunshotAmmoId(tag.getString("GunshotAmmoId"));
+            if (tag.getBoolean("PneumothoraxWound")) restored.markPneumothoraxWound();
+            restored.chestSealApplied = restored.pneumothoraxWound && tag.getBoolean("ChestSealApplied");
+            for (GunshotRegion region : GunshotRegion.values()) {
+                if (tag.getBoolean("GunshotRegion_" + region.serializedName())) restored.addGunshotRegion(region);
+            }
+        }
+        return restored;
     }
+
+    public Set<GunshotRegion> gunshotRegions() {
+        return Collections.unmodifiableSet(gunshotRegions);
+    }
+
+    public String gunshotAmmoId() { return gunshotAmmoId; }
+
+    public void setGunshotAmmoId(String ammoId) {
+        gunshotAmmoId = ammoId == null || ammoId.isBlank() ? "none" : ammoId;
+    }
+
+    public void addGunshotRegion(GunshotRegion region) {
+        if (type.isGunshot() && region != null) gunshotRegions.add(region);
+    }
+
+    public void clearGunshotRegions() { gunshotRegions.clear(); }
 
     private static long saturatingAdd(long value, long increment) {
         if (increment <= 0L) {

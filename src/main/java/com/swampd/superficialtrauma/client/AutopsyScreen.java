@@ -2,6 +2,7 @@ package com.swampd.superficialtrauma.client;
 
 import com.swampd.superficialtrauma.common.body.DowningHitRecord;
 import com.swampd.superficialtrauma.common.body.WoundHistoryEntry;
+import com.swampd.superficialtrauma.common.damage.BulletHitLocation;
 import com.swampd.superficialtrauma.common.forensics.AutopsyAction;
 import com.swampd.superficialtrauma.common.forensics.AutopsyReport;
 import com.swampd.superficialtrauma.common.init.ModItems;
@@ -41,6 +42,9 @@ public final class AutopsyScreen extends Screen {
     private int informationWidth;
     private int operationsLeft;
     private int operationsWidth;
+    private double informationScroll;
+    private int informationMaxScroll;
+    private boolean draggingInformation;
 
     public AutopsyScreen(AutopsyReport report) {
         super(Component.translatable("screen.superficialtrauma.autopsy.title", report.ownerName()));
@@ -115,7 +119,17 @@ public final class AutopsyScreen extends Screen {
                 panelTop + 14,
                 TEXT_COLOR
         );
+        graphics.enableScissor(panelLeft + 2, panelTop + 42,
+                panelLeft + informationWidth - 2, panelTop + panelHeight - 8);
         renderInformation(graphics);
+        graphics.disableScissor();
+        if (informationMaxScroll > 0) {
+            int top = panelTop + 44, viewport = informationViewportHeight();
+            int thumb = Math.max(12, viewport * viewport / (viewport + informationMaxScroll));
+            int thumbTop = top + (int) ((viewport - thumb) * informationScroll / informationMaxScroll);
+            graphics.fill(panelLeft + informationWidth - 8, top, panelLeft + informationWidth - 4, top + viewport, BACKGROUND_COLOR);
+            graphics.fill(panelLeft + informationWidth - 8, thumbTop, panelLeft + informationWidth - 4, thumbTop + thumb, BORDER_COLOR);
+        }
         renderOperations(graphics);
         renderWidgets(graphics, mouseX, mouseY, partialTick);
 
@@ -127,6 +141,49 @@ public final class AutopsyScreen extends Screen {
     @Override
     public boolean isPauseScreen() {
         return false;
+    }
+
+    private int informationViewportHeight() { return panelHeight - 54; }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontal, double vertical) {
+        if (informationMaxScroll > 0 && mouseX >= panelLeft && mouseX < panelLeft + informationWidth
+                && mouseY >= panelTop + 42 && mouseY < panelTop + panelHeight - 8) {
+            informationScroll = Mth.clamp(informationScroll - vertical * 20, 0, informationMaxScroll);
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, horizontal, vertical);
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0 && informationMaxScroll > 0
+                && mouseX >= panelLeft + informationWidth - 10 && mouseX < panelLeft + informationWidth - 2
+                && mouseY >= panelTop + 44 && mouseY < panelTop + panelHeight - 10) {
+            draggingInformation = true;
+            scrollInformationTo(mouseY);
+            return true;
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dx, double dy) {
+        if (button == 0 && draggingInformation) { scrollInformationTo(mouseY); return true; }
+        return super.mouseDragged(mouseX, mouseY, button, dx, dy);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == 0 && draggingInformation) { draggingInformation = false; return true; }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    private void scrollInformationTo(double mouseY) {
+        int viewport = informationViewportHeight();
+        int thumb = Math.max(12, viewport * viewport / (viewport + informationMaxScroll));
+        informationScroll = Mth.clamp((mouseY - panelTop - 44 - thumb / 2.0) / Math.max(1, viewport - thumb), 0, 1)
+                * informationMaxScroll;
     }
 
     @Override
@@ -156,7 +213,7 @@ public final class AutopsyScreen extends Screen {
 
     private void renderInformation(GuiGraphics graphics) {
         int x = panelLeft + 14;
-        int y = panelTop + 44;
+        int y = panelTop + 44 - (int) informationScroll;
         int textWidth = informationWidth - 28;
         graphics.drawString(font, Component.translatable("screen.superficialtrauma.autopsy.information"), x, y, TEXT_COLOR, false);
         y += 20;
@@ -225,7 +282,7 @@ public final class AutopsyScreen extends Screen {
             }
             if (report.suspectedMyocardialInfarction()) {
                 y += 9;
-                drawWrapped(
+                y = drawWrapped(
                         graphics,
                         Component.translatable(
                                 "screen.superficialtrauma.autopsy.suspected_myocardial_infarction"
@@ -237,7 +294,7 @@ public final class AutopsyScreen extends Screen {
                 );
             }
         } else {
-            drawWrapped(
+            y = drawWrapped(
                     graphics,
                     Component.translatable("screen.superficialtrauma.autopsy.details_locked"),
                     x,
@@ -246,6 +303,8 @@ public final class AutopsyScreen extends Screen {
                     MUTED_COLOR
             );
         }
+        informationMaxScroll = Math.max(0, y + (int) informationScroll - (panelTop + panelHeight - 10));
+        informationScroll = Mth.clamp(informationScroll, 0, informationMaxScroll);
     }
 
     private int renderDowningEvidence(
@@ -292,6 +351,12 @@ public final class AutopsyScreen extends Screen {
             );
         }
         Component weapon = weaponComponent(hit);
+        if (hit.isBullet() && hit.bulletLocation() != BulletHitLocation.UNKNOWN) {
+            String key = hit.fatalBrainInjury() ? "screen.superficialtrauma.autopsy.fatal_brain_injury"
+                    : "screen.superficialtrauma.autopsy.bullet_hit_" + hit.bulletLocation().serializedName();
+            y = drawWrapped(graphics, Component.translatable(key), x, y, textWidth, ACCENT_COLOR);
+            y += 4;
+        }
         y = drawWrapped(
                 graphics,
                 Component.translatable("screen.superficialtrauma.autopsy.downing_weapon", weapon),
@@ -395,6 +460,11 @@ public final class AutopsyScreen extends Screen {
     }
 
     private Component weaponComponent(DowningHitRecord hit) {
+        if (minecraft != null && minecraft.level != null) {
+            var savedName = com.swampd.superficialtrauma.common.forensics.WeaponNameSnapshot.restore(
+                    hit.weaponDisplayNameJson(), minecraft.level.registryAccess());
+            if (savedName.isPresent()) return savedName.get();
+        }
         if (!"none".equals(hit.weaponId())) {
             ResourceLocation id = ResourceLocation.tryParse(hit.weaponId());
             Item item = id == null ? null : BuiltInRegistries.ITEM.get(id);

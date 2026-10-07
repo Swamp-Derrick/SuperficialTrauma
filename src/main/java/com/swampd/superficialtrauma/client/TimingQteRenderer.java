@@ -5,6 +5,9 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
+import net.minecraft.client.renderer.RenderType;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import org.joml.Matrix4f;
 
 /** Identical timing ring and failure feedback for every medical action screen. */
 public final class TimingQteRenderer {
@@ -25,9 +28,11 @@ public final class TimingQteRenderer {
 
     private static void renderTimingQte(GuiGraphics graphics, Font font, int width, int height, float partialTick) {
         TimingQteSnapshot qte = ClientTimingQteState.active();
-        if (qte == null) {
+        if (qte == null || ClientTimingQteState.submitted()) {
             return;
         }
+        float progress = Mth.clamp(ClientTimingQteState.presentProgress(), 0.0F, 1.0F);
+        if (ClientTimingQteState.submitted()) return;
 
         int radius = Math.min(58, Math.max(34, Math.min(width, height) / 7));
         int boxHalfWidth = radius + 34;
@@ -51,7 +56,6 @@ public final class TimingQteRenderer {
 
         drawQteRing(graphics, centerX, centerY, radius, qte);
 
-        float progress = Mth.clamp(ClientTimingQteState.progress(partialTick), 0.0F, 1.0F);
         double cursorAngle = -Math.PI / 2.0D + progress * Math.PI * 2.0D;
         for (int step = -10; step <= 8; step += 2) {
             int cursorX = centerX + (int) Math.round(Math.cos(cursorAngle) * (radius + step));
@@ -92,19 +96,34 @@ public final class TimingQteRenderer {
             int radius,
             TimingQteSnapshot qte
     ) {
-        for (int index = 0; index < QTE_SEGMENTS; index++) {
-            float fraction = index / (float) QTE_SEGMENTS;
-            int color = QTE_TRACK_COLOR;
-            if (fraction >= qte.perfectStart() && fraction < qte.normalStart()) {
-                color = QTE_PERFECT_COLOR;
-            } else if (fraction >= qte.normalStart() && fraction < qte.successEnd()) {
-                color = SUCCESS_COLOR;
-            }
-            double angle = -Math.PI / 2.0D + fraction * Math.PI * 2.0D;
-            int x = centerX + (int) Math.round(Math.cos(angle) * radius);
-            int y = centerY + (int) Math.round(Math.sin(angle) * radius);
-            graphics.fill(x - 2, y - 2, x + 3, y + 3, color);
+        // Exact arc boundaries: square dots used to protrude into the early-failure zone.
+        graphics.flush();
+        VertexConsumer vertices = graphics.bufferSource().getBuffer(RenderType.gui());
+        Matrix4f pose = graphics.pose().last().pose();
+        arc(vertices, pose, centerX, centerY, radius, 0, qte.perfectStart(), QTE_TRACK_COLOR);
+        arc(vertices, pose, centerX, centerY, radius, qte.perfectStart(), qte.normalStart(), QTE_PERFECT_COLOR);
+        arc(vertices, pose, centerX, centerY, radius, qte.normalStart(), qte.successEnd(), SUCCESS_COLOR);
+        arc(vertices, pose, centerX, centerY, radius, qte.successEnd(), 1, QTE_TRACK_COLOR);
+        graphics.flush();
+    }
+
+    private static void arc(VertexConsumer vertices, Matrix4f pose, int x, int y, int radius,
+                            float start, float end, int color) {
+        int segments = Math.max(1, (int) Math.ceil((end - start) * QTE_SEGMENTS));
+        for (int i = 0; i < segments; i++) {
+            double a = -Math.PI / 2 + (start + (end - start) * i / segments) * Math.PI * 2;
+            double b = -Math.PI / 2 + (start + (end - start) * (i + 1) / segments) * Math.PI * 2;
+            vertex(vertices, pose, x, y, radius - 2, a, color);
+            vertex(vertices, pose, x, y, radius - 2, b, color);
+            vertex(vertices, pose, x, y, radius + 3, b, color);
+            vertex(vertices, pose, x, y, radius + 3, a, color);
         }
+    }
+
+    private static void vertex(VertexConsumer vertices, Matrix4f pose, int x, int y,
+                               int radius, double angle, int color) {
+        vertices.addVertex(pose, x + (float) Math.cos(angle) * radius,
+                y + (float) Math.sin(angle) * radius, 0).setColor(color);
     }
 
     private static void drawPanelBorder(GuiGraphics graphics, int x, int y, int width, int height) {

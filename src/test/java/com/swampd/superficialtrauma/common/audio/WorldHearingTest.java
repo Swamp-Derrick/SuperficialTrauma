@@ -34,7 +34,7 @@ class WorldHearingTest {
     }
 
     @Test void medicalInternalAndUiSoundsAreExempt() {
-        for (String path : new String[]{"cpr", "cloth_wrapping", "defibrillator_discharge", "qte_failed", "heartbeat", "heavy_breathing", "vial"}) {
+        for (String path : new String[]{"cpr", "cloth_wrapping", "defibrillator_discharge", "qte_failed", "heartbeat", "heavy_breathing", "vial", "tinnitus"}) {
             assertFalse(external("superficialtrauma:" + path, SoundSource.PLAYERS, false));
         }
         assertFalse(external("minecraft:ui.button.click", SoundSource.MASTER, true));

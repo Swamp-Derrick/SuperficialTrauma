@@ -123,6 +123,8 @@ public final class ModItems {
             "surgical_kit",
             () -> new Item(new Item.Properties().stacksTo(1))
     );
+    public static final DeferredHolder<Item, Item> CHEST_SEAL = ITEMS.register(
+            "chest_seal", () -> new Item(new Item.Properties().stacksTo(16)));
     public static final DeferredHolder<Item, Item> ARTIFICIAL_DERMIS = ITEMS.register(
             "artificial_dermis",
             () -> new Item(new Item.Properties().stacksTo(16))

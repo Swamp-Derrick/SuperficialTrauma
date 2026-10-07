@@ -40,6 +40,7 @@ public final class ClientForgeEvents {
         Minecraft minecraft = Minecraft.getInstance();
         ClientHeartRateSounds.tick();
         ClientVitalSignsOverlay.tick();
+        ClientConcussionEffects.tick();
         ClientBloodLossOverlay.tick();
         ClientAwakeningRecovery.tick();
         ClientDownedInput.enforceMovementLock();
@@ -84,6 +85,12 @@ public final class ClientForgeEvents {
         }
         event.setCancellationResult(InteractionResult.SUCCESS);
         event.setCanceled(true);
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onRenderBeforeGui(RenderGuiEvent.Pre event) {
+        event.getGuiGraphics().flush();
+        ClientConcussionEffects.render();
     }
 
     @SubscribeEvent

@@ -1,6 +1,7 @@
 package com.swampd.superficialtrauma.common.body;
 
 import com.swampd.superficialtrauma.SuperficialTrauma;
+import com.swampd.superficialtrauma.common.damage.ShotgunVolleyAggregator;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.event.entity.EntityEvent;
 import net.neoforged.bus.api.EventPriority;
@@ -24,7 +25,7 @@ public final class DownedHitbox {
     }
 
     public static void update(ServerPlayer player, BodyState bodyState) {
-        if (bodyState.canAct()) {
+        if (bodyState.canAct() || ShotgunVolleyAggregator.awaitingDowningPellets(player)) {
             return;
         }
         bodyState.downedPoseSnapshot().ifPresent(snapshot -> {
@@ -46,6 +47,7 @@ public final class DownedHitbox {
     }
 
     private static boolean isDowned(ServerPlayer player) {
+        if (ShotgunVolleyAggregator.awaitingDowningPellets(player)) return false;
         return BodyStateCapability.get(player)
                 .map(bodyState -> !bodyState.canAct())
                 .orElse(false);

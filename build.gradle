@@ -36,6 +36,14 @@ neoForge {
         }
         client {
             client()
+            if ((findProperty('enable_concussion_feedback_smoke') ?: 'false').toBoolean()) {
+                systemProperty 'superficialtrauma.clientSmoke', 'true'
+                systemProperty 'superficialtrauma.concussionFeedbackSmoke', 'true'
+            }
+            if ((findProperty('enable_serious_trauma_client_smoke') ?: 'false').toBoolean()) {
+                systemProperty 'superficialtrauma.clientSmoke', 'true'
+                systemProperty 'superficialtrauma.seriousTraumaSmoke', 'true'
+            }
             if ((findProperty('enable_migration_client_smoke') ?: 'false').toBoolean()) {
                 systemProperty 'superficialtrauma.clientSmoke', 'true'
             }
@@ -110,9 +118,10 @@ tasks.named('processResources', ProcessResources) {
     def properties = [minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
                       neo_version: neo_version, loader_version_range: loader_version_range,
                       mod_id: mod_id, mod_name: mod_name, mod_license: mod_license, mod_version: mod_version,
-                      mod_authors: mod_authors, mod_description: mod_description]
+                      mod_authors: mod_authors, mod_description: mod_description,
+                      development_build: (findProperty('development_build') ?: 'false').toBoolean()]
     inputs.properties properties
-    filesMatching(['META-INF/neoforge.mods.toml', 'pack.mcmeta']) { expand properties }
+    filesMatching(['META-INF/neoforge.mods.toml', 'pack.mcmeta', 'superficialtrauma-build.properties']) { expand properties }
 }
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'

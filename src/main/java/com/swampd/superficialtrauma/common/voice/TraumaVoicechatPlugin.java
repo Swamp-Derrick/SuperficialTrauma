@@ -33,6 +33,7 @@ public final class TraumaVoicechatPlugin implements VoicechatPlugin {
     }
 
     private static void receive(ClientReceiveSoundEvent event, String kind) {
-        event.setRawAudio(AUDIO.process(event.getId(), kind, event.getRawAudio(), VoicechatStates.client().listening()));
+        event.setRawAudio(AUDIO.process(event.getId(), kind, event.getRawAudio(),
+                VoicechatStates.client().listening(), VoicechatStates.clientConcussionHearing()));
     }
 }

@@ -19,7 +19,8 @@ public enum TreatmentType {
     MEDICAL_ALCOHOL(() -> ModItems.MEDICAL_ALCOHOL.get()),
     SALINE_SOLUTION(() -> ModItems.SALINE_SOLUTION.get()),
     SURGICAL_KIT(() -> ModItems.SURGICAL_KIT.get()),
-    ARTIFICIAL_DERMIS(() -> ModItems.ARTIFICIAL_DERMIS.get());
+    ARTIFICIAL_DERMIS(() -> ModItems.ARTIFICIAL_DERMIS.get()),
+    CHEST_SEAL(() -> ModItems.CHEST_SEAL.get());
 
     private final Supplier<Item> requiredItem;
 

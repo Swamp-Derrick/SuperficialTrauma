@@ -10,6 +10,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 
@@ -116,6 +117,20 @@ public final class LootTargetMenu extends AbstractContainerMenu {
     @Override
     public boolean stillValid(Player player) {
         return targetEntity == null || LootingService.canContinueLooting(player, targetEntity);
+    }
+
+    @Override
+    public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        // Ordinary clicks, hotbar swaps, throw and drag-distribution must obey the same
+        // server-side eligibility check as quick-move and the take-all button.
+        if (!stillValid(player)) {
+            if (player instanceof ServerPlayer serverPlayer && serverPlayer.containerMenu == this) {
+                serverPlayer.closeContainer();
+            }
+            return;
+        }
+        super.clicked(slotId, button, clickType, player);
+        syncTargetOwnerInventory();
     }
 
     @Override

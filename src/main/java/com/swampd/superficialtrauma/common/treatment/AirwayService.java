@@ -143,6 +143,7 @@ public final class AirwayService {
             return false;
         }
         boolean actorCanAct = BodyStateCapability.get(actor).map(BodyState::canAct).orElse(false);
+        if (BodyStateCapability.get(patient).map(BodyState::hasOpenPneumothorax).orElse(true)) return false;
         BodyLifeState patientState = BodyStateCapability.get(patient)
                 .map(BodyState::lifeState)
                 .orElse(BodyLifeState.ACTIVE);

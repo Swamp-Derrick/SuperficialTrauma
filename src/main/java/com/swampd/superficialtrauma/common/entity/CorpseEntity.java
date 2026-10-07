@@ -222,6 +222,10 @@ public final class CorpseEntity extends LivingEntity implements Container {
         return entityData.get(OWNER_NAME);
     }
 
+    public long deathGameTime() {
+        return entityData.get(DEATH_GAME_TIME);
+    }
+
     public DownedPoseSnapshot downedPose() {
         return new DownedPoseSnapshot(
                 entityData.get(DOWNED_GAME_TIME),

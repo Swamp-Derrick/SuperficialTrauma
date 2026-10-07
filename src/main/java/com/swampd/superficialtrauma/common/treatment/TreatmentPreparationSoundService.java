@@ -134,7 +134,9 @@ public final class TreatmentPreparationSoundService {
                     && ((TreatmentProcedure.DEBRIDEMENT.isApplicable(wound, TreatmentAction.APPLY)
                     && hasItem(actor, ModItems.SALINE_SOLUTION.get()))
                     || (TreatmentProcedure.SKIN_GRAFT.isApplicable(wound, TreatmentAction.APPLY)
-                    && hasItem(actor, ModItems.ARTIFICIAL_DERMIS.get())));
+                    && hasItem(actor, ModItems.ARTIFICIAL_DERMIS.get()))
+                    || (TreatmentProcedure.PNEUMOTHORAX_REPAIR.isApplicable(wound, TreatmentAction.APPLY)
+                    && hasItem(actor, ModItems.MEDICAL_GAUZE.get())));
         };
     }
 

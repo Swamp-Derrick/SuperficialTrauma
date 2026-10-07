@@ -150,7 +150,7 @@ public final class AutopsyService {
                 cancelAction(examiner, corpse, session);
                 return;
             }
-            if (gameTime >= session.actionEndGameTime) {
+            if (gameTime >= session.actionEndGameTime && !TimingQteService.hasActive(examiner)) {
                 AutopsyAction completed = session.activeAction;
                 if (completed == AutopsyAction.PENLIGHT) {
                     corpse.revealDeathTime(gameTime);
@@ -167,6 +167,24 @@ public final class AutopsyService {
         }
         if (gameTime - session.lastSyncGameTime >= PERIODIC_SYNC_TICKS) {
             sendReport(examiner, corpse, session, false);
+        }
+    }
+
+    public static void closeForCorpse(CorpseEntity corpse) {
+        if (corpse.getServer() == null) {
+            return;
+        }
+        for (var entry : Map.copyOf(SESSIONS).entrySet()) {
+            if (!entry.getValue().corpseId.equals(corpse.getUUID())) {
+                continue;
+            }
+            ServerPlayer examiner = corpse.getServer().getPlayerList().getPlayer(entry.getKey());
+            if (examiner != null) {
+                close(examiner, entry.getValue().corpseEntityId);
+                ModNetworking.closeAutopsy(examiner, entry.getValue().corpseEntityId);
+            } else {
+                forgetPlayer(entry.getKey());
+            }
         }
     }
 

@@ -11,7 +11,10 @@ import com.swampd.superficialtrauma.SuperficialTrauma;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 
-public record TimingQteStartS2CPacket(TimingQteSnapshot snapshot) implements CustomPacketPayload {
+public record TimingQteStartS2CPacket(TimingQteSnapshot snapshot, int leadInTicks) implements CustomPacketPayload {
+    public TimingQteStartS2CPacket {
+        if (leadInTicks < 0 || leadInTicks > 200) throw new IllegalArgumentException("Invalid QTE lead-in");
+    }
     public static final Type<TimingQteStartS2CPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(SuperficialTrauma.MOD_ID, "timing_qte_start_s2_cpacket"));
     public static final StreamCodec<RegistryFriendlyByteBuf, TimingQteStartS2CPacket> STREAM_CODEC = StreamCodec.ofMember(TimingQteStartS2CPacket::write, TimingQteStartS2CPacket::decode);
     private void write(RegistryFriendlyByteBuf buffer) { encode(this, buffer); }
@@ -25,6 +28,7 @@ public record TimingQteStartS2CPacket(TimingQteSnapshot snapshot) implements Cus
         buffer.writeFloat(snapshot.perfectStart());
         buffer.writeFloat(snapshot.normalStart());
         buffer.writeFloat(snapshot.successEnd());
+        buffer.writeVarInt(packet.leadInTicks);
     }
 
     public static TimingQteStartS2CPacket decode(RegistryFriendlyByteBuf buffer) {
@@ -35,11 +39,11 @@ public record TimingQteStartS2CPacket(TimingQteSnapshot snapshot) implements Cus
                 buffer.readFloat(),
                 buffer.readFloat(),
                 buffer.readFloat()
-        ));
+        ), buffer.readVarInt());
     }
 
     public static void handle(TimingQteStartS2CPacket packet, IPayloadContext context) {
-        context.enqueueWork(() -> ClientTimingQteState.start(packet.snapshot)
+        context.enqueueWork(() -> ClientTimingQteState.start(packet.snapshot, packet.leadInTicks)
         );
     }
 }

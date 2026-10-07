@@ -25,7 +25,19 @@ public final class ShotgunVolleyAccumulator {
             long gameTime,
             String damageType
     ) {
-        if (finalDamage <= 0.0F) {
+        addHit(key, finalDamage, armorValue, attackerDistance, gameTime, damageType, null);
+    }
+
+    public void addHit(VolleyKey key, float finalDamage, int armorValue, double attackerDistance,
+                       long gameTime, String damageType, GunshotRegion region) {
+        addLocatedHit(key, finalDamage, armorValue, attackerDistance, gameTime, damageType,
+                region == GunshotRegion.HEAD ? BulletHitLocation.HEAD
+                        : region == GunshotRegion.CHEST ? BulletHitLocation.CHEST : BulletHitLocation.UNKNOWN);
+    }
+
+    public void addLocatedHit(VolleyKey key, float finalDamage, double armorValue, double attackerDistance,
+                       long gameTime, String damageType, BulletHitLocation location) {
+        if (!Float.isFinite(finalDamage) || finalDamage <= 0.0F) {
             return;
         }
         PendingVolley volley = pendingVolleys.computeIfAbsent(
@@ -38,6 +50,25 @@ public final class ShotgunVolleyAccumulator {
                 )
         );
         volley.addHit(finalDamage, armorValue, attackerDistance, gameTime);
+        volley.bulletLocation = volley.bulletLocation.prefer(location);
+        if (location == BulletHitLocation.HEAD) volley.headFinalDamage += finalDamage;
+        boolean penetrated = ArmorPenetration.penetrates(ArmorPenetration.bulletPower(
+                com.swampd.superficialtrauma.common.wound.WoundType.GUNSHOT_SHOTGUN, attackerDistance), armorValue);
+        if (penetrated) {
+            volley.penetratingFinalDamage += finalDamage;
+            volley.penetratedStrongArmor |= armorValue >= ArmorPenetration.STRONG_ARMOR_RATING;
+            volley.penetratingCloseRange |= attackerDistance >= 0 && attackerDistance <= ArmorPenetration.CLOSE_SHOTGUN_DISTANCE;
+            if (location != null && location.traumaRegion() != null)
+                volley.regionalHits.add(new RegionalHit(location.traumaRegion(), finalDamage, gameTime));
+        } else {
+            volley.blockedFinalDamage += finalDamage;
+        }
+    }
+
+    /** Used to settle a downing volley at the end of its impact tick, without a second roll. */
+    public CompletedVolley take(VolleyKey key) {
+        PendingVolley volley = pendingVolleys.remove(key);
+        return volley == null ? null : volley.complete(key);
     }
 
     public List<CompletedVolley> drainReady(UUID victimId, long gameTime) {
@@ -99,25 +130,46 @@ public final class ShotgunVolleyAccumulator {
             VolleyKey key,
             float totalFinalDamage,
             int pelletHits,
-            int maximumArmorValue,
+            double maximumArmorValue,
             double minimumAttackerDistance,
             long firstHitGameTime,
             long lastHitGameTime,
-            String damageType
+            String damageType,
+            List<RegionalHit> regionalHits,
+            BulletHitLocation bulletLocation,
+            float headFinalDamage,
+            float penetratingFinalDamage,
+            float blockedFinalDamage,
+            boolean penetratedStrongArmor,
+            boolean penetratingCloseRange
     ) {
+        public float penetratingHeadDamage() {
+            float result = 0;
+            for (var hit : regionalHits) if (hit.region() == GunshotRegion.HEAD) result += hit.damage();
+            return result;
+        }
     }
 
+    public record RegionalHit(GunshotRegion region, float damage, long gameTime) { }
+
     private static final class PendingVolley {
+        private final List<RegionalHit> regionalHits = new ArrayList<>();
+        private BulletHitLocation bulletLocation = BulletHitLocation.UNKNOWN;
+        private float headFinalDamage;
+        private float penetratingFinalDamage;
+        private float blockedFinalDamage;
+        private boolean penetratedStrongArmor;
+        private boolean penetratingCloseRange;
         private float totalFinalDamage;
         private int pelletHits;
-        private int maximumArmorValue;
+        private double maximumArmorValue;
         private double minimumAttackerDistance;
         private final long firstHitGameTime;
         private long lastHitGameTime;
         private final String damageType;
 
         private PendingVolley(
-                int armorValue,
+                double armorValue,
                 double attackerDistance,
                 long gameTime,
                 String damageType
@@ -129,7 +181,7 @@ public final class ShotgunVolleyAccumulator {
             this.damageType = damageType;
         }
 
-        private void addHit(float damage, int armorValue, double attackerDistance, long gameTime) {
+        private void addHit(float damage, double armorValue, double attackerDistance, long gameTime) {
             totalFinalDamage += Math.max(0.0F, damage);
             pelletHits++;
             maximumArmorValue = Math.max(maximumArmorValue, Math.max(0, armorValue));
@@ -154,7 +206,14 @@ public final class ShotgunVolleyAccumulator {
                     minimumAttackerDistance,
                     firstHitGameTime,
                     lastHitGameTime,
-                    damageType
+                    damageType,
+                    List.copyOf(regionalHits),
+                    bulletLocation,
+                    headFinalDamage,
+                    penetratingFinalDamage,
+                    blockedFinalDamage,
+                    penetratedStrongArmor,
+                    penetratingCloseRange
             );
         }
     }

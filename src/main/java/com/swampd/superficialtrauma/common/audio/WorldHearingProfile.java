@@ -18,6 +18,16 @@ public record WorldHearingProfile(float gain, float highFrequencyGain, float ech
         return new WorldHearingProfile(ease(gain, target.gain), ease(highFrequencyGain, target.highFrequencyGain), ease(echo, target.echo));
     }
 
+    /** Exact linear symptom envelope, not fed back through the downed-state easing. */
+    public WorldHearingProfile withConcussion(float strength) {
+        float amount = Float.isFinite(strength) ? Math.clamp(strength, 0, 1) : 0;
+        if (amount == 0) return this;
+        return new WorldHearingProfile(
+                Math.min(gain, amount == 1 ? MUFFLED.gain : 1 + (MUFFLED.gain - 1) * amount),
+                Math.min(highFrequencyGain, amount == 1 ? MUFFLED.highFrequencyGain : 1 + (MUFFLED.highFrequencyGain - 1) * amount),
+                Math.max(echo, MUFFLED.echo * amount));
+    }
+
     private static float ease(float from, float to) { return from + (to - from) * 0.20F; }
     private static boolean close(float left, float right) { return Math.abs(left - right) < 0.0001F; }
 }

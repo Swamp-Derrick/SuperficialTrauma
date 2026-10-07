@@ -53,6 +53,7 @@ import com.swampd.superficialtrauma.network.packet.GiveUpSessionS2CPacket;
 import com.swampd.superficialtrauma.network.packet.TimingQteResultS2CPacket;
 import com.swampd.superficialtrauma.network.packet.TimingQteStartS2CPacket;
 import com.swampd.superficialtrauma.network.packet.TimingQteSubmitC2SPacket;
+import com.swampd.superficialtrauma.network.packet.TimingQteReadyC2SPacket;
 import com.swampd.superficialtrauma.network.packet.BodyDragActionC2SPacket;
 import com.swampd.superficialtrauma.network.packet.BodyDragStateS2CPacket;
 import com.swampd.superficialtrauma.network.packet.BodyRotationActionC2SPacket;
@@ -68,7 +69,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ModNetworking {
-    private static final String PROTOCOL_VERSION = "1.21.1-1";
+    private static final String PROTOCOL_VERSION = "1.21.1-3";
     private static final long BODY_STATE_REQUEST_COOLDOWN_TICKS = 5L;
     private static final ConcurrentMap<UUID, Long> LAST_BODY_STATE_REQUEST = new ConcurrentHashMap<>();
 
@@ -109,6 +110,7 @@ public final class ModNetworking {
         registrar.playToClient(CloseAutopsyS2CPacket.TYPE, CloseAutopsyS2CPacket.STREAM_CODEC, CloseAutopsyS2CPacket::handle);
         registrar.playToClient(TimingQteStartS2CPacket.TYPE, TimingQteStartS2CPacket.STREAM_CODEC, TimingQteStartS2CPacket::handle);
         registrar.playToServer(TimingQteSubmitC2SPacket.TYPE, TimingQteSubmitC2SPacket.STREAM_CODEC, TimingQteSubmitC2SPacket::handle);
+        registrar.playToServer(TimingQteReadyC2SPacket.TYPE, TimingQteReadyC2SPacket.STREAM_CODEC, TimingQteReadyC2SPacket::handle);
         registrar.playToClient(TimingQteResultS2CPacket.TYPE, TimingQteResultS2CPacket.STREAM_CODEC, TimingQteResultS2CPacket::handle);
         registrar.playToServer(BodyDragActionC2SPacket.TYPE, BodyDragActionC2SPacket.STREAM_CODEC, BodyDragActionC2SPacket::handle);
         registrar.playToClient(BodyDragStateS2CPacket.TYPE, BodyDragStateS2CPacket.STREAM_CODEC, BodyDragStateS2CPacket::handle);
@@ -320,9 +322,13 @@ public final class ModNetworking {
         );
     }
 
-    public static void sendTimingQteStarted(ServerPlayer player, TimingQteSnapshot snapshot) {
+    public static void timingQteReady(int sessionId) {
+        PacketDistributor.sendToServer(new TimingQteReadyC2SPacket(sessionId));
+    }
+
+    public static void sendTimingQteStarted(ServerPlayer player, TimingQteSnapshot snapshot, int leadInTicks) {
         PacketDistributor.sendToPlayer(player,
-                new TimingQteStartS2CPacket(snapshot)
+                new TimingQteStartS2CPacket(snapshot, leadInTicks)
         );
     }
 

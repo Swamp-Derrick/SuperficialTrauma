@@ -15,7 +15,12 @@ public final class VoicechatAudioProcessor {
     private final LinkedHashMap<Key, Channel> channels = new LinkedHashMap<>(16, 0.75F, true);
 
     public synchronized short[] process(UUID id, String kind, short[] input, DownedVoiceState.Listening target) {
+        return process(id, kind, input, target, 0);
+    }
+
+    public synchronized short[] process(UUID id, String kind, short[] input, DownedVoiceState.Listening target, float concussion) {
         if (input == null) return null;
+        double concussionAmount = Float.isFinite(concussion) ? Math.clamp(concussion, 0, 1) : 0;
         Key key = new Key(id, kind);
         if (input.length == 0) {
             channels.remove(key);
@@ -30,34 +35,47 @@ public final class VoicechatAudioProcessor {
         if (channel == null) {
             if (channels.size() >= MAX_CHANNELS) channels.remove(channels.keySet().iterator().next());
             channel = new Channel(target);
+            channel.concussion = concussionAmount;
             channels.put(key, channel);
         }
         channel.lastAudio = now;
-        if (target == DownedVoiceState.Listening.CLEAR && channel.isClear()) {
+        if (target == DownedVoiceState.Listening.CLEAR && channel.isClear() && concussionAmount == 0) {
+            channel.concussion = 0;
+            channel.delay = null;
+            channel.cursor = 0;
+            channel.low1 = channel.low2 = channel.low3 = channel.low4 = 0;
             return input; // Keep lightweight continuity, but never modify clear audio.
         }
         if (channel.delay == null) channel.delay = new float[SECOND_ECHO_SAMPLES + 1];
         short[] output = new short[input.length];
         double targetAlpha = 1.0 - Math.exp(-2.0 * Math.PI * target.cutoffHz / SAMPLE_RATE);
+        double initialConcussion = channel.concussion;
         for (int index = 0; index < input.length; index++) {
             channel.gain += EASING * (target.gain - channel.gain);
             channel.muffle += EASING * (target.muffle - channel.muffle);
             channel.echo += EASING * (target.echo - channel.echo);
             channel.alpha += EASING * (targetAlpha - channel.alpha);
+            // Interpolate one PCM packet to avoid clicks; do not exponentially delay the
+            // server-clock-driven 20s hold + 10s linear fade. Never stack attenuation twice.
+            double wet = initialConcussion + (concussionAmount - initialConcussion) * (index + 1D) / input.length;
+            double gain = Math.min(channel.gain, 1 + (DownedVoiceState.Listening.MUFFLED.gain - 1) * wet);
+            double muffle = Math.max(channel.muffle, wet);
+            double echoAmount = Math.max(channel.echo, wet);
             double sample = input[index];
             channel.low1 += channel.alpha * (sample - channel.low1);
             channel.low2 += channel.alpha * (channel.low1 - channel.low2);
             channel.low3 += channel.alpha * (channel.low2 - channel.low3);
             channel.low4 += channel.alpha * (channel.low3 - channel.low4);
-            double dry = sample + channel.muffle * (channel.low4 - sample);
+            double dry = sample + muffle * (channel.low4 - sample);
             int first = (channel.cursor + channel.delay.length - ECHO_DELAY_SAMPLES) % channel.delay.length;
             int second = (channel.cursor + channel.delay.length - SECOND_ECHO_SAMPLES) % channel.delay.length;
             double echo = channel.delay[first] * 0.30 + channel.delay[second] * 0.12;
             channel.delay[channel.cursor] = (float) dry;
             channel.cursor = (channel.cursor + 1) % channel.delay.length;
-            long value = Math.round(channel.gain * (dry + channel.echo * echo));
+            long value = Math.round(gain * (dry + echoAmount * echo));
             output[index] = (short) Math.clamp(value, Short.MIN_VALUE, Short.MAX_VALUE);
         }
+        channel.concussion = concussionAmount;
         return output;
     }
 
@@ -69,7 +87,7 @@ public final class VoicechatAudioProcessor {
     private static final class Channel {
         private float[] delay;
         private int cursor;
-        private double low1, low2, low3, low4, gain, muffle, echo, alpha;
+        private double low1, low2, low3, low4, gain, muffle, echo, alpha, concussion;
         private long lastAudio;
 
         private Channel(DownedVoiceState.Listening target) {

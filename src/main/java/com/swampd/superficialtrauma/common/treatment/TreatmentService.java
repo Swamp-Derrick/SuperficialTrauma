@@ -104,7 +104,7 @@ public final class TreatmentService {
         );
         TreatmentPreparationSoundService.stop(actor);
         SESSION_BY_ACTOR.put(actor.getUUID(), session);
-        if (procedure.isSkinGraft()) {
+        if (procedure.usesQte()) {
             NEXT_QTE_ROLL.put(actor.getUUID(), gameTime + MedicalTimingQte.ROLL_INTERVAL_TICKS);
         }
         ACTOR_BY_PATIENT.put(patient.getUUID(), actor.getUUID());
@@ -123,6 +123,10 @@ public final class TreatmentService {
     }
 
     public static void tick(ServerPlayer actor) {
+        tick(actor, true);
+    }
+
+    private static void tick(ServerPlayer actor, boolean allowCompletion) {
         TreatmentSession session = SESSION_BY_ACTOR.get(actor.getUUID());
         if (session == null) {
             return;
@@ -171,9 +175,10 @@ public final class TreatmentService {
         if (actor.serverLevel().getGameTime() % 10L == 0L) {
             sendPatientActionNotice(actor, patient, session.procedure());
         }
-        if (actor.serverLevel().getGameTime() >= session.endsGameTime()) {
+        if (allowCompletion && !TimingQteService.hasActive(actor)
+                && actor.serverLevel().getGameTime() >= session.endsGameTime()) {
             complete(actor, patient, session);
-        } else if (session.procedure().isSkinGraft()) {
+        } else if (session.procedure().usesQte()) {
             maybeStartSurgeryQte(actor, session);
         }
     }
@@ -195,7 +200,7 @@ public final class TreatmentService {
             }
             // Revalidate movement, materials and wound before applying a QTE result.
             NEXT_QTE_ROLL.put(player.getUUID(), player.serverLevel().getGameTime() + MedicalTimingQte.COOLDOWN_TICKS);
-            tick(player);
+            tick(player, false);
             if (SESSION_BY_ACTOR.get(player.getUUID()) != expected) {
                 return;
             }
@@ -213,7 +218,7 @@ public final class TreatmentService {
 
     public static void cancelSkinGraft(ServerPlayer actor) {
         TreatmentSession session = SESSION_BY_ACTOR.get(actor.getUUID());
-        if (session != null && session.procedure().isSkinGraft()) {
+        if (session != null && session.procedure().usesQte()) {
             cancelActor(actor.getUUID(), TreatmentCancelReason.ACTION);
         }
     }
@@ -241,7 +246,7 @@ public final class TreatmentService {
 
     public static void clearAll() {
         for (TreatmentSession session : SESSION_BY_ACTOR.values()) {
-            if (session.procedure().isSkinGraft()) {
+            if (session.procedure().usesQte()) {
                 TimingQteService.forgetPlayer(session.actorId());
             }
         }
@@ -264,7 +269,11 @@ public final class TreatmentService {
 
         long gameTime = actor.serverLevel().getGameTime();
         boolean changed;
-        if (session.procedure().isDebridement()) {
+        if (session.procedure() == TreatmentProcedure.CHEST_SEAL) {
+            changed = state.get().applyChestSeal(session.woundId(), gameTime);
+        } else if (session.procedure() == TreatmentProcedure.PNEUMOTHORAX_REPAIR) {
+            changed = state.get().repairPneumothorax(session.woundId(), gameTime);
+        } else if (session.procedure().isDebridement()) {
             changed = session.action() == TreatmentAction.APPLY
                     && state.get().debrideWound(session.woundId());
         } else if (session.procedure().isSkinGraft()) {
@@ -330,7 +339,7 @@ public final class TreatmentService {
 
     private static void release(TreatmentSession session) {
         NEXT_QTE_ROLL.remove(session.actorId());
-        if (session.procedure().isSkinGraft()) {
+        if (session.procedure().usesQte()) {
             ServerPlayer actor = findOnlinePlayer(session.actorId());
             if (actor != null) {
                 TimingQteService.cancel(actor);
@@ -363,6 +372,8 @@ public final class TreatmentService {
         if (procedure == null) {
             return null;
         }
+        if (procedure == TreatmentProcedure.CHEST_SEAL) return MedicalActionSound.CHEST_SEAL;
+        if (procedure == TreatmentProcedure.PNEUMOTHORAX_REPAIR) return MedicalActionSound.PACKING;
         if (procedure.isDebridement()) {
             return MedicalActionSound.LIQUID_POUCH;
         }
